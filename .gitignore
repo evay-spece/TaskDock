@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+DerivedData/
+.DS_Store
+AppBundle/TaskDock.app/Contents/MacOS/TaskDock
+AppBundle/TaskDock.app/Contents/_CodeSignature/
+AppBundle/TaskDock.zip
+dist/
