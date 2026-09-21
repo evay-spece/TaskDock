@@ -3,6 +3,12 @@ import ApplicationServices
 import os.log
 
 final class AXWindowService {
+    private struct ReservedWindowFrame {
+        let window: AXUIElement
+        let original: CGRect
+        var applied: CGRect
+    }
+
     private struct ScreenWindow {
         let pid: pid_t
         let frame: CGRect
@@ -12,6 +18,7 @@ final class AXWindowService {
     private let logger = Logger(subsystem: "com.taskdock.app", category: "accessibility")
     private var windowOrder: [String: Int] = [:]
     private var nextWindowOrder = 0
+    private var reservedWindowFrames: [String: ReservedWindowFrame] = [:]
     private let ignoredWindowTitles: [String: Set<String>] = [
         "com.openai.codex": ["computer use", "computer use controls"]
     ]
@@ -41,18 +48,17 @@ final class AXWindowService {
             guard let values = copyAttribute(axApp, kAXWindowsAttribute) as? [AXUIElement] else { continue }
             let focusedWindow = copyAttribute(axApp, kAXFocusedWindowAttribute)
             let mainWindow = copyAttribute(axApp, kAXMainWindowAttribute)
+            let displayableWindows = values.filter {
+                shouldIncludeWindow($0, bundleIdentifier: app.bundleIdentifier)
+            }
             let topmostAXWindow: AXUIElement? = topmostWindow.flatMap { screenWindow in
                 guard screenWindow.pid == pid else { return nil }
-                return values.first { matches($0, screenWindow: screenWindow) }
+                return displayableWindows.first { matches($0, screenWindow: screenWindow) }
             }
 
             var appWindows: [(order: Int, model: WindowModel)] = []
-            for axWindow in values {
+            for axWindow in displayableWindows {
                 let title = (copyAttribute(axWindow, kAXTitleAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if shouldIgnoreWindow(bundleIdentifier: app.bundleIdentifier, title: title) { continue }
-                let role = copyAttribute(axWindow, kAXRoleAttribute) as? String
-                let subrole = copyAttribute(axWindow, kAXSubroleAttribute) as? String
-                if role != kAXWindowRole && subrole != kAXStandardWindowSubrole && title.isEmpty { continue }
 
                 let main = (copyAttribute(axWindow, kAXMainAttribute) as? Bool) ?? false
                 let minimized = (copyAttribute(axWindow, kAXMinimizedAttribute) as? Bool) ?? false
@@ -119,6 +125,87 @@ final class AXWindowService {
         for window in windows where !window.isMinimized {
             setAttribute(window.axWindow, kAXMinimizedAttribute, value: true as CFBoolean)
         }
+    }
+
+    func updateWindowSpaceReservations(
+        for windows: [WindowModel],
+        panelFrame: CGRect,
+        screenFrame: CGRect,
+        visibleFrame: CGRect,
+        enabled: Bool
+    ) {
+        guard enabled else {
+            clearWindowSpaceReservations(restore: true, windows: windows)
+            return
+        }
+
+        let activeWindowIDs = Set(windows.map(\.id))
+        for (id, reservation) in reservedWindowFrames where !activeWindowIDs.contains(id) {
+            if let currentFrame = windowFrame(reservation.window),
+               WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, reservation.applied) {
+                _ = setWindowFrame(reservation.window, frame: reservation.original)
+            }
+            reservedWindowFrames.removeValue(forKey: id)
+        }
+
+        for window in windows where !window.isMinimized {
+            if (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) == true {
+                continue
+            }
+            guard let currentFrame = windowFrame(window.axWindow) else { continue }
+
+            var reservation = reservedWindowFrames[window.id]
+            if let existing = reservation {
+                let stillManaged = WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, existing.applied)
+                let systemRestoredOriginal = WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, existing.original)
+                if !stillManaged && !systemRestoredOriginal {
+                    reservedWindowFrames.removeValue(forKey: window.id)
+                    reservation = nil
+                }
+            }
+
+            let baseline = reservation?.original ?? currentFrame
+            guard let adjusted = WindowSpaceReservationGeometry.adjustedFrame(
+                for: baseline,
+                screenFrame: screenFrame,
+                visibleFrame: visibleFrame,
+                panelFrame: panelFrame
+            ) else {
+                if let existing = reservation,
+                   WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, existing.applied) {
+                    _ = setWindowFrame(window.axWindow, frame: existing.original)
+                }
+                reservedWindowFrames.removeValue(forKey: window.id)
+                continue
+            }
+
+            if WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, adjusted) {
+                reservedWindowFrames[window.id] = ReservedWindowFrame(
+                    window: window.axWindow,
+                    original: baseline,
+                    applied: adjusted
+                )
+                continue
+            }
+            if setWindowFrame(window.axWindow, frame: adjusted) {
+                reservedWindowFrames[window.id] = ReservedWindowFrame(
+                    window: window.axWindow,
+                    original: baseline,
+                    applied: adjusted
+                )
+            }
+        }
+    }
+
+    func clearWindowSpaceReservations(restore: Bool, windows _: [WindowModel]) {
+        if restore {
+            for reservation in reservedWindowFrames.values {
+                guard let currentFrame = windowFrame(reservation.window),
+                      WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, reservation.applied) else { continue }
+                _ = setWindowFrame(reservation.window, frame: reservation.original)
+            }
+        }
+        reservedWindowFrames.removeAll()
     }
 
     func showAllWindows(for pid: pid_t, from windows: [WindowModel]) {
@@ -200,10 +287,48 @@ final class AXWindowService {
         return CGRect(origin: position, size: size)
     }
 
+    private func setWindowFrame(_ window: AXUIElement, frame: CGRect) -> Bool {
+        let currentFrame = windowFrame(window)
+        var position = frame.origin
+        var size = frame.size
+        guard let positionValue = AXValueCreate(.cgPoint, &position),
+              let sizeValue = AXValueCreate(.cgSize, &size) else { return false }
+        let moved = currentFrame.map {
+            abs($0.minX - frame.minX) <= 1 && abs($0.minY - frame.minY) <= 1
+        } ?? false || setAttribute(window, kAXPositionAttribute, value: positionValue)
+        let resized = currentFrame.map {
+            abs($0.width - frame.width) <= 1 && abs($0.height - frame.height) <= 1
+        } ?? false || setAttribute(window, kAXSizeAttribute, value: sizeValue)
+        return moved && resized
+    }
+
     private func shouldIgnoreWindow(bundleIdentifier: String?, title: String) -> Bool {
         guard let bundleIdentifier,
               let ignoredTitles = ignoredWindowTitles[bundleIdentifier] else { return false }
         return ignoredTitles.contains(title.lowercased())
+    }
+
+    private func shouldIncludeWindow(_ window: AXUIElement, bundleIdentifier: String?) -> Bool {
+        let title = (copyAttribute(window, kAXTitleAttribute) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if shouldIgnoreWindow(bundleIdentifier: bundleIdentifier, title: title) { return false }
+
+        guard copyAttribute(window, kAXRoleAttribute) as? String == kAXWindowRole else {
+            // Sheets are exposed as AXSheet and must stay attached to their document window.
+            return false
+        }
+
+        if (copyAttribute(window, kAXModalAttribute) as? Bool) == true {
+            return false
+        }
+
+        let subrole = copyAttribute(window, kAXSubroleAttribute) as? String
+        let transientSubroles: Set<String> = [
+            kAXDialogSubrole,
+            kAXSystemDialogSubrole,
+            kAXFloatingWindowSubrole
+        ]
+        return subrole.map { !transientSubroles.contains($0) } ?? true
     }
 
     private func copyAttribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {

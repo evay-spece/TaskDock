@@ -87,6 +87,7 @@ final class TaskbarPanelController {
         shortcutMonitor?.stop()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         removeAllAppFocusObservers()
+        windowService.clearWindowSpaceReservations(restore: true, windows: windows)
         panel?.orderOut(nil)
     }
 
@@ -99,7 +100,7 @@ final class TaskbarPanelController {
     }
 
     private func reposition() {
-        guard let screen = NSScreen.screens.first, let panel else { return }
+        guard let screen = NSScreen.screens.first, panel != nil else { return }
         let screenFrame = screen.visibleFrame
 
         if settings.layoutMode == .taskbar {
@@ -115,8 +116,8 @@ final class TaskbarPanelController {
                 desiredWidth = CGFloat(windows.count) * preferredItemWidth + itemSpacing + controlsAndPadding
             }
             let width = min(screenFrame.width - 24, desiredWidth)
-            let height: CGFloat = 42
-            let defaultOrigin = NSPoint(x: screenFrame.midX - width / 2, y: screenFrame.minY + 12)
+            let height: CGFloat = 38
+            let defaultOrigin = NSPoint(x: screenFrame.midX - width / 2, y: screenFrame.minY + 4)
             let proposedOrigin = customPanelOrigins[.taskbar] ?? defaultOrigin
             let maxX = max(screenFrame.minX, screenFrame.maxX - width)
             let maxY = max(screenFrame.minY, screenFrame.maxY - height)
@@ -124,7 +125,7 @@ final class TaskbarPanelController {
                 x: min(max(proposedOrigin.x, screenFrame.minX), maxX),
                 y: min(max(proposedOrigin.y, screenFrame.minY), maxY)
             )
-            panel.setFrame(NSRect(origin: origin, size: NSSize(width: width, height: height)), display: true)
+            setPanelFrameIfNeeded(NSRect(origin: origin, size: NSSize(width: width, height: height)))
             return
         }
 
@@ -140,7 +141,7 @@ final class TaskbarPanelController {
         let desiredHeight = CGFloat(maxWindowCount) * 35 + CGFloat(max(maxWindowCount - 1, 0)) * 2 + 4
         let height = min(screenFrame.height * 0.58, max(42, desiredHeight))
 
-        let defaultOrigin = NSPoint(x: screenFrame.maxX - width - 12, y: screenFrame.minY + 12)
+        let defaultOrigin = NSPoint(x: screenFrame.maxX - width - 4, y: screenFrame.minY + 4)
         let proposedOrigin = customPanelOrigins[.matrix] ?? defaultOrigin
         let maxX = max(screenFrame.minX, screenFrame.maxX - width)
         let maxY = max(screenFrame.minY, screenFrame.maxY - height)
@@ -149,6 +150,17 @@ final class TaskbarPanelController {
             y: min(max(proposedOrigin.y, screenFrame.minY), maxY)
         )
         let frame = NSRect(origin: origin, size: NSSize(width: width, height: height))
+        setPanelFrameIfNeeded(frame)
+    }
+
+    private func setPanelFrameIfNeeded(_ frame: NSRect) {
+        guard let panel else { return }
+        let current = panel.frame
+        let unchanged = abs(current.minX - frame.minX) < 0.5 &&
+            abs(current.minY - frame.minY) < 0.5 &&
+            abs(current.width - frame.width) < 0.5 &&
+            abs(current.height - frame.height) < 0.5
+        guard !unchanged else { return }
         panel.setFrame(frame, display: true)
     }
 
@@ -166,6 +178,7 @@ final class TaskbarPanelController {
         windows = refreshedWindows
         settings.reconcileAppOrder(with: windows.map(\.appKey))
         reposition()
+        updateWindowSpaceReservations()
         let signature = windowRenderSignature(isTrusted: permissionService.isTrusted)
         if signature != lastRenderedWindowSignature {
             lastRenderedWindowSignature = signature
@@ -267,6 +280,7 @@ final class TaskbarPanelController {
             customPanelOrigins[settings.layoutMode] = panel.frame.origin
         }
         panelDragStartOrigin = nil
+        refresh()
     }
 
     private func hideInDock() {
@@ -274,6 +288,7 @@ final class TaskbarPanelController {
         dockRestoreAvailableAt = Date().addingTimeInterval(0.8)
         finishPanelDrag()
         settingsWindowController?.hide()
+        windowService.clearWindowSpaceReservations(restore: true, windows: windows)
         NSApp.setActivationPolicy(.regular)
         panel?.orderOut(nil)
     }
@@ -292,6 +307,23 @@ final class TaskbarPanelController {
             "\($0.id)|\($0.title)|\($0.isMinimized)|\($0.isFocused)|\($0.isMain)"
         }.joined(separator: "\u{1F}")
         return "\(isTrusted)|\(windowState)"
+    }
+
+    private func updateWindowSpaceReservations() {
+        guard let panel,
+              let screen = panel.screen ?? NSScreen.screens.first else { return }
+        let reservationWindows = windowService.enumerateWindows(
+            excludingPID: ProcessInfo.processInfo.processIdentifier,
+            showHiddenApps: true,
+            blacklistedAppKeys: []
+        )
+        windowService.updateWindowSpaceReservations(
+            for: reservationWindows,
+            panelFrame: panel.frame,
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            enabled: !isHiddenInDock && panel.isVisible
+        )
     }
 
     private func syncAppFocusObservers() {

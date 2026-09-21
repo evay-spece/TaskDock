@@ -140,7 +140,7 @@ struct TaskbarView: View {
                                 onClose: { onClose(window) }
                             )
                             .id(window.renderStateID)
-                            .frame(width: itemWidth, height: 38)
+                            .frame(width: itemWidth, height: 34)
                             .offset(x: taskbarItemOffset(for: window.appKey, itemWidth: itemWidth))
                             .animation(draggedAppKey == window.appKey ? nil : .easeOut(duration: 0.16), value: hoverTargetAppKey)
                             .animation(draggedAppKey == window.appKey ? nil : .easeOut(duration: 0.16), value: dragDirection)
