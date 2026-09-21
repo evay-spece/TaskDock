@@ -17,7 +17,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         )
         let hostingView = NSHostingView(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 690),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -46,5 +46,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func show() {
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    func hide() {
+        window?.orderOut(nil)
     }
 }
