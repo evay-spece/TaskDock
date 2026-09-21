@@ -15,6 +15,12 @@ struct WindowModel: Identifiable, Hashable {
 
     var appKey: String { bundleIdentifier ?? "name:\(applicationName)" }
 
-    static func == (lhs: WindowModel, rhs: WindowModel) -> Bool { lhs.id == rhs.id }
+    static func == (lhs: WindowModel, rhs: WindowModel) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.isMinimized == rhs.isMinimized &&
+        lhs.isFocused == rhs.isFocused &&
+        lhs.isMain == rhs.isMain
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }

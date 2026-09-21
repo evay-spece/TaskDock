@@ -19,6 +19,15 @@ struct SettingsView: View {
             Text("TaskDock 设置")
                 .font(.title2.weight(.semibold))
 
+            Picker("显示模式", selection: $settings.layoutMode) {
+                ForEach(TaskDockLayoutMode.allCases) { mode in
+                    Label(mode.label, systemImage: mode.systemImage)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: settings.layoutMode) { _ in onChanged() }
+
             Picker("主题", selection: $settings.appearance) {
                 ForEach(TaskbarAppearance.allCases) { appearance in
                     Label(appearance.label, systemImage: appearance == .light ? "sun.max.fill" : "moon.fill")
@@ -30,6 +39,23 @@ struct SettingsView: View {
 
             Toggle("显示隐藏 App 的窗口", isOn: $settings.showHiddenApps)
                 .onChange(of: settings.showHiddenApps) { _ in onChanged() }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("隐藏/显示 TaskDock 快捷键")
+                    .font(.headline)
+                Text("连续按两次选定的修饰键。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("隐藏/显示 TaskDock 快捷键", selection: $settings.toggleModifier) {
+                    ForEach(TaskbarToggleModifier.allCases) { modifier in
+                        Text(modifier.label).tag(modifier)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
 
             Divider()
 
@@ -82,7 +108,7 @@ struct SettingsView: View {
             }
         }
         .padding(22)
-        .frame(width: 380, height: 460)
+        .frame(width: 380, height: 570)
     }
 
     private var blacklistHeight: CGFloat {
