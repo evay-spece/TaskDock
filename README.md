@@ -24,7 +24,7 @@ swift run
 推荐以后统一使用固定启动脚本：
 
 ```bash
-./scripts/build-and-run.sh
+bash ./scripts/build-and-run.sh
 ```
 
 应用始终位于项目内的 `AppBundle/TaskDock.app`。脚本会优先使用本机 Apple Development 签名；没有开发签名时使用临时签名。
