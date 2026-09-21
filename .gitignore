@@ -4,5 +4,7 @@ DerivedData/
 .DS_Store
 AppBundle/TaskDock.app/Contents/MacOS/TaskDock
 AppBundle/TaskDock.app/Contents/_CodeSignature/
+AppBundle/TaskDock.app/Contents/Resources/
+AppBundle/TaskDock 2.app/
 AppBundle/TaskDock.zip
 dist/
