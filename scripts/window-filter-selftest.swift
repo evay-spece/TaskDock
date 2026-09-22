@@ -15,6 +15,18 @@ struct WindowFilterSelfTest {
         precondition(WindowFilterRules.shouldIgnoreWindow(subrole: "AXQuickLook"))
         precondition(!WindowFilterRules.shouldIgnoreWindow(subrole: "AXStandardWindow"))
         precondition(!WindowFilterRules.shouldIgnoreWindow(subrole: nil))
+        precondition(WindowFilterRules.shouldIgnoreFinderWindow(
+            title: "", subrole: "AXUnknown", isMinimized: false
+        ))
+        precondition(WindowFilterRules.shouldIgnoreFinderWindow(
+            title: "快速查看", subrole: "Quick Look", isMinimized: false
+        ))
+        precondition(!WindowFilterRules.shouldIgnoreFinderWindow(
+            title: "下载", subrole: "AXStandardWindow", isMinimized: false
+        ))
+        precondition(!WindowFilterRules.shouldIgnoreFinderWindow(
+            title: "下载", subrole: "AXDialog", isMinimized: true
+        ))
 
         var foundLiveQuickLook = false
         for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier == "com.apple.finder" {

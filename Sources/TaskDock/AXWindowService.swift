@@ -388,6 +388,14 @@ final class AXWindowService {
         // TaskDock without weakening dialog filtering for Finder's live popups or
         // for any other application.
         let isMinimized = (copyAttribute(window, kAXMinimizedAttribute) as? Bool) ?? false
+        if bundleIdentifier == "com.apple.finder",
+           WindowFilterRules.shouldIgnoreFinderWindow(
+               title: title,
+               subrole: subrole,
+               isMinimized: isMinimized
+           ) {
+            return false
+        }
         if bundleIdentifier == "com.apple.finder", isMinimized {
             return true
         }

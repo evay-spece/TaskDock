@@ -18,4 +18,10 @@ enum WindowFilterRules {
         guard let subrole else { return false }
         return transientWindowSubroles.contains(subrole)
     }
+
+    static func shouldIgnoreFinderWindow(title: String, subrole: String?, isMinimized: Bool) -> Bool {
+        if isMinimized { return false }
+        guard !title.isEmpty else { return true }
+        return subrole != "AXStandardWindow"
+    }
 }
