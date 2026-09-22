@@ -32,6 +32,7 @@ final class AXWindowService {
         let runningApps = NSWorkspace.shared.runningApplications
             .filter {
                 $0.processIdentifier != excludingPID &&
+                !WindowFilterRules.shouldIgnoreApplication(bundleIdentifier: $0.bundleIdentifier) &&
                 $0.activationPolicy == .regular &&
                 (showHiddenApps || !$0.isHidden)
             }
@@ -379,6 +380,8 @@ final class AXWindowService {
             // Sheets are exposed as AXSheet and must stay attached to their document window.
             return false
         }
+        let subrole = copyAttribute(window, kAXSubroleAttribute) as? String
+        if WindowFilterRules.shouldIgnoreWindow(subrole: subrole) { return false }
 
         // Finder can change a normal window's accessibility subrole to AXDialog
         // after it is minimized. Keep that minimized document window visible in
@@ -393,7 +396,6 @@ final class AXWindowService {
             return false
         }
 
-        let subrole = copyAttribute(window, kAXSubroleAttribute) as? String
         let transientSubroles: Set<String> = [
             kAXDialogSubrole,
             kAXSystemDialogSubrole,
