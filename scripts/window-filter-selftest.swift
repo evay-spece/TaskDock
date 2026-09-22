@@ -8,6 +8,15 @@ struct WindowFilterSelfTest {
         precondition(WindowFilterRules.shouldIgnoreApplication(
             bundleIdentifier: "com.apple.quicklook.QuickLookUIService"
         ))
+        precondition(WindowFilterRules.shouldIgnoreApplication(
+            bundleIdentifier: "com.aodaren.inputmethod.Qingg"
+        ))
+        precondition(WindowFilterRules.shouldIgnoreApplication(
+            bundleIdentifier: "com.apple.inputmethod.SCIM"
+        ))
+        precondition(WindowFilterRules.shouldIgnoreApplication(
+            bundleIdentifier: "com.apple.TextInputUI.xpc.CursorUIViewService"
+        ))
         precondition(!WindowFilterRules.shouldIgnoreApplication(bundleIdentifier: "com.apple.Preview"))
         precondition(!WindowFilterRules.shouldIgnoreApplication(bundleIdentifier: "com.apple.finder"))
         precondition(!WindowFilterRules.shouldIgnoreApplication(bundleIdentifier: nil))
@@ -28,8 +37,18 @@ struct WindowFilterSelfTest {
             title: "下载", subrole: "AXDialog", isMinimized: true
         ))
 
-        var foundLiveQuickLook = false
-        for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier == "com.apple.finder" {
+        var liveChecks: [String] = []
+        for app in NSWorkspace.shared.runningApplications {
+            if let bundleIdentifier = app.bundleIdentifier,
+               bundleIdentifier.lowercased().contains("inputmethod") ||
+                bundleIdentifier.lowercased().contains("textinput") {
+                precondition(WindowFilterRules.shouldIgnoreApplication(
+                    bundleIdentifier: bundleIdentifier
+                ))
+                liveChecks.append("input-method")
+            }
+
+            guard app.bundleIdentifier == "com.apple.finder" else { continue }
             let application = AXUIElementCreateApplication(app.processIdentifier)
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
@@ -40,9 +59,10 @@ struct WindowFilterSelfTest {
                       let subrole = subroleValue as? String,
                       subrole == "Quick Look" else { continue }
                 precondition(WindowFilterRules.shouldIgnoreWindow(subrole: subrole))
-                foundLiveQuickLook = true
+                liveChecks.append("quick-look")
             }
         }
-        print(foundLiveQuickLook ? "WINDOW_FILTER_OK live-quick-look" : "WINDOW_FILTER_OK static")
+        let liveSummary = Array(Set(liveChecks)).sorted().joined(separator: ",")
+        print(liveSummary.isEmpty ? "WINDOW_FILTER_OK static" : "WINDOW_FILTER_OK live-\(liveSummary)")
     }
 }
