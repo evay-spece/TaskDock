@@ -156,8 +156,10 @@ struct SettingsView: View {
     }
 
     private var isChecking: Bool {
-        if case .checking = updateChecker.status { return true }
-        return false
+        switch updateChecker.status {
+        case .checking, .downloading, .verifying, .installing: return true
+        default: return false
+        }
     }
 
     @ViewBuilder
@@ -176,17 +178,38 @@ struct SettingsView: View {
             Label("已是最新版（\(version)）", systemImage: "checkmark.circle.fill")
                 .font(.caption)
                 .foregroundStyle(.green)
-        case .updateAvailable(let version, let url):
+        case .updateAvailable(let update):
             HStack {
-                Label("发现新版本 \(version)", systemImage: "arrow.down.circle.fill")
+                Label("发现新版本 \(update.version)", systemImage: "arrow.down.circle.fill")
                 Spacer()
-                Button("查看更新") { updateChecker.openRelease(url) }
+                Button("下载并重启") { updateChecker.downloadAndRestart(update) }
             }
             .font(.caption)
-        case .failed(let message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
+        case .downloading(let version):
+            updateProgress("正在下载 TaskDock \(version)…")
+        case .verifying:
+            updateProgress("正在验证安装包…")
+        case .installing:
+            updateProgress("正在安装并重启…")
+        case .failed(let message, let releaseURL):
+            HStack {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                if let releaseURL {
+                    Spacer()
+                    Button("打开发布页") { updateChecker.openRelease(releaseURL) }
+                }
+            }
+            .font(.caption)
         }
+    }
+
+    private func updateProgress(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(text)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }

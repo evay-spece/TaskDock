@@ -31,6 +31,7 @@ if [[ -f "$ICON_SOURCE" ]]; then
   rm -rf "$ICON_WORK_DIR"
 fi
 codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"
+xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 killall -9 TaskDock 2>/dev/null || true
 open -n "$APP_PATH"
 
