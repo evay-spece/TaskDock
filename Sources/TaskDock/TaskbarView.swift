@@ -8,6 +8,7 @@ struct TaskbarView: View {
     let onSelect: (WindowModel) -> Void
     let onMinimizeAll: () -> Void
     let onShowAppWindows: (WindowModel) -> Void
+    let onBlockWindowType: (WindowModel) -> Void
     let onClose: (WindowModel) -> Void
     let onOpenFavorite: (FavoriteApp) -> Void
     let showsFavorites: Bool
@@ -65,6 +66,7 @@ struct TaskbarView: View {
                                             appearance: settings.appearance,
                                             isDockCompanion: false,
                                             onShowAppWindows: { onShowAppWindows(window) },
+                                            onBlockWindowType: { onBlockWindowType(window) },
                                             onClose: { onClose(window) },
                                             onToggleFavorite: { toggleFavorite(window) },
                                             favoriteActionTitle: favoriteMenuTitle(for: window)
@@ -78,6 +80,8 @@ struct TaskbarView: View {
                                             Button(favoriteMenuTitle(for: window)) { toggleFavorite(window) }
                                             Divider()
                                             Button("显示该 App 的所有窗口") { onShowAppWindows(window) }
+                                            Divider()
+                                            Button("屏蔽此类窗口") { onBlockWindowType(window) }
                                             Divider()
                                             Button("关闭此窗口", role: .destructive) { onClose(window) }
                                         }
@@ -168,6 +172,7 @@ struct TaskbarView: View {
                                     appearance: effectiveAppearance,
                                     isDockCompanion: settings.layoutMode == .dockCompanion,
                                     onShowAppWindows: { onShowAppWindows(window) },
+                                    onBlockWindowType: { onBlockWindowType(window) },
                                     onClose: { onClose(window) },
                                     onToggleFavorite: { toggleFavorite(window) },
                                     favoriteActionTitle: favoriteMenuTitle(for: window)
@@ -193,6 +198,8 @@ struct TaskbarView: View {
                                     Button(favoriteMenuTitle(for: window)) { toggleFavorite(window) }
                                     Divider()
                                     Button("显示该 App 的所有窗口") { onShowAppWindows(window) }
+                                    Divider()
+                                    Button("屏蔽此类窗口") { onBlockWindowType(window) }
                                     Divider()
                                     Button("关闭此窗口", role: .destructive) { onClose(window) }
                                 }
@@ -546,6 +553,7 @@ struct WindowTaskItemView: View {
     let appearance: TaskbarAppearance
     let isDockCompanion: Bool
     let onShowAppWindows: () -> Void
+    let onBlockWindowType: () -> Void
     let onClose: () -> Void
     let onToggleFavorite: () -> Void
     let favoriteActionTitle: String
@@ -612,6 +620,7 @@ struct WindowTaskItemView: View {
                 favoriteActionTitle: favoriteActionTitle,
                 onToggleFavorite: { showingLongPressMenu = false; onToggleFavorite() },
                 onShowAppWindows: { showingLongPressMenu = false; onShowAppWindows() },
+                onBlockWindowType: { showingLongPressMenu = false; onBlockWindowType() },
                 onClose: { showingLongPressMenu = false; onClose() }
             )
         }
@@ -855,6 +864,7 @@ private struct WindowActionMenu: View {
     let favoriteActionTitle: String
     let onToggleFavorite: () -> Void
     let onShowAppWindows: () -> Void
+    let onBlockWindowType: () -> Void
     let onClose: () -> Void
 
     var body: some View {
@@ -862,6 +872,8 @@ private struct WindowActionMenu: View {
             Button(favoriteActionTitle, action: onToggleFavorite)
             Divider()
             Button("显示该 App 的所有窗口", action: onShowAppWindows)
+            Divider()
+            Button("屏蔽此类窗口", action: onBlockWindowType)
             Divider()
             Button("关闭此窗口", role: .destructive, action: onClose)
         }

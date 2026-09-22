@@ -65,6 +65,7 @@ enum TaskbarToggleModifier: String, CaseIterable, Identifiable {
 @MainActor
 final class SettingsStore: ObservableObject {
     @Published var blacklistedAppKeys: Set<String> { didSet { save() } }
+    @Published private(set) var blockedWindowRules: [BlockedWindowRule] { didSet { save() } }
     @Published var showHiddenApps: Bool { didSet { save() } }
     @Published var appearance: TaskbarAppearance { didSet { save() } }
     @Published var layoutMode: TaskDockLayoutMode { didSet { save() } }
@@ -76,6 +77,7 @@ final class SettingsStore: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let blacklistKey = "taskdock.blacklistedAppKeys"
+    private let blockedWindowRulesKey = "taskdock.blockedWindowRules"
     private let hiddenAppsKey = "taskdock.showHiddenApps"
     private let appearanceKey = "taskdock.appearance"
     private let layoutModeKey = "taskdock.layoutMode"
@@ -86,6 +88,13 @@ final class SettingsStore: ObservableObject {
 
     init() {
         blacklistedAppKeys = Set(defaults.stringArray(forKey: blacklistKey) ?? [])
+        if let data = defaults.data(forKey: blockedWindowRulesKey),
+           let decoded = try? JSONDecoder().decode([BlockedWindowRule].self, from: data) {
+            var seenRuleIDs = Set<String>()
+            blockedWindowRules = decoded.filter { seenRuleIDs.insert($0.id).inserted }
+        } else {
+            blockedWindowRules = []
+        }
         showHiddenApps = defaults.bool(forKey: hiddenAppsKey)
         appearance = TaskbarAppearance(rawValue: defaults.string(forKey: appearanceKey) ?? "dark") ?? .dark
         layoutMode = TaskDockLayoutMode(rawValue: defaults.string(forKey: layoutModeKey) ?? "matrix") ?? .matrix
@@ -111,6 +120,16 @@ final class SettingsStore: ObservableObject {
         } else {
             blacklistedAppKeys.insert(appKey)
         }
+    }
+
+    func blockWindowType(for window: WindowModel) {
+        let rule = BlockedWindowRule(window: window)
+        guard !blockedWindowRules.contains(where: { $0.id == rule.id }) else { return }
+        blockedWindowRules.append(rule)
+    }
+
+    func removeBlockedWindowRule(_ rule: BlockedWindowRule) {
+        blockedWindowRules.removeAll { $0.id == rule.id }
     }
 
     func reconcileAppOrder(with appKeys: [String]) {
@@ -155,6 +174,9 @@ final class SettingsStore: ObservableObject {
 
     private func save() {
         defaults.set(Array(blacklistedAppKeys), forKey: blacklistKey)
+        if let data = try? JSONEncoder().encode(blockedWindowRules) {
+            defaults.set(data, forKey: blockedWindowRulesKey)
+        }
         defaults.set(showHiddenApps, forKey: hiddenAppsKey)
         defaults.set(appearance.rawValue, forKey: appearanceKey)
         defaults.set(layoutMode.rawValue, forKey: layoutModeKey)

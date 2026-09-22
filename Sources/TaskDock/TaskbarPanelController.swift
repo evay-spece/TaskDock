@@ -147,6 +147,7 @@ final class TaskbarPanelController {
             onSelect: { [weak self] window in self?.select(window) },
             onMinimizeAll: { [weak self] in self?.minimizeAll() },
             onShowAppWindows: { [weak self] window in self?.showAppWindows(for: window) },
+            onBlockWindowType: { [weak self] window in self?.blockWindowType(window) },
             onClose: { [weak self] window in self?.close(window) },
             onOpenFavorite: { [weak self] favorite in self?.openFavorite(favorite) },
             showsFavorites: showsFavorites,
@@ -417,7 +418,8 @@ final class TaskbarPanelController {
         let refreshedWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
             showHiddenApps: settings.showHiddenApps,
-            blacklistedAppKeys: settings.blacklistedAppKeys
+            blacklistedAppKeys: settings.blacklistedAppKeys,
+            blockedWindowRules: settings.blockedWindowRules
         )
         windows = refreshedWindows
         settings.reconcileAppOrder(with: windows.map(\.appKey))
@@ -462,13 +464,18 @@ final class TaskbarPanelController {
         let allWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
             showHiddenApps: true,
-            blacklistedAppKeys: []
+            blacklistedAppKeys: [],
+            blockedWindowRules: []
         )
         windowService.minimizeAll(allWindows)
         refreshAfterWindowAction()
     }
     private func showAppWindows(for window: WindowModel) {
         windowService.showAllWindows(for: window.pid, from: windows)
+        refresh()
+    }
+    private func blockWindowType(_ window: WindowModel) {
+        settings.blockWindowType(for: window)
         refresh()
     }
     private func close(_ window: WindowModel) {
@@ -506,7 +513,8 @@ final class TaskbarPanelController {
         let configurableWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
             showHiddenApps: true,
-            blacklistedAppKeys: []
+            blacklistedAppKeys: [],
+            blockedWindowRules: []
         )
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController(settings: settings, windows: configurableWindows) { [weak self] in
@@ -606,7 +614,8 @@ final class TaskbarPanelController {
         let reservationWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
             showHiddenApps: true,
-            blacklistedAppKeys: []
+            blacklistedAppKeys: [],
+            blockedWindowRules: []
         )
         let reservationPanelFrame: CGRect
         if settings.layoutMode == .dockCompanion,

@@ -24,7 +24,12 @@ final class AXWindowService {
         "com.openai.codex": ["computer use", "computer use controls"]
     ]
 
-    func enumerateWindows(excludingPID: pid_t, showHiddenApps: Bool, blacklistedAppKeys: Set<String>) -> [WindowModel] {
+    func enumerateWindows(
+        excludingPID: pid_t,
+        showHiddenApps: Bool,
+        blacklistedAppKeys: Set<String>,
+        blockedWindowRules: [BlockedWindowRule]
+    ) -> [WindowModel] {
         guard AXIsProcessTrusted() else { return [] }
         var result: [WindowModel] = []
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -51,7 +56,12 @@ final class AXWindowService {
             let focusedWindow = copyAttribute(axApp, kAXFocusedWindowAttribute)
             let mainWindow = copyAttribute(axApp, kAXMainWindowAttribute)
             let displayableWindows = values.filter {
-                shouldIncludeWindow($0, bundleIdentifier: app.bundleIdentifier)
+                shouldIncludeWindow(
+                    $0,
+                    bundleIdentifier: app.bundleIdentifier,
+                    appKey: appKey,
+                    blockedWindowRules: blockedWindowRules
+                )
             }
             let topmostAXWindow: AXUIElement? = topmostWindow.flatMap { screenWindow in
                 guard screenWindow.pid == pid else { return nil }
@@ -61,6 +71,8 @@ final class AXWindowService {
             var appWindows: [(order: Int, model: WindowModel)] = []
             for axWindow in displayableWindows {
                 let title = (copyAttribute(axWindow, kAXTitleAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let role = copyAttribute(axWindow, kAXRoleAttribute) as? String ?? ""
+                let subrole = copyAttribute(axWindow, kAXSubroleAttribute) as? String
 
                 let main = (copyAttribute(axWindow, kAXMainAttribute) as? Bool) ?? false
                 let minimized = (copyAttribute(axWindow, kAXMinimizedAttribute) as? Bool) ?? false
@@ -85,7 +97,10 @@ final class AXWindowService {
                     bundleIdentifier: app.bundleIdentifier,
                     applicationName: applicationName,
                     applicationIcon: app.icon,
+                    rawTitle: title,
                     title: title.isEmpty ? applicationName : title,
+                    accessibilityRole: role,
+                    accessibilitySubrole: subrole,
                     isMinimized: minimized,
                     isFocused: focused,
                     isMain: main,
@@ -371,16 +386,33 @@ final class AXWindowService {
         return ignoredTitles.contains(title.lowercased())
     }
 
-    private func shouldIncludeWindow(_ window: AXUIElement, bundleIdentifier: String?) -> Bool {
+    private func shouldIncludeWindow(
+        _ window: AXUIElement,
+        bundleIdentifier: String?,
+        appKey: String? = nil,
+        blockedWindowRules: [BlockedWindowRule] = []
+    ) -> Bool {
         let title = (copyAttribute(window, kAXTitleAttribute) as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if shouldIgnoreWindow(bundleIdentifier: bundleIdentifier, title: title) { return false }
 
-        guard copyAttribute(window, kAXRoleAttribute) as? String == kAXWindowRole else {
+        guard let role = copyAttribute(window, kAXRoleAttribute) as? String,
+              role == kAXWindowRole else {
             // Sheets are exposed as AXSheet and must stay attached to their document window.
             return false
         }
         let subrole = copyAttribute(window, kAXSubroleAttribute) as? String
+        if let appKey,
+           blockedWindowRules.contains(where: {
+               $0.matches(
+                   appKey: appKey,
+                   rawTitle: title,
+                   accessibilityRole: role,
+                   accessibilitySubrole: subrole
+               )
+           }) {
+            return false
+        }
         if WindowFilterRules.shouldIgnoreWindow(subrole: subrole) { return false }
 
         // Finder can change a normal window's accessibility subrole to AXDialog

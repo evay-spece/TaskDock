@@ -20,7 +20,8 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
             Text("TaskDock 设置")
                 .font(.title2.weight(.semibold))
 
@@ -112,27 +113,81 @@ struct SettingsView: View {
                 .frame(height: blacklistHeight)
             }
 
-            Divider()
+                Divider()
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("软件更新")
-                            .font(.headline)
-                        Text("当前版本 \(updateChecker.currentVersion)")
-                            .font(.caption)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("已屏蔽的窗口类型")
+                        .font(.headline)
+                    Text("可从任务项右键菜单添加；恢复后，同类窗口会重新显示。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if settings.blockedWindowRules.isEmpty {
+                        Text("尚未屏蔽任何窗口类型")
+                            .font(.callout)
                             .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(settings.blockedWindowRules) { rule in
+                                HStack(spacing: 10) {
+                                    Image(nsImage: blockedRuleIcon(for: rule))
+                                        .resizable()
+                                        .frame(width: 24, height: 24)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(rule.applicationName)
+                                            .font(.callout.weight(.medium))
+                                            .lineLimit(1)
+                                        Text(rule.windowLabel)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Button("恢复显示") {
+                                        settings.removeBlockedWindowRule(rule)
+                                        onChanged()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .accessibilityLabel("恢复显示 \(rule.applicationName) 的 \(rule.windowLabel)")
+                                }
+                                .padding(.vertical, 7)
+
+                                if rule.id != settings.blockedWindowRules.last?.id {
+                                    Divider()
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
                     }
-                    Spacer()
-                    Button("检查更新") { updateChecker.check() }
-                        .disabled(isChecking)
                 }
 
-                updateStatusView
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("软件更新")
+                                .font(.headline)
+                            Text("当前版本 \(updateChecker.currentVersion)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("检查更新") { updateChecker.check() }
+                            .disabled(isChecking)
+                    }
+
+                    updateStatusView
+                }
             }
+            .padding(22)
+            .frame(width: 380)
         }
-        .padding(22)
-        .frame(width: 380, height: 620)
+        .frame(width: 400, height: 650)
     }
 
     private var blacklistHeight: CGFloat {
@@ -153,6 +208,12 @@ struct SettingsView: View {
         let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
         let name = displayName ?? bundleName ?? applicationURL.deletingPathExtension().lastPathComponent
         return (key, name, workspace.icon(forFile: applicationURL.path))
+    }
+
+    private func blockedRuleIcon(for rule: BlockedWindowRule) -> NSImage {
+        blacklistedAppFallback(for: rule.appKey).icon ??
+            NSImage(named: NSImage.applicationIconName) ??
+            NSImage(size: NSSize(width: 24, height: 24))
     }
 
     private var isChecking: Bool {
