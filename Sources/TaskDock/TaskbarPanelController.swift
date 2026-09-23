@@ -263,8 +263,9 @@ final class TaskbarPanelController {
             // Accessibility can briefly omit the Dock during login/relaunch.
             // Keep TaskDock usable at the bottom-right until the next refresh.
             let fallbackWidth = min(screenFrame.width - 24, taskbarDesiredWidth(for: otherWindows, showsFavorites: false, showsControls: true))
-            let fallbackHeight: CGFloat = 59
-            settings.dockCompanionHeight = 39
+            let fallbackDockHeight = DockCompanionSizing.baselineDockHeight
+            let fallbackHeight = DockCompanionSizing.panelHeight(for: fallbackDockHeight)
+            settings.dockCompanionHeight = fallbackDockHeight
             setPanelFrameIfNeeded(NSRect(
                 x: screenFrame.maxX - fallbackWidth - 4,
                 y: screenFrame.minY + 4,
@@ -280,7 +281,7 @@ final class TaskbarPanelController {
         let edgeInset: CGFloat = 4
         let rightSpace = max(0, screenFrame.maxX - dockFrame.maxX - gap - edgeInset)
         let leftSpace = max(0, dockFrame.minX - screenFrame.minX - gap - edgeInset)
-        let baseHeight = min(max(dockFrame.height, 34), 72)
+        let baseHeight = min(max(dockFrame.height, 34), 96)
         if abs(settings.dockCompanionHeight - baseHeight) > 0.5 {
             settings.dockCompanionHeight = baseHeight
         }
@@ -291,7 +292,7 @@ final class TaskbarPanelController {
             x: min(dockFrame.maxX + gap, screenFrame.maxX - rightWidth - edgeInset),
             y: dockFrame.minY,
             width: rightWidth,
-            height: baseHeight + 20
+            height: DockCompanionSizing.panelHeight(for: baseHeight)
         ), animated: shouldAnimateDockPanel(panel), animationDuration: 0.2)
 
         if finderWindows.isEmpty || leftSpace < 80 {
@@ -304,7 +305,7 @@ final class TaskbarPanelController {
                     x: dockFrame.minX - gap - leftWidth,
                     y: dockFrame.minY,
                     width: leftWidth,
-                    height: baseHeight + 20
+                    height: DockCompanionSizing.panelHeight(for: baseHeight)
                 ),
                 panel: dockFinderPanel,
                 animated: shouldAnimateDockPanel(dockFinderPanel),
@@ -318,12 +319,20 @@ final class TaskbarPanelController {
         showsFavorites: Bool,
         showsControls: Bool
     ) -> CGFloat {
-        let preferredItemWidth: CGFloat = 174
+        let isDockCompanion = settings.layoutMode == .dockCompanion
+        let dockHeight = isDockCompanion
+            ? settings.dockCompanionHeight
+            : DockCompanionSizing.baselineDockHeight
+        let panelScale = isDockCompanion ? DockCompanionSizing.scale(for: dockHeight) : 1
+        let preferredItemWidth = isDockCompanion
+            ? DockCompanionSizing.preferredItemWidth(for: dockHeight)
+            : 174
         let favoriteWidth = !showsFavorites || settings.favoriteApps.isEmpty
             ? 0
             : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
-        let controlsAndPadding: CGFloat = (showsControls ? 48 : 16) + favoriteWidth
-        let itemSpacing = CGFloat(max(displayedWindows.count - 1, 0)) * 4
+        let controlsAndPadding: CGFloat = (showsControls ? 48 : 16) * panelScale + favoriteWidth
+        let spacing = isDockCompanion ? DockCompanionSizing.itemSpacing(for: dockHeight) : 4
+        let itemSpacing = CGFloat(max(displayedWindows.count - 1, 0)) * spacing
         if !permissionService.isTrusted { return 600 }
         if displayedWindows.isEmpty { return showsControls ? controlsAndPadding : 0 }
         return CGFloat(displayedWindows.count) * preferredItemWidth + itemSpacing + controlsAndPadding

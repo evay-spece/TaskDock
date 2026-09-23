@@ -164,13 +164,15 @@ struct TaskbarView: View {
                         taskbarDragArea
                     } else if !windows.isEmpty {
                         let itemWidth = taskbarItemWidth(for: geometry.size.width)
-                        HStack(spacing: 4) {
+                        HStack(spacing: taskbarItemSpacing) {
                             ForEach(orderedWindows) { window in
                                 WindowTaskItemView(
                                     window: window,
                                     availableWidth: itemWidth,
                                     appearance: effectiveAppearance,
                                     isDockCompanion: settings.layoutMode == .dockCompanion,
+                                    itemHeight: taskbarItemHeight,
+                                    contentScale: taskbarContentScale,
                                     onShowAppWindows: { onShowAppWindows(window) },
                                     onBlockWindowType: { onBlockWindowType(window) },
                                     onClose: { onClose(window) },
@@ -178,7 +180,7 @@ struct TaskbarView: View {
                                     favoriteActionTitle: favoriteMenuTitle(for: window)
                                 )
                                 .id(window.renderStateID)
-                                .frame(width: itemWidth, height: 31)
+                                .frame(width: itemWidth, height: taskbarItemHeight)
                                 .offset(x: taskbarItemOffset(for: window.appKey, itemWidth: itemWidth))
                                 .animation(draggedAppKey == window.appKey ? nil : .easeOut(duration: 0.16), value: hoverTargetAppKey)
                                 .animation(draggedAppKey == window.appKey ? nil : .easeOut(duration: 0.16), value: dragDirection)
@@ -186,7 +188,7 @@ struct TaskbarView: View {
                                 .scaleEffect(isDropTarget(window.appKey) ? 0.98 : 1)
                                 .overlay {
                                     if isDropTarget(window.appKey) {
-                                        RoundedRectangle(cornerRadius: 7)
+                                        RoundedRectangle(cornerRadius: 7 * taskbarContentScale)
                                             .stroke(Color.accentColor.opacity(0.72), lineWidth: 1.5)
                                     }
                                 }
@@ -209,27 +211,32 @@ struct TaskbarView: View {
                                 .accessibilityAction { onSelect(window) }
                             }
                         }
-                        .padding(.leading, showsFavorites && !settings.favoriteApps.isEmpty ? 0 : 8)
+                        .padding(.leading, showsFavorites && !settings.favoriteApps.isEmpty ? 0 : 8 * taskbarPanelScale)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     }
                 }
 
                 if showsControls {
-                    TaskbarControlButton(systemImage: "minus.rectangle", help: "最小化全部窗口", action: onMinimizeAll)
-                    .padding(.horizontal, 8)
+                    TaskbarControlButton(
+                        systemImage: "minus.rectangle",
+                        help: "最小化全部窗口",
+                        scale: taskbarContentScale,
+                        action: onMinimizeAll
+                    )
+                    .padding(.horizontal, 8 * taskbarPanelScale)
                 }
             }
             .frame(height: taskbarBaseHeight)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
         .background(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 10 * min(taskbarContentScale, 1.3))
                 .fill(settings.layoutMode == .dockCompanion ? .regularMaterial : .ultraThinMaterial)
-                .overlay(RoundedRectangle(cornerRadius: 10).fill(taskbarSurfaceColor))
+                .overlay(RoundedRectangle(cornerRadius: 10 * min(taskbarContentScale, 1.3)).fill(taskbarSurfaceColor))
                 .frame(height: taskbarBaseHeight)
         }
         .overlay(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 10 * min(taskbarContentScale, 1.3))
                 .stroke(taskbarBorderColor)
                 .frame(height: taskbarBaseHeight)
         }
@@ -243,13 +250,19 @@ struct TaskbarView: View {
 
     private func taskbarItemWidth(for totalWidth: CGFloat) -> CGFloat {
         guard !windows.isEmpty else { return 0 }
-        let controlsAndPadding: CGFloat = showsControls ? 48 : 16
+        let controlsAndPadding: CGFloat = (showsControls ? 48 : 16) * taskbarPanelScale
         let favoriteWidth = !showsFavorites || settings.favoriteApps.isEmpty
             ? 0
             : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14 + favoriteMagnificationExpansion
-        let totalSpacing = CGFloat(max(windows.count - 1, 0)) * 4
+        let totalSpacing = CGFloat(max(windows.count - 1, 0)) * taskbarItemSpacing
         let available = max(totalWidth - controlsAndPadding - favoriteWidth - totalSpacing, 0)
-        return min(216, max(27, available / CGFloat(windows.count)))
+        let maximumWidth = settings.layoutMode == .dockCompanion
+            ? DockCompanionSizing.maximumItemWidth(for: settings.dockCompanionHeight)
+            : 216
+        let minimumWidth = settings.layoutMode == .dockCompanion
+            ? DockCompanionSizing.minimumItemWidth(for: settings.dockCompanionHeight)
+            : 27
+        return min(maximumWidth, max(minimumWidth, available / CGFloat(windows.count)))
     }
 
     private var taskbarSurfaceColor: Color {
@@ -268,6 +281,30 @@ struct TaskbarView: View {
 
     private var taskbarBaseHeight: CGFloat {
         settings.layoutMode == .dockCompanion ? settings.dockCompanionHeight : 38
+    }
+
+    private var taskbarPanelScale: CGFloat {
+        settings.layoutMode == .dockCompanion
+            ? DockCompanionSizing.scale(for: settings.dockCompanionHeight)
+            : 1
+    }
+
+    private var taskbarContentScale: CGFloat {
+        settings.layoutMode == .dockCompanion
+            ? DockCompanionSizing.contentScale(for: settings.dockCompanionHeight)
+            : 1
+    }
+
+    private var taskbarItemHeight: CGFloat {
+        settings.layoutMode == .dockCompanion
+            ? DockCompanionSizing.itemHeight(for: settings.dockCompanionHeight)
+            : 31
+    }
+
+    private var taskbarItemSpacing: CGFloat {
+        settings.layoutMode == .dockCompanion
+            ? DockCompanionSizing.itemSpacing(for: settings.dockCompanionHeight)
+            : 4
     }
 
     private var effectiveAppearance: TaskbarAppearance {
@@ -552,6 +589,8 @@ struct WindowTaskItemView: View {
     let availableWidth: CGFloat
     let appearance: TaskbarAppearance
     let isDockCompanion: Bool
+    var itemHeight: CGFloat = 31
+    var contentScale: CGFloat = 1
     let onShowAppWindows: () -> Void
     let onBlockWindowType: () -> Void
     let onClose: () -> Void
@@ -561,41 +600,41 @@ struct WindowTaskItemView: View {
     @State private var showingLongPressMenu = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: availableWidth < 72 ? 0 : 7) {
+        HStack(alignment: .center, spacing: availableWidth < textVisibilityWidth ? 0 : 7 * contentScale) {
             Image(nsImage: window.applicationIcon ?? fallbackIcon)
                 .resizable()
                 .frame(width: iconSize, height: iconSize)
-            if availableWidth >= 72 {
+            if availableWidth >= textVisibilityWidth {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(window.title)
-                        .font(.system(size: 11.5, weight: window.isFocused ? .semibold : .medium))
+                        .font(.system(size: 11.5 * contentScale, weight: window.isFocused ? .semibold : .medium))
                         .foregroundStyle(titleColor)
                         .lineLimit(1)
-                    if availableWidth >= 132 {
+                    if availableWidth >= subtitleVisibilityWidth {
                         Text(window.applicationName)
-                            .font(.system(size: 9.5, weight: .medium))
+                            .font(.system(size: 9.5 * contentScale, weight: .medium))
                             .foregroundStyle(subtitleColor)
                             .lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if window.isMinimized && availableWidth >= 116 {
+            if window.isMinimized && availableWidth >= minimizedIndicatorWidth {
                 Image(systemName: "minus.circle")
-                    .font(.caption2)
+                    .font(.system(size: 9.5 * contentScale))
                     .foregroundStyle(subtitleColor)
                     .help("此窗口已最小化")
             }
         }
-        .padding(.horizontal, availableWidth < 72 ? 3 : 8)
-        .frame(maxWidth: .infinity, minHeight: 31, maxHeight: 31, alignment: availableWidth < 72 ? .center : .leading)
+        .padding(.horizontal, availableWidth < textVisibilityWidth ? 3 * contentScale : 8 * contentScale)
+        .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight, alignment: availableWidth < textVisibilityWidth ? .center : .leading)
         .background {
             ZStack {
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: 7 * contentScale)
                     .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: 7 * contentScale)
                     .fill(cardSurfaceColor)
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: 7 * contentScale)
                     .fill(itemBaseBackground)
             }
         }
@@ -603,9 +642,9 @@ struct WindowTaskItemView: View {
             if window.isFocused {
                 Capsule()
                     .fill(Color.accentColor)
-                    .frame(height: 3)
-                    .padding(.horizontal, 9)
-                    .padding(.bottom, 1)
+                    .frame(height: 3 * contentScale)
+                    .padding(.horizontal, 9 * contentScale)
+                    .padding(.bottom, contentScale)
             }
         }
         .scaleEffect(isHovered ? 1.012 : 1.0)
@@ -659,25 +698,38 @@ struct WindowTaskItemView: View {
     }
 
     private var iconSize: CGFloat {
-        availableWidth < 48 ? 16 : 18
+        (availableWidth < 48 * contentScale ? 16 : 18) * contentScale
+    }
+
+    private var textVisibilityWidth: CGFloat {
+        72 * contentScale
+    }
+
+    private var subtitleVisibilityWidth: CGFloat {
+        132 * contentScale
+    }
+
+    private var minimizedIndicatorWidth: CGFloat {
+        116 * contentScale
     }
 }
 
 private struct TaskbarControlButton: View {
     let systemImage: String
     let help: String
+    var scale: CGFloat = 1
     let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 28, height: 28)
+                .font(.system(size: 12 * scale, weight: .medium))
+                .frame(width: 28 * scale, height: 28 * scale)
                 .contentShape(Rectangle())
                 .background(
                     Color.primary.opacity(isHovered ? 0.09 : 0),
-                    in: RoundedRectangle(cornerRadius: 7)
+                    in: RoundedRectangle(cornerRadius: 7 * scale)
                 )
         }
         .buttonStyle(.plain)

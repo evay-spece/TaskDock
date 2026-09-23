@@ -17,11 +17,14 @@ final class DockGeometryService {
         }
 
         let application = AXUIElementCreateApplication(dock.processIdentifier)
-        guard let dockList = findDockList(in: application, remainingDepth: 3),
+        guard let dockList = findDockList(in: application, remainingDepth: 6),
               let position = pointAttribute(dockList, kAXPositionAttribute),
               let size = sizeAttribute(dockList, kAXSizeAttribute),
               size.width > 0, size.height > 0 else {
-            return cachedBottomDockGeometry ?? estimatedBottomDockGeometry(on: screen, minimizedWindowCount: minimizedWindowCount)
+            return estimatedBottomDockGeometry(
+                on: screen,
+                minimizedWindowCount: minimizedWindowCount
+            ) ?? cachedBottomDockGeometry
         }
 
         let screenFrame = screen.frame
@@ -33,12 +36,19 @@ final class DockGeometryService {
             width: width,
             height: size.height
         )
-        let itemCount = (copyAttribute(dockList, kAXChildrenAttribute) as? [AXUIElement])?.count ?? 0
+        let dockItems = copyAttribute(dockList, kAXChildrenAttribute) as? [AXUIElement] ?? []
+        let itemCount = dockItems.count
         let tileSize = dockTileSize
+        let observedItemWidths = dockItems.compactMap {
+            sizeAttribute($0, kAXSizeAttribute)?.width
+        }.filter { $0 > 1 }
         let snapshot = DockGeometrySnapshot(
             frame: frame,
             layoutSignature: "\(itemCount)|\(minimizedWindowCount)|\(Int(tileSize.rounded()))",
-            isMagnified: size.height > tileSize + 16
+            isMagnified: DockCompanionSizing.isTemporarilyMagnified(
+                configuredTileSize: tileSize,
+                observedItemWidths: observedItemWidths
+            )
         )
         if !snapshot.isMagnified {
             cachedBottomDockGeometry = snapshot
