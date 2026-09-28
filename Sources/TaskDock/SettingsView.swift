@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general
@@ -37,7 +38,10 @@ struct SettingsView: View {
 
     private var apps: [(key: String, name: String, icon: NSImage?)] {
         let grouped = Dictionary(grouping: windows, by: { $0.appKey })
-        let appKeys = Set(grouped.keys).union(settings.blacklistedAppKeys)
+        let appKeys = Set(grouped.keys)
+            .union(settings.blacklistedAppKeys)
+            .union(settings.dockCompanionLeftAppKeys)
+            .union(settings.dockCompanionRightAppKeys)
         return appKeys.map { key in
             if let first = grouped[key]?.first {
                 return (key, first.applicationName, first.applicationIcon)
@@ -84,7 +88,7 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         tabScrollView {
-            settingsSection(title: "显示与外观", description: "这些设置会影响 TaskDock 的整体行为。") {
+            settingsSection(title: "模式与主题", description: "选择 TaskDock 的显示模式和整体明暗主题。") {
                 Picker("显示模式", selection: $settings.layoutMode) {
                     ForEach(TaskDockLayoutMode.allCases) { mode in
                         Label(mode.label, systemImage: mode.systemImage).tag(mode)
@@ -104,9 +108,50 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: settings.appearance) { _ in onChanged() }
+            }
+
+            settingsSection(title: "任务项外观", description: "设置窗口卡片的高亮和文字显示。") {
+                Picker("任务项高亮颜色", selection: $settings.taskItemHighlightStyle) {
+                    ForEach(TaskItemHighlightStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: settings.taskItemHighlightStyle) { _ in onChanged() }
 
                 Toggle("显示隐藏 App 的窗口", isOn: $settings.showHiddenApps)
                     .onChange(of: settings.showHiddenApps) { _ in onChanged() }
+
+                Toggle("显示 App 名称", isOn: $settings.showApplicationName)
+                    .onChange(of: settings.showApplicationName) { _ in onChanged() }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("非选中项透明度")
+                        Spacer()
+                        Text("\(Int(settings.nonSelectedItemTransparency * 100))%")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: $settings.nonSelectedItemTransparency, in: 0...0.7, step: 0.05)
+                        .onChange(of: settings.nonSelectedItemTransparency) { _ in onChanged() }
+                    Text("只影响非当前焦点的任务项。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            settingsSection(title: "窗口显示", description: "控制隐藏 App 的窗口是否纳入 TaskDock。") {
+                Toggle("显示隐藏 App 的窗口", isOn: $settings.showHiddenApps)
+                    .onChange(of: settings.showHiddenApps) { _ in onChanged() }
+            }
+
+            settingsSection(title: "系统 Dock", description: "TaskDock 运行时隐藏原生 Dock；关闭此选项或退出 TaskDock 后恢复原设置。") {
+                Toggle("隐藏系统 Dock", isOn: $settings.hideSystemDock)
+                    .onChange(of: settings.hideSystemDock) { _ in onChanged() }
+                Text("启用后原生 Dock 不会在屏幕边缘弹出；可随时在这里关闭。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             settingsSection(title: "隐藏/显示快捷键", description: "连续按两次选定的修饰键。") {
@@ -150,8 +195,8 @@ struct SettingsView: View {
             }
 
             settingsSection(
-                title: "已屏蔽的窗口类型",
-                description: "可从任务项右键菜单添加，误屏蔽后可在这里恢复。"
+                title: "窗口类型屏蔽",
+                description: "从任务项右键菜单屏蔽的窗口类型会列在这里；可随时恢复显示。"
             ) {
                 if settings.blockedWindowRules.isEmpty {
                     emptyState("尚未屏蔽任何窗口类型")
@@ -207,7 +252,7 @@ struct SettingsView: View {
                 mode: .taskbar
             )
 
-            settingsSection(title: "任务栏对齐", description: "选择任务栏默认位于屏幕底部的哪个位置。") {
+            settingsSection(title: "位置与长度", description: "设置任务栏在屏幕底部的对齐方式和宽度。") {
                 Picker("任务栏位置", selection: $settings.taskbarAlignment) {
                     ForEach(TaskbarAlignment.allCases) { alignment in
                         Text(alignment.label).tag(alignment)
@@ -215,13 +260,38 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
+                .disabled(settings.taskbarWidthMode == .fullWidth)
                 .onChange(of: settings.taskbarAlignment) { _ in onChanged() }
+                if settings.taskbarWidthMode == .fullWidth {
+                    Text("左右铺满时，任务栏会固定从屏幕可用区域左边延伸到右边。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Picker("任务栏长度", selection: $settings.taskbarWidthMode) {
+                    ForEach(TaskbarWidthMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .onChange(of: settings.taskbarWidthMode) { _ in onChanged() }
             }
 
-            settingsSection(
-                title: "收藏 App",
-                description: "收藏会固定在任务栏左侧；也可从任务项右键菜单添加。"
-            ) {
+            settingsSection(title: "收藏 App", description: "收藏固定在任务栏左侧；也可从任务项右键菜单添加。") {
+                HStack {
+                    Button {
+                        chooseFavoriteApplications()
+                    } label: {
+                        Label("添加 App…", systemImage: "plus")
+                    }
+                    Spacer()
+                }
+                Toggle("收藏图标悬停反馈", isOn: $settings.favoriteMagnificationEnabled)
+                    .onChange(of: settings.favoriteMagnificationEnabled) { _ in onChanged() }
+                Text("收藏区域悬停时会轻微提亮；此开关控制单个图标下方的提示条。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Divider()
                 if settings.favoriteApps.isEmpty {
                     emptyState("尚未收藏 App")
                 } else {
@@ -253,15 +323,42 @@ struct SettingsView: View {
         tabScrollView {
             modeHeader(
                 title: "融合模式",
-                description: "Finder 窗口显示在 Dock 左侧，其他多窗口 App 显示在 Dock 右侧。",
+                description: "分别选择 Dock 左右两侧显示的 App，并设置进入融合栏所需的窗口数量。",
                 systemImage: SettingsTab.dockCompanion.systemImage,
                 mode: .dockCompanion
             )
 
-            settingsSection(
-                title: "Dock 尺寸联动",
-                description: "融合栏会跟随 Dock 的基础尺寸，不跟随鼠标悬停产生的临时放大。"
-            ) {
+            settingsSection(title: "左侧 App", description: "所选 App 的窗口显示在原生 Dock 左边。") {
+                dockCompanionAppList(side: .left)
+            }
+
+            settingsSection(title: "右侧 App", description: "初始为自动显示未放在左侧的 App；更改任一选项后，将按此列表决定是否显示。") {
+                dockCompanionAppList(side: .right)
+            }
+
+            settingsSection(title: "窗口与栏位", description: "设置融合栏显示条件和底栏外观。Finder 不受窗口数量门槛限制。") {
+                Stepper(value: Binding(
+                    get: { settings.dockCompanionMinimumWindowCount },
+                    set: { settings.dockCompanionMinimumWindowCount = min(max($0, 1), 20) }
+                ), in: 1...20) {
+                    HStack {
+                        Text("至少需要的窗口数")
+                        Spacer()
+                        Text("\(settings.dockCompanionMinimumWindowCount) 个")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .onChange(of: settings.dockCompanionMinimumWindowCount) { _ in onChanged() }
+                Divider()
+                Toggle("显示底栏", isOn: $settings.dockCompanionShowsBottomBar)
+                    .onChange(of: settings.dockCompanionShowsBottomBar) { _ in onChanged() }
+                Text("关闭后隐藏底栏背景和功能按钮，只显示任务项；任务项高度会与 Dock 一致。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            settingsSection(title: "Dock 联动", description: "融合栏跟随 Dock 的基础尺寸，不跟随鼠标悬停时的临时放大。") {
                 HStack {
                     Label("当前检测高度", systemImage: "arrow.up.and.down")
                     Spacer()
@@ -272,14 +369,73 @@ struct SettingsView: View {
                 Divider()
                 Label("融合栏、任务项、图标和文字会按比例同步缩放", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.secondary)
-            }
-
-            settingsSection(title: "窗口显示规则", description: "减少与原生 Dock 重叠，让融合区域保持简洁。") {
-                Label("Finder 始终显示", systemImage: "finder")
-                Label("其他 App 仅在拥有两个及以上窗口时显示", systemImage: "square.on.square")
+                Label("Finder 不受窗口数量门槛影响，仍按左右 App 选择显示", systemImage: "finder")
                 Label("融合模式不显示收藏栏", systemImage: "star.slash")
             }
+
+            settingsSection(title: "Dock 覆盖实验", description: "将 Finder 任务项叠在 Dock 左端，其他任务项叠在右端。默认关闭，可随时切回原融合布局。") {
+                Toggle("叠加到 Dock 图标区（实验）", isOn: $settings.dockCompanionOverlayEnabled)
+                    .onChange(of: settings.dockCompanionOverlayEnabled) { _ in onChanged() }
+                Label("实验模式会覆盖 Dock 两端的图标位置；关闭即可恢复原融合布局。", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func dockCompanionAppList(side: DockCompanionAppSide) -> some View {
+        if apps.isEmpty {
+            emptyState("当前没有可配置的 App")
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(apps.enumerated()), id: \.element.key) { index, app in
+                    Toggle(isOn: Binding(
+                        get: {
+                            switch side {
+                            case .left:
+                                return settings.dockCompanionLeftAppKeys.contains(app.key)
+                            case .right:
+                                return settings.dockCompanionSide(
+                                    for: app.key,
+                                    availableAppKeys: dockCompanionAvailableAppKeys
+                                ) == .right
+                            case .hidden:
+                                return false
+                            }
+                        },
+                        set: { isSelected in
+                            switch side {
+                            case .left:
+                                settings.setDockCompanionLeft(isSelected, appKey: app.key)
+                            case .right:
+                                settings.setDockCompanionRight(
+                                    isSelected,
+                                    appKey: app.key,
+                                    availableAppKeys: dockCompanionAvailableAppKeys
+                                )
+                            case .hidden:
+                                break
+                            }
+                            onChanged()
+                        }
+                    )) {
+                        HStack(spacing: 9) {
+                            Image(nsImage: app.icon ?? fallbackIcon)
+                                .resizable()
+                                .frame(width: 22, height: 22)
+                            Text(app.name).lineLimit(1)
+                        }
+                    }
+                    .padding(.vertical, 7)
+                    if index < apps.count - 1 { Divider() }
+                }
+            }
+        }
+    }
+
+    private var dockCompanionAvailableAppKeys: Set<String> {
+        Set(apps.map(\.key))
     }
 
     private var matrixTab: some View {
@@ -398,6 +554,25 @@ struct SettingsView: View {
             return workspace.icon(forFile: bundlePath)
         }
         return fallbackIcon
+    }
+
+    private func chooseFavoriteApplications() {
+        let panel = NSOpenPanel()
+        panel.title = "添加收藏 App"
+        panel.message = "选择要固定到任务栏左侧的 App"
+        panel.prompt = "添加"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.begin { response in
+            guard response == .OK else { return }
+            let addedCount = panel.urls.reduce(0) { count, url in
+                count + (settings.addFavorite(applicationURL: url) ? 1 : 0)
+            }
+            if addedCount > 0 { onChanged() }
+        }
     }
 
     private var fallbackIcon: NSImage {

@@ -13,6 +13,7 @@ final class TaskbarPanelController {
     private let windowService = AXWindowService()
     private let dockGeometryService = DockGeometryService()
     private let settings = SettingsStore()
+    private let systemDockVisibility = SystemDockVisibilityController()
     private var panel: NSPanel?
     private var timer: Timer?
     private var windows: [WindowModel] = []
@@ -30,7 +31,6 @@ final class TaskbarPanelController {
     private var appFocusObservers: [pid_t: AppFocusObserver] = [:]
     private var appliedTaskbarAlignment: TaskbarAlignment?
     private var appliedLayoutMode: TaskDockLayoutMode?
-    private var favoriteMagnificationExpansion: CGFloat = 0
     private var stableDockGeometry: DockGeometrySnapshot?
     private var pendingDockGeometry: DockGeometrySnapshot?
     private var pendingDockGeometrySince: Date?
@@ -44,6 +44,7 @@ final class TaskbarPanelController {
     }
 
     func show() {
+        systemDockVisibility.synchronize(hidden: settings.hideSystemDock)
         let view = makeTaskbarView(windows: windows, showsFavorites: true, showsControls: true, showsEmptyState: true)
         let hosting = NSHostingView(rootView: view)
         hostingView = hosting
@@ -74,6 +75,7 @@ final class TaskbarPanelController {
     }
 
     func stop() {
+        systemDockVisibility.restore()
         timer?.invalidate()
         shortcutMonitor?.stop()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -103,7 +105,6 @@ final class TaskbarPanelController {
 
     func setLayoutMode(_ mode: TaskDockLayoutMode) {
         guard settings.layoutMode != mode else { return }
-        favoriteMagnificationExpansion = 0
         settings.layoutMode = mode
         refresh()
     }
@@ -154,17 +155,21 @@ final class TaskbarPanelController {
             showsControls: showsControls,
             showsEmptyState: showsEmptyState,
             settings: settings,
-            onSettingsChanged: { [weak self] in self?.refresh() },
-            onAppDragChanged: { [weak self] isDragging in self?.setAppReordering(isDragging) },
-            onFavoriteMagnificationChanged: { [weak self] expansion in
-                self?.setFavoriteMagnificationExpansion(expansion)
+            onSettingsChanged: { [weak self] in
+                self?.lastRenderedWindowSignature = ""
+                self?.refresh()
             },
+            onAppDragChanged: { [weak self] isDragging in self?.setAppReordering(isDragging) },
             onPanelDragChanged: { [weak self] translation in self?.movePanel(by: translation) },
             onPanelDragEnded: { [weak self] in self?.finishPanelDrag() }
         )
     }
 
-    private func reposition(animated: Bool = false) {
+    private func reposition(
+        animated: Bool = false,
+        animationDuration: TimeInterval = 0.16,
+        animationTimingFunction: CAMediaTimingFunction? = nil
+    ) {
         guard let screen = NSScreen.screens.first, panel != nil else { return }
         let screenFrame = screen.visibleFrame
 
@@ -182,6 +187,8 @@ final class TaskbarPanelController {
             return
         }
         dockFinderPanel?.orderOut(nil)
+        panel?.level = .floating
+        dockFinderPanel?.level = .floating
 
         if settings.layoutMode == .taskbar {
             if appliedTaskbarAlignment != settings.taskbarAlignment {
@@ -191,7 +198,7 @@ final class TaskbarPanelController {
             let preferredItemWidth: CGFloat = 198
             let favoriteWidth = settings.favoriteApps.isEmpty
                 ? 0
-                : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14 + favoriteMagnificationExpansion
+                : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
             let controlsAndPadding: CGFloat = 48 + favoriteWidth
             let itemSpacing = CGFloat(max(windows.count - 1, 0)) * 4
             let desiredWidth: CGFloat
@@ -202,18 +209,24 @@ final class TaskbarPanelController {
             } else {
                 desiredWidth = CGFloat(windows.count) * preferredItemWidth + itemSpacing + controlsAndPadding
             }
-            let width = min(screenFrame.width - 24, desiredWidth)
+            let width = settings.taskbarWidthMode == .fullWidth
+                ? screenFrame.width - 8
+                : min(screenFrame.width - 24, desiredWidth)
             // Keep transparent headroom above the 38-point taskbar so favorite
             // icons can magnify upward without changing the taskbar's base height.
             let height: CGFloat = 58
             let defaultX: CGFloat
-            switch settings.taskbarAlignment {
-            case .left:
+            if settings.taskbarWidthMode == .fullWidth {
                 defaultX = screenFrame.minX + 4
-            case .center:
-                defaultX = screenFrame.midX - width / 2
-            case .right:
-                defaultX = screenFrame.maxX - width - 4
+            } else {
+                switch settings.taskbarAlignment {
+                case .left:
+                    defaultX = screenFrame.minX + 4
+                case .center:
+                    defaultX = screenFrame.midX - width / 2
+                case .right:
+                    defaultX = screenFrame.maxX - width - 4
+                }
             }
             let defaultOrigin = NSPoint(x: defaultX, y: screenFrame.minY + 4)
             let proposedOrigin = customPanelOrigins[.taskbar] ?? defaultOrigin
@@ -225,7 +238,9 @@ final class TaskbarPanelController {
             )
             setPanelFrameIfNeeded(
                 NSRect(origin: origin, size: NSSize(width: width, height: height)),
-                animated: animated
+                animated: animated,
+                animationDuration: animationDuration,
+                animationTimingFunction: animationTimingFunction
             )
             return
         }
@@ -256,12 +271,21 @@ final class TaskbarPanelController {
 
     private func repositionBesideDock(on screen: NSScreen) {
         let screenFrame = screen.visibleFrame
+        if !settings.dockCompanionOverlayEnabled {
+            panel?.level = .floating
+            dockFinderPanel?.level = .floating
+        }
         guard let observedDockGeometry = dockGeometryService.bottomDockGeometry(
             on: screen,
             minimizedWindowCount: windows.filter(\.isMinimized).count
         ) else {
             // Accessibility can briefly omit the Dock during login/relaunch.
             // Keep TaskDock usable at the bottom-right until the next refresh.
+            if !settings.dockCompanionShowsBottomBar && otherWindows.isEmpty {
+                panel?.orderOut(nil)
+                dockFinderPanel?.orderOut(nil)
+                return
+            }
             let fallbackWidth = min(screenFrame.width - 24, taskbarDesiredWidth(for: otherWindows, showsFavorites: false, showsControls: true))
             let fallbackDockHeight = DockCompanionSizing.baselineDockHeight
             let fallbackHeight = DockCompanionSizing.panelHeight(for: fallbackDockHeight)
@@ -277,7 +301,12 @@ final class TaskbarPanelController {
         }
         let dockFrame = stabilizedDockFrame(for: observedDockGeometry)
 
-        let gap: CGFloat = 6
+        let overlayEnabled = settings.dockCompanionOverlayEnabled && dockFrame.width >= 360
+        let dockPanelLevel: NSWindow.Level = overlayEnabled ? .statusBar : .floating
+        panel?.level = dockPanelLevel
+        dockFinderPanel?.level = dockPanelLevel
+
+        let gap: CGFloat = 2
         let edgeInset: CGFloat = 4
         let rightSpace = max(0, screenFrame.maxX - dockFrame.maxX - gap - edgeInset)
         let leftSpace = max(0, dockFrame.minX - screenFrame.minX - gap - edgeInset)
@@ -287,22 +316,48 @@ final class TaskbarPanelController {
         }
 
         let rightDesiredWidth = taskbarDesiredWidth(for: otherWindows, showsFavorites: false, showsControls: true)
-        let rightWidth = min(rightDesiredWidth, max(180, rightSpace))
-        setPanelFrameIfNeeded(NSRect(
-            x: min(dockFrame.maxX + gap, screenFrame.maxX - rightWidth - edgeInset),
-            y: dockFrame.minY,
-            width: rightWidth,
-            height: DockCompanionSizing.panelHeight(for: baseHeight)
-        ), animated: shouldAnimateDockPanel(panel), animationDuration: 0.2)
+        let hasBottomBar = settings.dockCompanionShowsBottomBar
+        let shouldShowRightPanel = hasBottomBar || !otherWindows.isEmpty
+        let leftDesiredWidth = taskbarDesiredWidth(for: finderWindows, showsFavorites: false, showsControls: false)
+        let shouldShowLeftPanel = !finderWindows.isEmpty && (!overlayEnabled ? leftSpace >= 80 : true)
+        let overlayHasBothSides = shouldShowLeftPanel && shouldShowRightPanel
+        let overlayMaximumWidth = dockFrame.width * (overlayHasBothSides ? 0.46 : 0.78)
+        var rightWidth = hasBottomBar
+            ? min(rightDesiredWidth, max(180, rightSpace))
+            : min(rightDesiredWidth, rightSpace)
+        var leftWidth = shouldShowLeftPanel ? min(leftDesiredWidth, leftSpace) : 0
+        if overlayEnabled {
+            let availableDockWidth = max(0, dockFrame.width - 12)
+            rightWidth = shouldShowRightPanel ? min(rightDesiredWidth, overlayMaximumWidth) : 0
+            leftWidth = shouldShowLeftPanel ? min(leftDesiredWidth, overlayMaximumWidth) : 0
+            let combinedWidth = rightWidth + leftWidth
+            if combinedWidth > availableDockWidth, combinedWidth > 0 {
+                let fitScale = availableDockWidth / combinedWidth
+                rightWidth *= fitScale
+                leftWidth *= fitScale
+            }
+        }
+        if shouldShowRightPanel {
+            setPanelFrameIfNeeded(NSRect(
+                x: overlayEnabled
+                    ? dockFrame.maxX - rightWidth - edgeInset
+                    : min(dockFrame.maxX + gap, screenFrame.maxX - rightWidth - edgeInset),
+                y: dockFrame.minY,
+                width: rightWidth,
+                height: DockCompanionSizing.panelHeight(for: baseHeight)
+            ), animated: shouldAnimateDockPanel(panel), animationDuration: 0.2)
+        } else {
+            panel?.orderOut(nil)
+        }
 
-        if finderWindows.isEmpty || leftSpace < 80 {
+        if !shouldShowLeftPanel || leftWidth < 1 {
             dockFinderPanel?.orderOut(nil)
         } else {
-            let leftDesiredWidth = taskbarDesiredWidth(for: finderWindows, showsFavorites: false, showsControls: false)
-            let leftWidth = min(leftDesiredWidth, leftSpace)
             setPanelFrameIfNeeded(
                 NSRect(
-                    x: dockFrame.minX - gap - leftWidth,
+                    x: overlayEnabled
+                        ? dockFrame.minX + edgeInset
+                        : dockFrame.minX - gap - leftWidth,
                     y: dockFrame.minY,
                     width: leftWidth,
                     height: DockCompanionSizing.panelHeight(for: baseHeight)
@@ -330,11 +385,21 @@ final class TaskbarPanelController {
         let favoriteWidth = !showsFavorites || settings.favoriteApps.isEmpty
             ? 0
             : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
-        let controlsAndPadding: CGFloat = (showsControls ? 48 : 16) * panelScale + favoriteWidth
+        let resolvedShowsControls = showsControls && (!isDockCompanion || settings.dockCompanionShowsBottomBar)
+        let controlsAndPadding: CGFloat
+        if isDockCompanion {
+            if showsControls {
+                controlsAndPadding = (settings.dockCompanionShowsBottomBar ? 48 : 8) * panelScale
+            } else {
+                controlsAndPadding = 0
+            }
+        } else {
+            controlsAndPadding = (resolvedShowsControls ? 48 : 16) * panelScale + favoriteWidth
+        }
         let spacing = isDockCompanion ? DockCompanionSizing.itemSpacing(for: dockHeight) : 4
         let itemSpacing = CGFloat(max(displayedWindows.count - 1, 0)) * spacing
         if !permissionService.isTrusted { return 600 }
-        if displayedWindows.isEmpty { return showsControls ? controlsAndPadding : 0 }
+        if displayedWindows.isEmpty { return resolvedShowsControls ? controlsAndPadding : 0 }
         return CGFloat(displayedWindows.count) * preferredItemWidth + itemSpacing + controlsAndPadding
     }
 
@@ -377,7 +442,8 @@ final class TaskbarPanelController {
         _ frame: NSRect,
         panel targetPanel: NSPanel? = nil,
         animated: Bool = false,
-        animationDuration: TimeInterval = 0.16
+        animationDuration: TimeInterval = 0.16,
+        animationTimingFunction: CAMediaTimingFunction? = nil
     ) {
         guard let panel = targetPanel ?? panel else { return }
         let current = panel.frame
@@ -389,7 +455,7 @@ final class TaskbarPanelController {
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = animationDuration
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                context.timingFunction = animationTimingFunction ?? CAMediaTimingFunction(name: .easeOut)
                 context.allowsImplicitAnimation = true
                 panel.animator().setFrame(frame, display: true)
             }
@@ -405,17 +471,31 @@ final class TaskbarPanelController {
 
     private var dockCompanionWindows: [WindowModel] {
         let countsByApp = Dictionary(grouping: windows, by: \.appKey).mapValues(\.count)
+        let availableAppKeys = Set(countsByApp.keys)
         return windows.filter {
-            $0.bundleIdentifier == "com.apple.finder" || countsByApp[$0.appKey, default: 0] >= 2
+            let isFinder = $0.bundleIdentifier == "com.apple.finder"
+            guard isFinder || countsByApp[$0.appKey, default: 0] >= settings.dockCompanionMinimumWindowCount else {
+                return false
+            }
+            return settings.dockCompanionSide(
+                for: $0.appKey,
+                availableAppKeys: availableAppKeys
+            ) != .hidden
         }
     }
 
     private var finderWindows: [WindowModel] {
-        dockCompanionWindows.filter { $0.bundleIdentifier == "com.apple.finder" }
+        let availableAppKeys = Set(windows.map(\.appKey))
+        return dockCompanionWindows.filter {
+            settings.dockCompanionSide(for: $0.appKey, availableAppKeys: availableAppKeys) == .left
+        }
     }
 
     private var otherWindows: [WindowModel] {
-        dockCompanionWindows.filter { $0.bundleIdentifier != "com.apple.finder" }
+        let availableAppKeys = Set(windows.map(\.appKey))
+        return dockCompanionWindows.filter {
+            settings.dockCompanionSide(for: $0.appKey, availableAppKeys: availableAppKeys) == .right
+        }
     }
 
     private var isAccessibilityTrustedWidth: CGFloat {
@@ -423,6 +503,10 @@ final class TaskbarPanelController {
     }
 
     private func refresh() {
+        // Focus notifications can arrive during a drag even while the timer is paused.
+        // Do not enumerate windows or resize the panel until the gesture has settled.
+        if let pauseUntil = reorderRefreshPauseUntil, pauseUntil > Date() { return }
+        systemDockVisibility.synchronize(hidden: settings.hideSystemDock)
         syncAppFocusObservers()
         let refreshedWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
@@ -454,8 +538,12 @@ final class TaskbarPanelController {
         if isHiddenInDock {
             panel?.orderOut(nil)
             dockFinderPanel?.orderOut(nil)
-        } else if panel?.isVisible != true {
-            panel?.orderFrontRegardless()
+        } else if settings.layoutMode != .dockCompanion || settings.dockCompanionShowsBottomBar || !otherWindows.isEmpty {
+            if panel?.isVisible != true {
+                panel?.orderFrontRegardless()
+            }
+        } else {
+            panel?.orderOut(nil)
         }
         if !isHiddenInDock, settings.layoutMode == .dockCompanion, !finderWindows.isEmpty {
             if dockFinderPanel?.isVisible != true { dockFinderPanel?.orderFrontRegardless() }
@@ -527,6 +615,7 @@ final class TaskbarPanelController {
         )
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController(settings: settings, windows: configurableWindows) { [weak self] in
+                self?.lastRenderedWindowSignature = ""
                 self?.refresh()
             }
         }
@@ -551,13 +640,6 @@ final class TaskbarPanelController {
                 self?.refresh()
             }
         }
-    }
-
-    private func setFavoriteMagnificationExpansion(_ expansion: CGFloat) {
-        let resolvedExpansion = settings.layoutMode == .taskbar ? expansion : 0
-        guard abs(favoriteMagnificationExpansion - resolvedExpansion) >= 0.5 else { return }
-        favoriteMagnificationExpansion = resolvedExpansion
-        reposition(animated: true)
     }
 
     private func refreshAfterWindowAction() {
