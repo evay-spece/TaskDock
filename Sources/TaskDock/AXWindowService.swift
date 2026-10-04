@@ -20,6 +20,8 @@ final class AXWindowService {
     private var windowOrder: [String: Int] = [:]
     private var nextWindowOrder = 0
     private var reservedWindowFrames: [String: ReservedWindowFrame] = [:]
+    private var activationRequestID = UUID()
+    private var recentActivation: (windowID: String, date: Date)?
     private let ignoredWindowTitles: [String: Set<String>] = [
         "com.openai.codex": ["computer use", "computer use controls"]
     ]
@@ -28,7 +30,8 @@ final class AXWindowService {
         excludingPID: pid_t,
         showHiddenApps: Bool,
         blacklistedAppKeys: Set<String>,
-        blockedWindowRules: [BlockedWindowRule]
+        blockedWindowRules: [BlockedWindowRule],
+        finderTabsAsWindows: Bool = false
     ) -> [WindowModel] {
         guard AXIsProcessTrusted() else { return [] }
         var result: [WindowModel] = []
@@ -68,7 +71,7 @@ final class AXWindowService {
                 return matchingWindow(for: screenWindow, among: displayableWindows)
             }
 
-            var appWindows: [(order: Int, model: WindowModel)] = []
+            var appWindows: [(order: Int, tabIndex: Int, model: WindowModel)] = []
             for axWindow in displayableWindows {
                 let title = (copyAttribute(axWindow, kAXTitleAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let role = copyAttribute(axWindow, kAXRoleAttribute) as? String ?? ""
@@ -91,24 +94,37 @@ final class AXWindowService {
                     nextWindowOrder += 1
                     windowOrder[runtimeKey] = stableOrder
                 }
-                let model = WindowModel(
-                    id: runtimeKey,
-                    pid: pid,
-                    bundleIdentifier: app.bundleIdentifier,
-                    applicationName: applicationName,
-                    applicationIcon: app.icon,
-                    rawTitle: title,
-                    title: title.isEmpty ? applicationName : title,
-                    accessibilityRole: role,
-                    accessibilitySubrole: subrole,
-                    isMinimized: minimized,
-                    isFocused: focused,
-                    isMain: main,
-                    axWindow: axWindow
-                )
-                appWindows.append((stableOrder, model))
+                let tabs = finderTabsAsWindows && app.bundleIdentifier == "com.apple.finder"
+                    ? finderTabs(in: axWindow) : []
+                let entries: [AXUIElement?] = tabs.isEmpty ? [nil] : tabs.map { $0 as AXUIElement? }
+                for (tabIndex, tab) in entries.enumerated() {
+                    let tabTitle = tab.flatMap { copyAttribute($0, kAXTitleAttribute) as? String }?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let selected = tab.map(isFinderTabSelected) ?? true
+                    let itemTitle = tab == nil ? title : tabTitle
+                    let model = WindowModel(
+                        id: tab.map { "\(runtimeKey)-tab-\(CFHash($0))" } ?? runtimeKey,
+                        nativeWindowID: runtimeKey,
+                        pid: pid,
+                        bundleIdentifier: app.bundleIdentifier,
+                        applicationName: applicationName,
+                        applicationIcon: app.icon,
+                        rawTitle: itemTitle,
+                        title: itemTitle.isEmpty ? applicationName : itemTitle,
+                        accessibilityRole: role,
+                        accessibilitySubrole: subrole,
+                        isMinimized: minimized,
+                        isFocused: focused && selected,
+                        isMain: main && selected,
+                        axWindow: axWindow,
+                        finderTab: tab
+                    )
+                    appWindows.append((stableOrder, tabIndex, model))
+                }
             }
-            result.append(contentsOf: appWindows.sorted { $0.order < $1.order }.map(\.model))
+            result.append(contentsOf: appWindows.sorted {
+                $0.order == $1.order ? $0.tabIndex < $1.tabIndex : $0.order < $1.order
+            }.map(\.model))
         }
         return result
     }
@@ -116,30 +132,56 @@ final class AXWindowService {
     @discardableResult
     func activate(_ window: WindowModel) -> Bool {
         guard let app = NSRunningApplication(processIdentifier: window.pid) else { return false }
+        let requestID = UUID()
+        activationRequestID = requestID
         if app.isHidden { app.unhide() }
         let axApp = AXUIElementCreateApplication(window.pid)
-        let activatedThroughWorkspace = app.activate(options: [.activateIgnoringOtherApps])
-        let activatedThroughAccessibility = setAttribute(axApp, kAXFrontmostAttribute, value: true as CFBoolean)
-        let promoted = promote(window.axWindow)
+        let displayableWindows = (copyAttribute(axApp, kAXWindowsAttribute) as? [AXUIElement] ?? [])
+            .filter { shouldIncludeWindow($0, bundleIdentifier: window.bundleIdentifier) }
+        let needsWindowPromotion = window.finderTab != nil ||
+            displayableWindows.count != 1 ||
+            !CFEqual(displayableWindows[0], window.axWindow)
+        let wasMinimized = (copyAttribute(window.axWindow, kAXMinimizedAttribute) as? Bool) ?? window.isMinimized
+        let restored = wasMinimized
+            ? setAttribute(window.axWindow, kAXMinimizedAttribute, value: false as CFBoolean) : false
+        let alreadyFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+        let activatedThroughWorkspace = alreadyFrontmost || app.activate(options: [.activateIgnoringOtherApps])
+        let activatedThroughAccessibility = activatedThroughWorkspace
+            ? false : setAttribute(axApp, kAXFrontmostAttribute, value: true as CFBoolean)
+        // A single document window needs only app activation. AXMain/AXFocused/AXRaise
+        // after that can make apps such as ChatGPT briefly redraw the same window.
+        let promoted = needsWindowPromotion ? promote(window.axWindow) : false
+        let selectedTab = selectFinderTab(window.finderTab)
 
-        // Chromium-based apps can acknowledge activation before their selected
-        // native window has changed. Repeat the targeted promotion after that
-        // short hand-off without activating every window in the application.
+        // Some apps acknowledge activation before switching their selected window.
+        // Retry only when the requested window is still not focused; unconditional
+        // re-activation can briefly flash another window in a multi-window app.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self, weak app] in
-            guard let self, let app, !app.isTerminated else { return }
-            _ = app.activate(options: [.activateIgnoringOtherApps])
-            _ = self.setAttribute(axApp, kAXFrontmostAttribute, value: true as CFBoolean)
+            guard let self, let app, !app.isTerminated,
+                  self.activationRequestID == requestID else { return }
+            guard needsWindowPromotion,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid,
+                  !self.isCurrentlyFocused(window) else { return }
             _ = self.promote(window.axWindow)
+            _ = self.selectFinderTab(window.finderTab)
         }
 
-        return activatedThroughWorkspace || activatedThroughAccessibility || promoted
+        let activated = restored || activatedThroughWorkspace || activatedThroughAccessibility || promoted || selectedTab
+        if activated { recentActivation = (window.id, Date()) }
+        return activated
     }
 
     @discardableResult
     func toggle(_ window: WindowModel) -> Bool {
-        if isCurrentlyFocused(window) {
-            setAttribute(window.axWindow, kAXMinimizedAttribute, value: true as CFBoolean)
-            return true
+        let isMinimized = (copyAttribute(window.axWindow, kAXMinimizedAttribute) as? Bool) ?? window.isMinimized
+        let wasRecentlyActivated = recentActivation.map {
+            $0.windowID == window.id && Date().timeIntervalSince($0.date) < 0.8 &&
+                NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+        } ?? false
+        if !isMinimized && (wasRecentlyActivated || isCurrentlyFocused(window)) {
+            activationRequestID = UUID()
+            recentActivation = nil
+            return setAttribute(window.axWindow, kAXMinimizedAttribute, value: true as CFBoolean)
         }
         return activate(window)
     }
@@ -272,11 +314,19 @@ final class AXWindowService {
 
     @discardableResult
     func close(_ window: WindowModel) -> Bool {
-        performAction(window.axWindow, "AXClose")
+        if let tab = window.finderTab {
+            guard let children = copyAttribute(tab, kAXChildrenAttribute) as? [AXUIElement],
+                  let closeButton = children.first(where: {
+                      (copyAttribute($0, kAXRoleAttribute) as? String) == kAXButtonRole
+                  }) else { return false }
+            return performAction(closeButton, kAXPressAction)
+        }
+        return performAction(window.axWindow, "AXClose")
     }
 
-    private func isCurrentlyFocused(_ window: WindowModel) -> Bool {
+    func isCurrentlyFocused(_ window: WindowModel) -> Bool {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid else { return false }
+        if let tab = window.finderTab, !isFinderTabSelected(tab) { return false }
         let axApp = AXUIElementCreateApplication(window.pid)
         if let values = copyAttribute(axApp, kAXWindowsAttribute) as? [AXUIElement],
            let topmostWindow = topmostScreenWindow(for: window.pid),
@@ -386,6 +436,43 @@ final class AXWindowService {
         return ignoredTitles.contains(title.lowercased())
     }
 
+    private func finderTabs(in window: AXUIElement) -> [AXUIElement] {
+        func tabGroup(in element: AXUIElement, depth: Int) -> AXUIElement? {
+            if (copyAttribute(element, kAXRoleAttribute) as? String) == "AXTabGroup" {
+                return element
+            }
+            guard depth > 0,
+                  let children = copyAttribute(element, kAXChildrenAttribute) as? [AXUIElement] else {
+                return nil
+            }
+            for child in children {
+                if let group = tabGroup(in: child, depth: depth - 1) { return group }
+            }
+            return nil
+        }
+
+        guard let group = tabGroup(in: window, depth: 4),
+              let children = copyAttribute(group, kAXChildrenAttribute) as? [AXUIElement] else {
+            return []
+        }
+        return children.filter { child in
+            let role = copyAttribute(child, kAXRoleAttribute) as? String
+            let title = copyAttribute(child, kAXTitleAttribute) as? String
+            return (role == "AXRadioButton" || role == "AXTab") && !(title?.isEmpty ?? true)
+        }
+    }
+
+    private func isFinderTabSelected(_ tab: AXUIElement) -> Bool {
+        (copyAttribute(tab, kAXValueAttribute) as? Bool) == true
+    }
+
+    @discardableResult
+    private func selectFinderTab(_ tab: AXUIElement?) -> Bool {
+        guard let tab else { return false }
+        if isFinderTabSelected(tab) { return true }
+        return performAction(tab, kAXPressAction)
+    }
+
     private func shouldIncludeWindow(
         _ window: AXUIElement,
         bundleIdentifier: String?,
@@ -417,8 +504,7 @@ final class AXWindowService {
 
         // Finder can change a normal window's accessibility subrole to AXDialog
         // after it is minimized. Keep that minimized document window visible in
-        // TaskDock without weakening dialog filtering for Finder's live popups or
-        // for any other application.
+        // TaskDock without weakening dialog filtering for Finder's live popups.
         let isMinimized = (copyAttribute(window, kAXMinimizedAttribute) as? Bool) ?? false
         if bundleIdentifier == "com.apple.finder",
            WindowFilterRules.shouldIgnoreFinderWindow(
@@ -432,7 +518,18 @@ final class AXWindowService {
             return true
         }
 
-        if (copyAttribute(window, kAXModalAttribute) as? Bool) == true {
+        let isModal = (copyAttribute(window, kAXModalAttribute) as? Bool) == true
+        if WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+            bundleIdentifier: bundleIdentifier,
+            title: title,
+            subrole: subrole,
+            isMinimized: isMinimized,
+            isModal: isModal
+        ) {
+            return true
+        }
+
+        if isModal {
             return false
         }
 

@@ -4,13 +4,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_PATH="$PROJECT_ROOT/AppBundle/TaskDock.app"
-EXECUTABLE_PATH="$PROJECT_ROOT/.build/arm64-apple-macosx/debug/TaskDock"
 ICON_SOURCE="$PROJECT_ROOT/Resources/TaskDockIcon.png"
 DETECTED_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/Apple Development/ { print $2; exit }')"
 SIGNING_IDENTITY="${TASKDOCK_SIGNING_IDENTITY:-${DETECTED_IDENTITY:--}}"
 
 cd "$PROJECT_ROOT"
-swift build
+BUILD_SDK_ARGS=()
+if [[ -n "${TASKDOCK_BUILD_SDK:-}" ]]; then
+  BUILD_SDK_ARGS=(--sdk "$TASKDOCK_BUILD_SDK")
+fi
+BUILD_CONFIGURATION="${TASKDOCK_BUILD_CONFIGURATION:-debug}"
+if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
+  echo "不支持的构建配置：$BUILD_CONFIGURATION" >&2
+  exit 1
+fi
+swift build -c "$BUILD_CONFIGURATION" "${BUILD_SDK_ARGS[@]}"
+EXECUTABLE_PATH="$(swift build -c "$BUILD_CONFIGURATION" "${BUILD_SDK_ARGS[@]}" --show-bin-path)/TaskDock"
+[[ -f "$EXECUTABLE_PATH" ]] || { echo "找不到构建产物：$EXECUTABLE_PATH" >&2; exit 1; }
 mkdir -p "$APP_PATH/Contents/MacOS"
 cp "$EXECUTABLE_PATH" "$APP_PATH/Contents/MacOS/TaskDock"
 if [[ -f "$ICON_SOURCE" ]]; then

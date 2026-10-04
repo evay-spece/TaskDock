@@ -3,20 +3,26 @@ import SwiftUI
 
 struct TaskbarView: View {
     let windows: [WindowModel]
+    let recentApplications: [FavoriteApp]
+    let runningApplicationIDs: Set<String>
     let isAccessibilityTrusted: Bool
     let onRequestPermission: () -> Void
     let onSelect: (WindowModel) -> Void
     let onMinimizeAll: () -> Void
+    let onOpenTrash: () -> Void
     let onShowAppWindows: (WindowModel) -> Void
     let onBlockWindowType: (WindowModel) -> Void
     let onClose: (WindowModel) -> Void
     let onOpenFavorite: (FavoriteApp) -> Void
+    let onQuitRecentApp: (FavoriteApp) -> Void
     let showsFavorites: Bool
     let showsControls: Bool
     let showsEmptyState: Bool
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var trashStatus: TrashStatusService
     let onSettingsChanged: () -> Void
     let onAppDragChanged: (Bool) -> Void
+    let onFavoriteHoverActivity: (Bool) -> Void
     let onPanelDragChanged: (CGSize) -> Void
     let onPanelDragEnded: () -> Void
     @State private var draggedAppKey: String?
@@ -76,7 +82,6 @@ struct TaskbarView: View {
                                             onToggleFavorite: { toggleFavorite(window) },
                                             favoriteActionTitle: favoriteMenuTitle(for: window)
                                         )
-                                        .id(window.renderStateID)
                                         .frame(width: columnWidth, height: 32)
                                         .contentShape(Rectangle())
                                         .onTapGesture { onSelect(window) }
@@ -155,53 +160,92 @@ struct TaskbarView: View {
                     if showsFavorites && !settings.favoriteApps.isEmpty {
                         FavoriteDockView(
                             favorites: settings.favoriteApps,
+                            runningApplicationIDs: runningApplicationIDs,
+                            shortcutIndices: settings.layoutMode == .taskbar
+                                ? settings.activeFavoriteShortcutIndices : [],
                             hoverFeedbackEnabled: settings.favoriteMagnificationEnabled,
+                            sizeScale: taskbarPanelScale,
                             onOpen: onOpenFavorite,
                             onRemove: { favorite in
                                 settings.removeFavorite(favorite)
                                 onSettingsChanged()
                             },
                             onReorder: { settings.reorderFavorites($0) },
-                            onDragChanged: onAppDragChanged
+                            onDragChanged: onAppDragChanged,
+                            onHoverActivity: onFavoriteHoverActivity
                         )
-                        .padding(.leading, 6)
+                        .padding(.horizontal, FavoriteMagnificationLayout.sideClearance(for: taskbarPanelScale))
+                        .padding(.leading, 6 * taskbarPanelScale)
 
-                        Divider()
-                            .frame(height: 22)
+                        if !recentApplications.isEmpty || !windows.isEmpty {
+                            Divider()
+                                .frame(height: 22 * taskbarPanelScale)
+                        }
+                    }
+
+                    if !recentApplications.isEmpty {
+                        RecentApplicationDockView(
+                            applications: recentApplications,
+                            runningApplicationIDs: runningApplicationIDs,
+                            sizeScale: taskbarPanelScale,
+                            isDark: settings.appearance == .dark,
+                            onOpen: onOpenFavorite,
+                            onQuit: onQuitRecentApp
+                        )
+
+                        if !windows.isEmpty {
+                            Divider()
+                                .frame(height: 22 * taskbarPanelScale)
+                        }
                     }
 
                     if windows.isEmpty && showsEmptyState {
-                        Text("没有可显示的窗口")
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
                         taskbarDragArea
                     } else if !windows.isEmpty {
                         let itemWidth = taskbarItemWidth(for: geometry.size.width)
                         HStack(spacing: taskbarItemSpacing) {
                             ForEach(appGroups) { group in
                                 HStack(spacing: taskbarItemSpacing) {
-                                    ForEach(group.windows) { window in
-                                        WindowTaskItemView(
-                                            window: window,
+                                    if settings.layoutMode == .dockCompanion,
+                                       group.windows.count >= settings.dockCompanionCollapseThreshold {
+                                        FusionCollapsedAppView(
+                                            windows: group.windows,
                                             availableWidth: itemWidth,
-                                            appearance: effectiveAppearance,
-                                            isDockCompanion: settings.layoutMode == .dockCompanion,
-                                            isTaskbarMode: settings.layoutMode == .taskbar,
-                                            showApplicationName: settings.showApplicationName,
-                                            highlightStyle: settings.taskItemHighlightStyle,
-                                            nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
                                             itemHeight: taskbarItemHeight,
                                             contentScale: taskbarContentScale,
-                                            onShowAppWindows: { onShowAppWindows(window) },
-                                            onBlockWindowType: { onBlockWindowType(window) },
-                                            onClose: { onClose(window) },
-                                            onToggleFavorite: { toggleFavorite(window) },
-                                            favoriteActionTitle: favoriteMenuTitle(for: window)
+                                            shortcutLabel: shortcutLabel(for: group.windows.first(where: \.isFocused) ?? group.windows[0]),
+                                            onSelect: onSelect
                                         )
-                                        .id(window.renderStateID)
+                                        .frame(width: itemWidth, height: taskbarItemHeight)
+                                        .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidth: itemWidth))
+                                    } else {
+                                    ForEach(group.windows) { window in
+                                        Button {
+                                            onSelect(window)
+                                        } label: {
+                                            WindowTaskItemView(
+                                                window: window,
+                                                availableWidth: itemWidth,
+                                                appearance: effectiveAppearance,
+                                                isDockCompanion: settings.layoutMode == .dockCompanion,
+                                                isTaskbarMode: settings.layoutMode == .taskbar,
+                                                showApplicationName: settings.showApplicationName,
+                                                highlightStyle: settings.taskItemHighlightStyle,
+                                                nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
+                                                shortcutLabel: shortcutLabel(for: window),
+                                                itemHeight: taskbarItemHeight,
+                                                contentScale: taskbarContentScale,
+                                                taskbarFontSize: settings.taskbarItemFontSize,
+                                                onShowAppWindows: { onShowAppWindows(window) },
+                                                onBlockWindowType: { onBlockWindowType(window) },
+                                                onClose: { onClose(window) },
+                                                onToggleFavorite: { toggleFavorite(window) },
+                                                favoriteActionTitle: favoriteMenuTitle(for: window)
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
                                         .frame(width: itemWidth, height: taskbarItemHeight)
                                         .contentShape(Rectangle())
-                                        .onTapGesture { onSelect(window) }
                                         .simultaneousGesture(taskbarReorderGesture(for: window, itemWidth: itemWidth))
                                         .contextMenu {
                                             Button(favoriteMenuTitle(for: window)) { toggleFavorite(window) }
@@ -213,9 +257,8 @@ struct TaskbarView: View {
                                             Button("关闭此窗口", role: .destructive) { onClose(window) }
                                         }
                                         .accessibilityElement(children: .combine)
-                                        .accessibilityAddTraits(.isButton)
                                         .accessibilityValue(window.isFocused ? "当前焦点窗口" : "非焦点窗口")
-                                        .accessibilityAction { onSelect(window) }
+                                    }
                                     }
                                 }
                                 .offset(x: taskbarItemOffset(for: group.id))
@@ -243,22 +286,56 @@ struct TaskbarView: View {
                                 }
                             }
                         }
-                        .padding(.leading, showsFavorites && !settings.favoriteApps.isEmpty
-                            ? 0
-                            : (settings.layoutMode == .dockCompanion ? 2 : 8) * taskbarPanelScale)
+                        .padding(
+                            .leading,
+                            (showsFavorites && !settings.favoriteApps.isEmpty) || !recentApplications.isEmpty
+                                ? 0
+                                : (settings.layoutMode == .dockCompanion ? 2 : 8) * taskbarPanelScale
+                        )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     }
                 }
 
                 if showsControls && (settings.layoutMode != .dockCompanion || settings.dockCompanionShowsBottomBar) {
+                    HStack(spacing: 2 * taskbarPanelScale) {
+                        if settings.layoutMode == .taskbar {
+                            TaskbarTrashButton(
+                                isFull: trashStatus.isFull,
+                                scale: taskbarContentScale,
+                                action: onOpenTrash
+                            )
+                        } else {
+                            TaskbarControlButton(
+                                systemImage: "minus.rectangle",
+                                help: "最小化全部窗口",
+                                scale: taskbarContentScale,
+                                isTaskbarMode: false,
+                                action: onMinimizeAll
+                            )
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
+                    .padding(.horizontal, 8 * taskbarPanelScale)
+                }
+                if showsControls && settings.layoutMode == .taskbar && !settings.favoriteFolders.isEmpty {
+                    Divider()
+                        .frame(height: 22 * taskbarPanelScale)
+                    FavoriteFolderDockView(
+                        folders: settings.favoriteFolders,
+                        sizeScale: taskbarPanelScale
+                    )
+                    .padding(.trailing, 7 * taskbarPanelScale)
+                }
+                if showsControls && settings.layoutMode == .taskbar {
                     TaskbarControlButton(
                         systemImage: "minus.rectangle",
                         help: "最小化全部窗口",
                         scale: taskbarContentScale,
-                        isTaskbarMode: settings.layoutMode == .taskbar,
+                        isTaskbarMode: true,
                         action: onMinimizeAll
                     )
-                    .padding(.horizontal, 8 * taskbarPanelScale)
+                    .padding(.trailing, 8 * taskbarPanelScale)
                 }
             }
             .frame(height: taskbarBaseHeight)
@@ -266,17 +343,12 @@ struct TaskbarView: View {
         }
         .background(alignment: .bottom) {
             if settings.layoutMode != .dockCompanion || settings.dockCompanionShowsBottomBar {
-                RoundedRectangle(cornerRadius: 10 * min(taskbarContentScale, 1.3))
-                    .fill(settings.layoutMode == .dockCompanion ? .regularMaterial : .ultraThinMaterial)
-                    .overlay(RoundedRectangle(cornerRadius: 10 * min(taskbarContentScale, 1.3)).fill(taskbarSurfaceColor))
-                    .frame(height: taskbarBaseHeight)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if settings.layoutMode != .dockCompanion || settings.dockCompanionShowsBottomBar {
-                RoundedRectangle(cornerRadius: 10 * min(taskbarContentScale, 1.3))
-                    .stroke(taskbarBorderColor)
-                    .frame(height: taskbarBaseHeight)
+                FusionDockTileSurface(
+                    cornerRadius: settings.layoutMode == .dockCompanion
+                        ? 14 * min(taskbarContentScale, 1.3) : 11,
+                    isHighlighted: false
+                )
+                .frame(height: taskbarBaseHeight)
             }
         }
         .shadow(
@@ -284,7 +356,9 @@ struct TaskbarView: View {
             radius: 9,
             y: 4
         )
-        .padding(2)
+        .padding(.horizontal, 2)
+        .padding(.top, 2)
+        .padding(.bottom, settings.layoutMode == .taskbar ? 0 : 2)
     }
 
     private func taskbarItemWidth(for totalWidth: CGFloat) -> CGFloat {
@@ -297,54 +371,55 @@ struct TaskbarView: View {
                 controlsAndPadding = (settings.dockCompanionShowsBottomBar ? 48 : 8) * taskbarPanelScale
             }
         } else {
-            controlsAndPadding = (showsControls ? 48 : 16) * taskbarPanelScale
+            controlsAndPadding = (showsControls ? 84 : 16) * taskbarPanelScale
         }
         let favoriteWidth = !showsFavorites || settings.favoriteApps.isEmpty
             ? 0
-            : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
-        let totalSpacing = CGFloat(max(windows.count - 1, 0)) * taskbarItemSpacing
-        let available = max(totalWidth - controlsAndPadding - favoriteWidth - totalSpacing, 0)
+            : (CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14) * taskbarPanelScale
+                + 2 * FavoriteMagnificationLayout.sideClearance(for: taskbarPanelScale)
+        let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 46 * taskbarPanelScale
+        let favoriteFolderWidth: CGFloat = settings.layoutMode == .taskbar && showsControls
+            ? CGFloat(settings.favoriteFolders.count) * 34 * taskbarPanelScale
+                + (settings.favoriteFolders.isEmpty ? 0 : 12 * taskbarPanelScale)
+            : 0
+        let displayCount = settings.layoutMode == .dockCompanion
+            ? FusionDisplayPolicy.displayCount(
+                appKeys: windows.map(\.appKey),
+                collapseThreshold: settings.dockCompanionCollapseThreshold
+            )
+            : windows.count
+        let totalSpacing = CGFloat(max(displayCount - 1, 0)) * taskbarItemSpacing
+        let available = max(
+            totalWidth - controlsAndPadding - favoriteWidth - recentApplicationWidth - favoriteFolderWidth - totalSpacing,
+            0
+        )
         let maximumWidth = settings.layoutMode == .dockCompanion
             ? DockCompanionSizing.maximumItemWidth(for: settings.dockCompanionHeight)
-            : 216
+            : 148 * taskbarPanelScale
         let minimumWidth = settings.layoutMode == .dockCompanion
             ? DockCompanionSizing.minimumItemWidth(for: settings.dockCompanionHeight)
-            : 27
-        return min(maximumWidth, max(minimumWidth, available / CGFloat(windows.count)))
-    }
-
-    private var taskbarSurfaceColor: Color {
-        if settings.layoutMode == .dockCompanion {
-            return .clear
-        }
-        return settings.appearance == .dark ? Color.black.opacity(0.28) : Color.white.opacity(0.64)
-    }
-
-    private var taskbarBorderColor: Color {
-        if settings.layoutMode == .dockCompanion {
-            return Color.white.opacity(0.2)
-        }
-        return settings.appearance == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.12)
+            : 27 * taskbarPanelScale
+        return min(maximumWidth, max(minimumWidth, available / CGFloat(displayCount)))
     }
 
     private var taskbarBaseHeight: CGFloat {
-        settings.layoutMode == .dockCompanion ? settings.dockCompanionHeight : 38
+        settings.layoutMode == .dockCompanion ? settings.dockCompanionHeight : settings.taskbarHeight
     }
 
     private var taskbarPanelScale: CGFloat {
         settings.layoutMode == .dockCompanion
             ? DockCompanionSizing.scale(for: settings.dockCompanionHeight)
-            : 1
+            : settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
     }
 
     private var taskbarContentScale: CGFloat {
         settings.layoutMode == .dockCompanion
             ? DockCompanionSizing.contentScale(for: settings.dockCompanionHeight)
-            : 1
+            : settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
     }
 
     private var taskbarItemHeight: CGFloat {
-        guard settings.layoutMode == .dockCompanion else { return 31 }
+        guard settings.layoutMode == .dockCompanion else { return settings.taskbarHeight - 7 * taskbarPanelScale }
         return settings.dockCompanionShowsBottomBar
             ? DockCompanionSizing.itemHeight(for: settings.dockCompanionHeight)
             : settings.dockCompanionHeight
@@ -353,7 +428,7 @@ struct TaskbarView: View {
     private var taskbarItemSpacing: CGFloat {
         settings.layoutMode == .dockCompanion
             ? DockCompanionSizing.itemSpacing(for: settings.dockCompanionHeight)
-            : 4
+            : 4 * taskbarPanelScale
     }
 
     private var appReorderAnimation: Animation {
@@ -387,15 +462,25 @@ struct TaskbarView: View {
     }
 
     private var orderedWindows: [WindowModel] {
-        let order = Dictionary(
-            settings.appOrder.enumerated().map { ($1, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return windows.enumerated().sorted { lhs, rhs in
-            let lhsOrder = order[lhs.element.appKey] ?? Int.max
-            let rhsOrder = order[rhs.element.appKey] ?? Int.max
-            return lhsOrder == rhsOrder ? lhs.offset < rhs.offset : lhsOrder < rhsOrder
-        }.map(\.element)
+        settings.orderedWindows(windows)
+    }
+
+    private func shortcutLabel(for window: WindowModel) -> String? {
+        guard settings.layoutMode != .matrix else { return nil }
+        let isCompanionLeft = settings.layoutMode == .dockCompanion && !showsControls
+        let labels = isCompanionLeft
+            ? OptionWindowHotKeyMonitor.favoriteShortcutLabels.prefix(8).map { $0 }
+            : settings.layoutMode == .dockCompanion
+                ? OptionWindowHotKeyMonitor.windowShortcutLabels.prefix(5).map { $0 }
+                : OptionWindowHotKeyMonitor.windowShortcutLabels
+        let registeredIndices = isCompanionLeft
+            ? settings.activeFavoriteShortcutIndices : settings.activeTaskbarShortcutIndices
+        let shortcutWindows = settings.layoutMode == .dockCompanion
+            ? fusionShortcutWindows : orderedWindows
+        guard let index = shortcutWindows.prefix(labels.count)
+                .firstIndex(where: { $0.id == window.id }),
+              registeredIndices.contains(index + 1) else { return nil }
+        return labels[index]
     }
 
     private var permissionView: some View {
@@ -449,6 +534,18 @@ struct TaskbarView: View {
                   let groupedWindows = grouped[window.appKey] else { return nil }
             return AppWindowGroup(id: window.appKey, windows: groupedWindows)
         }
+    }
+
+    private var fusionShortcutWindows: [WindowModel] {
+        var result: [WindowModel] = []
+        for group in appGroups {
+            if group.windows.count >= settings.dockCompanionCollapseThreshold {
+                result.append(group.windows.first(where: \.isFocused) ?? group.windows[0])
+            } else {
+                result.append(contentsOf: group.windows)
+            }
+        }
+        return result
     }
 
     private func appReorderGesture(for window: WindowModel, columnWidth: CGFloat) -> some Gesture {
@@ -689,12 +786,6 @@ struct TaskbarView: View {
     }
 }
 
-private extension WindowModel {
-    var renderStateID: String {
-        "\(id)|\(title)|\(isMinimized)|\(isFocused)|\(isMain)"
-    }
-}
-
 private struct AppWindowGroup: Identifiable {
     let id: String
     let windows: [WindowModel]
@@ -716,6 +807,164 @@ private struct AppGroupLayout {
     let maxXs: [CGFloat]
 }
 
+private struct FusionDockTileSurface: View {
+    let cornerRadius: CGFloat
+    let isHighlighted: Bool
+
+    var body: some View {
+        ZStack {
+            if #available(macOS 26, *) {
+                NativeFusionGlassView(cornerRadius: cornerRadius)
+                    .allowsHitTesting(false)
+            } else {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.regularMaterial)
+                    .opacity(0.62)
+            }
+            if isHighlighted {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.white.opacity(0.07))
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.7)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Use native Liquid Glass on macOS 26+ and a material fallback on older systems.
+@available(macOS 26, *)
+private struct NativeFusionGlassView: NSViewRepresentable {
+    let cornerRadius: CGFloat
+
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let glass = NSGlassEffectView(frame: .zero)
+        glass.style = .clear
+        glass.cornerRadius = cornerRadius
+        return glass
+    }
+
+    func updateNSView(_ nsView: NSGlassEffectView, context: Context) {
+        nsView.cornerRadius = cornerRadius
+    }
+}
+
+private struct FusionCollapsedAppView: View {
+    let windows: [WindowModel]
+    let availableWidth: CGFloat
+    let itemHeight: CGFloat
+    let contentScale: CGFloat
+    let shortcutLabel: String?
+    let onSelect: (WindowModel) -> Void
+    @State private var isShowingWindows = false
+    @State private var isHovered = false
+
+    var body: some View {
+        let representative = windows.first(where: \.isFocused) ?? windows[0]
+        let compact = availableWidth < 75 * contentScale
+        Button { isShowingWindows.toggle() } label: {
+            HStack(spacing: 7 * contentScale) {
+                Image(nsImage: representative.applicationIcon
+                    ?? NSImage(named: NSImage.applicationIconName)
+                    ?? NSImage(size: NSSize(width: 24, height: 24)))
+                    .resizable()
+                    .frame(width: (compact ? 18 : 22) * contentScale,
+                           height: (compact ? 18 : 22) * contentScale)
+                    .overlay(alignment: .topTrailing) {
+                        if compact {
+                            Text(shortcutLabel ?? "\(windows.count)")
+                                .font(.system(size: 8 * contentScale, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(2 * contentScale)
+                                .background(Color.accentColor, in: Circle())
+                                .offset(x: 5 * contentScale, y: -5 * contentScale)
+                        } else if let shortcutLabel {
+                            Text(shortcutLabel)
+                                .font(.system(size: 10 * contentScale, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 14 * contentScale, height: 14 * contentScale)
+                                .background(Color.accentColor, in: Circle())
+                                .offset(x: 4 * contentScale, y: -4 * contentScale)
+                        }
+                    }
+                if !compact {
+                    Text(representative.applicationName)
+                        .font(.system(size: 11.5 * contentScale, weight: .semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !compact {
+                    Text("\(windows.count)")
+                        .font(.system(size: 10 * contentScale, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5 * contentScale)
+                        .padding(.vertical, 2 * contentScale)
+                        .background(Color.primary.opacity(0.08), in: Capsule())
+                }
+            }
+            .padding(.horizontal, (compact ? 2 : 7) * contentScale)
+            .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight)
+            .background {
+                FusionDockTileSurface(
+                    cornerRadius: 11 * contentScale,
+                    isHighlighted: isHovered || windows.contains(where: \.isFocused)
+                )
+            }
+            .overlay(alignment: .bottom) {
+                if windows.contains(where: \.isFocused) {
+                    Circle().fill(Color.primary.opacity(0.76))
+                        .frame(width: 4 * contentScale, height: 4 * contentScale)
+                        .padding(.bottom, 2 * contentScale)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help("\(representative.applicationName)：\(windows.count) 个窗口，点击展开")
+        .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口")
+        .popover(isPresented: $isShowingWindows, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(representative.applicationName)
+                    .font(.headline)
+                    .padding(.bottom, 4)
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(windows) { window in
+                            Button {
+                                isShowingWindows = false
+                                onSelect(window)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text(window.title)
+                                        .lineLimit(1)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    if window.isMinimized {
+                                        Image(systemName: "minus.circle")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if window.isFocused {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.plain)
+                            .help(window.title)
+                        }
+                    }
+                }
+                .frame(maxHeight: 360)
+            }
+            .padding(12)
+            .frame(width: 280)
+        }
+    }
+}
+
 struct WindowTaskItemView: View {
     let window: WindowModel
     let availableWidth: CGFloat
@@ -725,31 +974,49 @@ struct WindowTaskItemView: View {
     var showApplicationName: Bool = true
     var highlightStyle: TaskItemHighlightStyle = .white
     var nonSelectedItemTransparency: Double = 0
+    var shortcutLabel: String? = nil
     var itemHeight: CGFloat = 31
     var contentScale: CGFloat = 1
+    var taskbarFontSize: CGFloat = SettingsStore.defaultTaskbarItemFontSize
     let onShowAppWindows: () -> Void
     let onBlockWindowType: () -> Void
     let onClose: () -> Void
     let onToggleFavorite: () -> Void
     let favoriteActionTitle: String
     @State private var isHovered = false
-    @State private var showingLongPressMenu = false
 
     var body: some View {
         HStack(alignment: .center, spacing: availableWidth < textVisibilityWidth ? 0 : 7 * contentScale) {
             Image(nsImage: window.applicationIcon ?? fallbackIcon)
                 .resizable()
                 .frame(width: iconSize, height: iconSize)
+                .overlay(alignment: .topTrailing) {
+                    if let shortcutLabel {
+                        Text(shortcutLabel)
+                            .font(.system(size: 10 * contentScale, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .frame(width: 14 * contentScale, height: 14 * contentScale)
+                            .background(Color.accentColor, in: Circle())
+                            .offset(x: 4 * contentScale, y: -4 * contentScale)
+                            .accessibilityHidden(true)
+                    }
+                }
             if availableWidth >= textVisibilityWidth {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(window.title)
-                        .font(.system(size: (showApplicationName ? 11.5 : 10.5) * contentScale, weight: .medium))
+                        .font(.system(
+                            size: (isTaskbarMode ? taskbarFontSize : (showApplicationName ? 11.5 : 10.5)) * contentScale,
+                            weight: .medium
+                        ))
                         .foregroundStyle(titleColor)
                         .lineLimit(showApplicationName ? 1 : 2)
                         .fixedSize(horizontal: false, vertical: !showApplicationName)
                     if showApplicationName && availableWidth >= subtitleVisibilityWidth {
                         Text(window.applicationName)
-                            .font(.system(size: 9.5 * contentScale, weight: .medium))
+                            .font(.system(
+                                size: (isTaskbarMode ? min(10.5, taskbarFontSize * 9.5 / 12) : 9.5) * contentScale,
+                                weight: .medium
+                            ))
                             .foregroundStyle(subtitleColor)
                             .lineLimit(1)
                     }
@@ -767,21 +1034,42 @@ struct WindowTaskItemView: View {
         .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight, alignment: availableWidth < textVisibilityWidth ? .center : .leading)
         .background {
             ZStack {
-                RoundedRectangle(cornerRadius: 7 * contentScale)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 7 * contentScale)
-                    .fill(cardSurfaceColor)
-                RoundedRectangle(cornerRadius: 7 * contentScale)
-                    .fill(itemBaseBackground)
+                if isDockCompanion {
+                    FusionDockTileSurface(
+                        cornerRadius: 11 * contentScale,
+                        isHighlighted: isHovered || window.isFocused
+                    )
+                } else if isTaskbarMode {
+                    RoundedRectangle(cornerRadius: 7 * contentScale)
+                        .fill(taskbarGlassItemBackground)
+                    RoundedRectangle(cornerRadius: 7 * contentScale)
+                        .stroke(Color.white.opacity(isHovered || window.isFocused ? 0.28 : 0.10), lineWidth: 0.7)
+                } else {
+                    RoundedRectangle(cornerRadius: 7 * contentScale)
+                        .fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 7 * contentScale)
+                        .fill(cardSurfaceColor)
+                    RoundedRectangle(cornerRadius: 7 * contentScale)
+                        .fill(itemBaseBackground)
+                }
             }
         }
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: isTaskbarMode ? .bottomLeading : .bottom) {
             if window.isFocused {
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(height: 3 * contentScale)
-                    .padding(.horizontal, 9 * contentScale)
-                    .padding(.bottom, contentScale)
+                if isDockCompanion {
+                    Circle()
+                        .fill(Color.primary.opacity(0.76))
+                        .frame(width: 4 * contentScale, height: 4 * contentScale)
+                        .padding(.bottom, 2 * contentScale)
+                } else {
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: isTaskbarMode ? iconSize : nil, height: 3 * contentScale)
+                        .padding(.leading, isTaskbarMode
+                            ? (availableWidth < textVisibilityWidth ? 3 : 8) * contentScale : 0)
+                        .padding(.horizontal, isTaskbarMode ? 0 : 9 * contentScale)
+                        .padding(.bottom, contentScale)
+                }
             }
         }
         .scaleEffect(isHovered ? 1.012 : 1.0)
@@ -794,16 +1082,6 @@ struct WindowTaskItemView: View {
         )
         .onHover { isHovered = $0 }
         .help("点击显示窗口；再次点击当前焦点窗口会最小化；拖动可调整 App 顺序")
-        .onLongPressGesture(minimumDuration: 0.5) { showingLongPressMenu = true }
-        .popover(isPresented: $showingLongPressMenu, arrowEdge: .bottom) {
-            WindowActionMenu(
-                favoriteActionTitle: favoriteActionTitle,
-                onToggleFavorite: { showingLongPressMenu = false; onToggleFavorite() },
-                onShowAppWindows: { showingLongPressMenu = false; onShowAppWindows() },
-                onBlockWindowType: { showingLongPressMenu = false; onBlockWindowType() },
-                onClose: { showingLongPressMenu = false; onClose() }
-            )
-        }
     }
 
     private var fallbackIcon: NSImage {
@@ -811,6 +1089,15 @@ struct WindowTaskItemView: View {
     }
 
     private var itemBaseBackground: Color {
+        if isTaskbarMode && appearance == .dark {
+            guard isHovered || window.isFocused else { return .clear }
+            switch highlightStyle {
+            case .systemAccent:
+                return Color.accentColor.opacity(window.isFocused ? 0.22 : 0.12)
+            case .white:
+                return Color.white.opacity(window.isFocused ? 0.20 : 0.11)
+            }
+        }
         if isHovered || window.isFocused {
             switch highlightStyle {
             case .systemAccent:
@@ -825,6 +1112,13 @@ struct WindowTaskItemView: View {
         return appearance == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.025)
     }
 
+    private var taskbarGlassItemBackground: Color {
+        if appearance == .dark {
+            return Color.white.opacity(window.isFocused ? 0.18 : (isHovered ? 0.12 : 0.05))
+        }
+        return Color.white.opacity(window.isFocused ? 0.30 : (isHovered ? 0.20 : 0.08))
+    }
+
     private var cardSurfaceColor: Color {
         if isDockCompanion && window.bundleIdentifier == "com.apple.finder" {
             return appearance == .dark ? Color.black.opacity(0.06) : Color.white.opacity(0.64)
@@ -833,11 +1127,18 @@ struct WindowTaskItemView: View {
     }
 
     private var titleColor: Color {
+        if isTaskbarMode && appearance == .light {
+            return Color(red: 0.20, green: 0.29, blue: 0.39)
+                .opacity(window.isFocused ? 0.96 : 0.84)
+        }
         return appearance == .dark ? Color.white.opacity(0.96) : Color.black.opacity(0.88)
     }
 
     private var subtitleColor: Color {
-        return appearance == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.56)
+        if isTaskbarMode && appearance == .light {
+            return Color(red: 0.34, green: 0.43, blue: 0.53).opacity(0.85)
+        }
+        return appearance == .dark ? Color.white.opacity(isTaskbarMode ? 0.88 : 0.62) : Color.black.opacity(0.56)
     }
 
     private var iconSize: CGFloat {
@@ -886,15 +1187,179 @@ private struct TaskbarControlButton: View {
     }
 }
 
+private struct TaskbarTrashButton: View {
+    let isFull: Bool
+    let scale: CGFloat
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            icon
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 24 * scale, height: 24 * scale)
+                .frame(width: 28 * scale, height: 28 * scale)
+                .contentShape(Rectangle())
+                .background(
+                    Color.primary.opacity(isHovered ? 0.09 : 0),
+                    in: RoundedRectangle(cornerRadius: 7 * scale)
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.16), value: isHovered)
+        .help(isFull ? "打开废纸篓（非空）" : "打开废纸篓（空）")
+        .accessibilityLabel(isFull ? "打开废纸篓，非空" : "打开废纸篓，空")
+    }
+
+    private var icon: Image {
+        let imageName = NSImage.Name(isFull ? "NSTrashFull" : "NSTrashEmpty")
+        if let image = NSImage(named: imageName) { return Image(nsImage: image) }
+        return Image(systemName: "trash")
+    }
+}
+
+private struct RecentApplicationDockView: View {
+    let applications: [FavoriteApp]
+    let runningApplicationIDs: Set<String>
+    let sizeScale: CGFloat
+    let isDark: Bool
+    let onOpen: (FavoriteApp) -> Void
+    let onQuit: (FavoriteApp) -> Void
+    @State private var isShowingApplications = false
+    @State private var hoveredApplicationID: String?
+
+    var body: some View {
+        Button {
+            isShowingApplications.toggle()
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 17 * sizeScale, weight: .medium))
+                Text("\(applications.count)")
+                    .font(.system(size: 10 * sizeScale, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(isDark ? Color.white.opacity(0.82) : Color(red: 0.30, green: 0.39, blue: 0.49))
+            .frame(width: 38 * sizeScale, height: 30 * sizeScale)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("最近打开的 App（\(applications.count) 个）")
+        .accessibilityLabel("最近打开的 App，\(applications.count) 个；点击展开列表")
+        .popover(isPresented: $isShowingApplications, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("最近打开的 App")
+                    .font(.headline)
+                    .padding(.bottom, 4)
+                ForEach(applications) { application in
+                    HStack(spacing: 6) {
+                        Button {
+                            hoveredApplicationID = nil
+                            isShowingApplications = false
+                            onOpen(application)
+                        } label: {
+                            HStack(spacing: 9) {
+                                FavoriteApplicationIcon(favorite: application)
+                                    .frame(width: 26, height: 26)
+                                Text(application.applicationName)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(minWidth: 190, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("打开 \(application.applicationName)")
+
+                        if runningApplicationIDs.contains(application.id) {
+                            Button {
+                                onQuit(application)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 22, height: 26)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("退出 \(application.applicationName)")
+                            .accessibilityLabel("退出 \(application.applicationName)")
+                        } else {
+                            Color.clear.frame(width: 22, height: 26)
+                        }
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background {
+                        if hoveredApplicationID == application.id {
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill(Color.accentColor.opacity(isDark ? 0.40 : 0.26))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .stroke(Color.accentColor.opacity(0.95), lineWidth: 1.2)
+                                }
+                                .overlay(alignment: .leading) {
+                                    Capsule()
+                                        .fill(Color.accentColor)
+                                        .frame(width: 3, height: 18)
+                                        .padding(.leading, 2)
+                                }
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onHover { isHovered in
+                        hoveredApplicationID = isHovered ? application.id :
+                            (hoveredApplicationID == application.id ? nil : hoveredApplicationID)
+                    }
+                }
+            }
+            .padding(12)
+        }
+        .onChange(of: isShowingApplications) { isShowing in
+            if !isShowing { hoveredApplicationID = nil }
+        }
+    }
+}
+
+private struct FavoriteFolderDockView: View {
+    let folders: [FavoriteFolder]
+    let sizeScale: CGFloat
+
+    var body: some View {
+        HStack(spacing: 4 * sizeScale) {
+            ForEach(folders) { folder in
+                Button {
+                    NSWorkspace.shared.open(folder.url)
+                } label: {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 26 * sizeScale, height: 26 * sizeScale)
+                        .frame(width: 30 * sizeScale, height: 30 * sizeScale)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("打开收藏文件夹：\(folder.name)")
+                .accessibilityLabel("打开收藏文件夹：\(folder.name)")
+            }
+        }
+    }
+}
+
 private struct FavoriteDockView: View {
     let favorites: [FavoriteApp]
+    let runningApplicationIDs: Set<String>
+    let shortcutIndices: Set<Int>
     let hoverFeedbackEnabled: Bool
+    let sizeScale: CGFloat
     let onOpen: (FavoriteApp) -> Void
     let onRemove: (FavoriteApp) -> Void
     let onReorder: ([String]) -> Void
     let onDragChanged: (Bool) -> Void
-    @State private var hoveredFavoriteID: String?
-    @State private var isRegionHovered = false
+    let onHoverActivity: (Bool) -> Void
+    @State private var visualController = FavoriteDockVisualController()
     @State private var draggedFavoriteID: String?
     @State private var dragStartIDs: [String]?
     @State private var dragTranslation: CGFloat = 0
@@ -903,22 +1368,19 @@ private struct FavoriteDockView: View {
     @State private var pendingToken: UUID?
     @State private var isSettlingDrag = false
 
-    private let itemStep: CGFloat = 32
-    private let buttonSize: CGFloat = 30
+    private var itemStep: CGFloat { 32 * sizeScale }
+    private var buttonSize: CGFloat { 30 * sizeScale }
+    private var hoverSafetyWidth: CGFloat { 12 * sizeScale }
 
     var body: some View {
-        HStack(spacing: itemStep - 30) {
-            ForEach(favorites) { favorite in
+        HStack(spacing: itemStep - buttonSize) {
+            ForEach(Array(favorites.enumerated()), id: \.element.id) { index, favorite in
                 FavoriteAppButton(
                     favorite: favorite,
-                    isHovered: hoverFeedbackEnabled && hoveredFavoriteID == favorite.id,
-                    onHoverChange: { isHovered in
-                        if isHovered {
-                            hoveredFavoriteID = favorite.id
-                        } else if hoveredFavoriteID == favorite.id {
-                            hoveredFavoriteID = nil
-                        }
-                    },
+                    isRunning: runningApplicationIDs.contains(favorite.id),
+                    shortcutLabel: shortcutIndices.contains(index + 1)
+                        ? OptionWindowHotKeyMonitor.favoriteShortcutLabels[index] : nil,
+                    sizeScale: sizeScale,
                     onOpen: {
                         if draggedFavoriteID == nil { onOpen(favorite) }
                     },
@@ -952,18 +1414,44 @@ private struct FavoriteDockView: View {
         }
         .frame(
             width: CGFloat(favorites.count) * itemStep,
-            height: 30,
-            alignment: .bottomLeading
+            height: SettingsStore.defaultTaskbarHeight * sizeScale,
+            alignment: .center
         )
         .background {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white.opacity(isRegionHovered ? 0.14 : 0))
+            FavoriteDockVisualView(
+                favorites: favorites,
+                runningApplicationIDs: runningApplicationIDs,
+                sizeScale: sizeScale,
+                dragOffsets: favorites.map { offset(for: $0.id) },
+                controller: visualController
+            )
+            .allowsHitTesting(false)
+        }
+        .overlay {
+            FavoriteHoverTrackingView { location in
+                let isHovered = location != nil
+                onHoverActivity(hoverFeedbackEnabled && draggedFavoriteID == nil && isHovered)
+                guard hoverFeedbackEnabled, draggedFavoriteID == nil, let location else {
+                    visualController.updatePointer(nil)
+                    return
+                }
+                let rowWidth = CGFloat(favorites.count) * itemStep
+                let pointerX = min(max(location.x - hoverSafetyWidth, itemStep / 2),
+                                   rowWidth - itemStep / 2)
+                visualController.updatePointer(pointerX)
+            }
+            .frame(width: CGFloat(favorites.count) * itemStep + 2 * hoverSafetyWidth)
         }
         .contentShape(Rectangle())
-        .onHover { isRegionHovered = $0 }
-        .animation(.easeOut(duration: 0.16), value: isRegionHovered)
         .onChange(of: hoverFeedbackEnabled) { enabled in
-            if !enabled { hoveredFavoriteID = nil }
+            if !enabled {
+                onHoverActivity(false)
+                visualController.updatePointer(nil)
+            }
+        }
+        .onDisappear {
+            onHoverActivity(false)
+            visualController.updatePointer(nil)
         }
     }
 
@@ -973,6 +1461,7 @@ private struct FavoriteDockView: View {
                 guard !isSettlingDrag, !NSEvent.modifierFlags.contains(.option) else { return }
                 if draggedFavoriteID == nil {
                     draggedFavoriteID = favorite.id
+                    visualController.updatePointer(nil)
                     dragStartIDs = favorites.map(\.id)
                     onDragChanged(true)
                 }
@@ -1094,29 +1583,358 @@ private struct FavoriteDockView: View {
     }
 }
 
+@MainActor
+private final class FavoriteDockVisualController {
+    weak var view: FavoriteDockVisualView.DrawingView?
+
+    func updatePointer(_ x: CGFloat?) {
+        view?.updatePointer(x)
+    }
+}
+
+private struct FavoriteDockVisualView: NSViewRepresentable {
+    let favorites: [FavoriteApp]
+    let runningApplicationIDs: Set<String>
+    let sizeScale: CGFloat
+    let dragOffsets: [CGFloat]
+    let controller: FavoriteDockVisualController
+
+    func makeNSView(context: Context) -> DrawingView {
+        let view = DrawingView()
+        controller.view = view
+        view.configure(
+            favorites: favorites,
+            runningApplicationIDs: runningApplicationIDs,
+            sizeScale: sizeScale,
+            dragOffsets: dragOffsets
+        )
+        return view
+    }
+
+    func updateNSView(_ view: DrawingView, context: Context) {
+        controller.view = view
+        view.configure(
+            favorites: favorites,
+            runningApplicationIDs: runningApplicationIDs,
+            sizeScale: sizeScale,
+            dragOffsets: dragOffsets
+        )
+    }
+
+    static func dismantleNSView(_ view: DrawingView, coordinator: ()) {
+        view.updatePointer(nil)
+    }
+
+    final class DrawingView: NSView {
+        private struct EntryState {
+            let iconPosition: CGPoint
+            let iconScale: CGFloat
+            let indicatorPosition: CGPoint
+            let indicatorScale: CGFloat
+        }
+
+        private var iconLayers: [CALayer] = []
+        private var indicatorLayers: [CALayer] = []
+        private var favoriteIDs: [String] = []
+        private var runningApplicationIDs: Set<String> = []
+        private var sizeScale: CGFloat = 1
+        private var dragOffsets: [CGFloat] = []
+        private var pointerX: CGFloat?
+        private var entryStates: [EntryState] = []
+        private var entryStartedAt: CFTimeInterval?
+        private var entryTimer: Timer?
+
+        deinit { entryTimer?.invalidate() }
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer?.masksToBounds = false
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            updateIndicatorColors()
+        }
+
+        func configure(
+            favorites: [FavoriteApp],
+            runningApplicationIDs: Set<String>,
+            sizeScale: CGFloat,
+            dragOffsets: [CGFloat]
+        ) {
+            let ids = favorites.map(\.id)
+            let favoritesChanged = ids != favoriteIDs
+            let indicatorsChanged = favoritesChanged || self.runningApplicationIDs != runningApplicationIDs
+            if favoritesChanged {
+                stopEntryAnimation()
+                iconLayers.forEach { $0.removeFromSuperlayer() }
+                indicatorLayers.forEach { $0.removeFromSuperlayer() }
+                indicatorLayers = favorites.map { _ in
+                    let indicator = CALayer()
+                    indicator.zPosition = 0.5
+                    layer?.addSublayer(indicator)
+                    return indicator
+                }
+                iconLayers = favorites.map { favorite in
+                    let icon = CALayer()
+                    icon.contents = FavoriteApplicationIcon.image(for: favorite)
+                        .cgImage(forProposedRect: nil, context: nil, hints: nil)
+                    icon.contentsGravity = .resizeAspect
+                    icon.magnificationFilter = .linear
+                    icon.anchorPoint = CGPoint(x: 0.5, y: 0)
+                    icon.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+                    layer?.addSublayer(icon)
+                    return icon
+                }
+                favoriteIDs = ids
+            }
+            guard indicatorsChanged || self.sizeScale != sizeScale || self.dragOffsets != dragOffsets else { return }
+            self.runningApplicationIDs = runningApplicationIDs
+            self.sizeScale = sizeScale
+            self.dragOffsets = dragOffsets
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let iconSize = FavoriteMagnificationLayout.iconSize * sizeScale
+            for icon in iconLayers {
+                icon.bounds = CGRect(x: 0, y: 0, width: iconSize, height: iconSize)
+            }
+            for indicator in indicatorLayers {
+                indicator.bounds = CGRect(x: 0, y: 0, width: 5 * sizeScale, height: 5 * sizeScale)
+                indicator.cornerRadius = 2.5 * sizeScale
+            }
+            if indicatorsChanged { updateIndicatorColors() }
+            CATransaction.commit()
+            updateLayers(animated: false)
+        }
+
+        private func updateIndicatorColors() {
+            for indicator in indicatorLayers {
+                indicator.backgroundColor = NSColor(calibratedWhite: 0.82, alpha: 0.96).cgColor
+            }
+        }
+
+        func updatePointer(_ x: CGFloat?) {
+            guard pointerX != x else { return }
+            if pointerX == nil && x != nil {
+                entryStates = zip(iconLayers, indicatorLayers).map { icon, indicator in
+                    let visibleIcon = icon.presentation() ?? icon
+                    let visibleIndicator = indicator.presentation() ?? indicator
+                    return EntryState(
+                        iconPosition: visibleIcon.position,
+                        iconScale: visibleIcon.transform.m11,
+                        indicatorPosition: visibleIndicator.position,
+                        indicatorScale: visibleIndicator.transform.m11
+                    )
+                }
+                (iconLayers + indicatorLayers).forEach { $0.removeAllAnimations() }
+                entryStartedAt = CACurrentMediaTime()
+                entryTimer?.invalidate()
+                let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+                    self?.advanceEntryAnimation()
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                entryTimer = timer
+            } else if x == nil {
+                stopEntryAnimation()
+            }
+            let animate = x == nil
+            pointerX = x
+            updateLayers(animated: animate)
+        }
+
+        private func advanceEntryAnimation() {
+            guard let entryStartedAt else { stopEntryAnimation(); return }
+            if CACurrentMediaTime() - entryStartedAt >= 0.18 {
+                stopEntryAnimation()
+            }
+            updateLayers(animated: false)
+        }
+
+        private func stopEntryAnimation() {
+            entryTimer?.invalidate()
+            entryTimer = nil
+            entryStartedAt = nil
+            entryStates = []
+        }
+
+        private func updateLayers(animated: Bool) {
+            let layout = FavoriteMagnificationLayout(
+                count: iconLayers.count,
+                pointerX: pointerX,
+                sizeScale: sizeScale
+            )
+            let entryProgress: CGFloat
+            if let entryStartedAt {
+                let linear = min(1, max(0, CGFloat((CACurrentMediaTime() - entryStartedAt) / 0.18)))
+                entryProgress = linear * linear * (3 - 2 * linear)
+            } else {
+                entryProgress = 1
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(!animated)
+            if animated {
+                CATransaction.setAnimationDuration(0.14)
+                CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+            }
+            for (index, icon) in iconLayers.enumerated() {
+                let scale = layout.scales[index]
+                let isRunning = runningApplicationIDs.contains(favoriteIDs[index])
+                let geometry = layout.visualGeometry(
+                    at: index,
+                    sizeScale: sizeScale,
+                    dragOffset: dragOffsets.indices.contains(index) ? dragOffsets[index] : 0,
+                    isNoWindow: true
+                )
+                let targetIconPosition = CGPoint(
+                    x: geometry.centerX,
+                    y: geometry.iconBottomY
+                )
+                let entry = entryStates.indices.contains(index) ? entryStates[index] : nil
+                let displayedScale = entry.map {
+                    $0.iconScale + (scale - $0.iconScale) * entryProgress
+                } ?? scale
+                icon.position = entry.map {
+                    CGPoint(
+                        x: $0.iconPosition.x + (targetIconPosition.x - $0.iconPosition.x) * entryProgress,
+                        y: $0.iconPosition.y + (targetIconPosition.y - $0.iconPosition.y) * entryProgress
+                    )
+                } ?? targetIconPosition
+                icon.transform = CATransform3DMakeScale(displayedScale, displayedScale, 1)
+                icon.zPosition = displayedScale
+
+                let indicator = indicatorLayers[index]
+                let targetIndicatorPosition = CGPoint(
+                    x: geometry.centerX,
+                    y: geometry.indicatorCenterY
+                )
+                let indicatorScale = 1 + (scale - 1) * 0.5
+                indicator.position = entry.map {
+                    CGPoint(
+                        x: $0.indicatorPosition.x + (targetIndicatorPosition.x - $0.indicatorPosition.x) * entryProgress,
+                        y: $0.indicatorPosition.y + (targetIndicatorPosition.y - $0.indicatorPosition.y) * entryProgress
+                    )
+                } ?? targetIndicatorPosition
+                let displayedIndicatorScale = entry.map {
+                    $0.indicatorScale + (indicatorScale - $0.indicatorScale) * entryProgress
+                } ?? indicatorScale
+                indicator.transform = CATransform3DMakeScale(displayedIndicatorScale, displayedIndicatorScale, 1)
+                indicator.opacity = isRunning ? 1 : 0
+            }
+            CATransaction.commit()
+        }
+    }
+}
+
+private struct FavoriteHoverTrackingView: NSViewRepresentable {
+    let onLocationChange: (CGPoint?) -> Void
+
+    func makeNSView(context: Context) -> TrackingView {
+        let view = TrackingView()
+        view.onLocationChange = onLocationChange
+        return view
+    }
+
+    func updateNSView(_ view: TrackingView, context: Context) {
+        view.onLocationChange = onLocationChange
+    }
+
+    final class TrackingView: NSView {
+        var onLocationChange: ((CGPoint?) -> Void)?
+        private var hoverArea: NSTrackingArea?
+        private var pendingLocation: CGPoint?
+        private var isPointerInside = false
+        private var isUpdateScheduled = false
+
+        override func updateTrackingAreas() {
+            if let hoverArea { removeTrackingArea(hoverArea) }
+            let area = NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways,
+                          .enabledDuringMouseDrag, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            hoverArea = area
+            super.updateTrackingAreas()
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func mouseEntered(with event: NSEvent) { updateLocation(for: event) }
+        override func mouseMoved(with event: NSEvent) { updateLocation(for: event) }
+        override func mouseDragged(with event: NSEvent) { updateLocation(for: event) }
+        override func mouseExited(with event: NSEvent) {
+            isPointerInside = false
+            pendingLocation = nil
+            onLocationChange?(nil)
+        }
+
+        private func updateLocation(for event: NSEvent) {
+            let location = convert(event.locationInWindow, from: nil)
+            guard bounds.contains(location) else {
+                if isPointerInside { onLocationChange?(nil) }
+                isPointerInside = false
+                pendingLocation = nil
+                return
+            }
+            isPointerInside = true
+            pendingLocation = location
+            guard !isUpdateScheduled else { return }
+            isUpdateScheduled = true
+            // Keep at most one pending layer update per display half-frame. Fast
+            // mice can generate far more events than Core Animation can present.
+            let displayFPS = max(60, window?.screen?.maximumFramesPerSecond
+                ?? NSScreen.main?.maximumFramesPerSecond ?? 60)
+            let updateFPS = min(displayFPS * 2, 240)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / Double(updateFPS)) { [weak self] in
+                guard let self else { return }
+                self.isUpdateScheduled = false
+                if self.isPointerInside {
+                    self.onLocationChange?(self.pendingLocation)
+                }
+            }
+        }
+    }
+}
+
 private struct FavoriteAppButton: View {
     let favorite: FavoriteApp
-    let isHovered: Bool
-    let onHoverChange: (Bool) -> Void
+    let isRunning: Bool
+    let shortcutLabel: String?
+    let sizeScale: CGFloat
     let onOpen: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
         Button(action: onOpen) {
-            FavoriteApplicationIcon(favorite: favorite)
-                .frame(width: 30, height: 30)
+            Color.clear
+                .frame(width: 30 * sizeScale, height: 30 * sizeScale)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover(perform: onHoverChange)
-        .overlay(alignment: .bottom) {
-            Capsule()
-                .fill(Color.accentColor.opacity(isHovered ? 0.85 : 0))
-                .frame(width: 15, height: 2)
-                .offset(y: 2)
+        .frame(width: 30 * sizeScale, height: 30 * sizeScale)
+        .contentShape(Rectangle())
+        .overlay(alignment: .topTrailing) {
+            if let shortcutLabel {
+                Text(shortcutLabel)
+                    .font(.system(size: 10 * sizeScale, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: 14 * sizeScale, height: 14 * sizeScale)
+                    .background(Color.accentColor, in: Circle())
+                    .offset(x: 3, y: -3)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
         }
-        .brightness(isHovered ? 0.08 : 0)
-        .animation(.easeOut(duration: 0.16), value: isHovered)
-        .help("打开 \(favorite.applicationName)；拖动可调整收藏顺序")
+        .help(isRunning
+            ? "\(favorite.applicationName) 正在运行，指示灯已亮；点击激活"
+            : "打开 \(favorite.applicationName)；拖动可调整收藏顺序")
         .contextMenu {
             Button("取消收藏", role: .destructive, action: onRemove)
         }
@@ -1128,62 +1946,33 @@ private struct FavoriteAppButton: View {
 
 private struct FavoriteApplicationIcon: View {
     let favorite: FavoriteApp
+    var size: CGFloat = 26
+    private static let iconCache = NSCache<NSString, NSImage>()
 
     var body: some View {
-        if isCalendar {
-            TimelineView(.periodic(from: .now, by: 60)) { timeline in
-                CalendarFavoriteIcon(date: timeline.date)
-            }
-            .frame(width: 26, height: 26)
-        } else {
-            Image(nsImage: applicationIcon)
-                .resizable()
-                .frame(width: 26, height: 26)
-        }
+        Image(nsImage: Self.image(for: favorite))
+            .resizable()
+            .renderingMode(.original)
+            .interpolation(.high)
+            .frame(width: size, height: size)
     }
 
-    private var isCalendar: Bool {
-        favorite.bundleIdentifier == "com.apple.iCal"
-            || favorite.applicationName.localizedCaseInsensitiveContains("Calendar")
-            || favorite.applicationName.contains("日历")
-    }
-
-    private var applicationIcon: NSImage {
+    fileprivate static func image(for favorite: FavoriteApp) -> NSImage {
+        let cacheKey = "\(favorite.id)|\(favorite.bundlePath ?? "")" as NSString
+        if let cached = Self.iconCache.object(forKey: cacheKey) { return cached }
         let workspace = NSWorkspace.shared
+        let icon: NSImage
         if let bundleIdentifier = favorite.bundleIdentifier,
            let url = workspace.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-            return workspace.icon(forFile: url.path)
+            icon = workspace.icon(forFile: url.path)
+        } else if let bundlePath = favorite.bundlePath {
+            icon = workspace.icon(forFile: bundlePath)
+        } else {
+            icon = NSImage(named: NSImage.applicationIconName)
+                ?? NSImage(size: NSSize(width: 24, height: 24))
         }
-        if let bundlePath = favorite.bundlePath {
-            return workspace.icon(forFile: bundlePath)
-        }
-        return NSImage(named: NSImage.applicationIconName) ?? NSImage(size: NSSize(width: 24, height: 24))
-    }
-}
-
-private struct CalendarFavoriteIcon: View {
-    let date: Date
-
-    var body: some View {
-        VStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color(red: 0.92, green: 0.22, blue: 0.20))
-                .frame(height: 8)
-                .overlay(alignment: .top) {
-                    HStack(spacing: 8) {
-                        Capsule().fill(.white.opacity(0.95)).frame(width: 1.5, height: 4).offset(y: -1)
-                        Capsule().fill(.white.opacity(0.95)).frame(width: 1.5, height: 4).offset(y: -1)
-                    }
-                }
-            Text("\(Calendar.current.component(.day, from: date))")
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.16, green: 0.17, blue: 0.19))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .padding(2)
-        .background(.white, in: RoundedRectangle(cornerRadius: 5))
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.black.opacity(0.12), lineWidth: 0.6))
-        .clipShape(RoundedRectangle(cornerRadius: 5))
+        Self.iconCache.setObject(icon, forKey: cacheKey)
+        return icon
     }
 }
 

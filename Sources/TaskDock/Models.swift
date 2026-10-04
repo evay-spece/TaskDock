@@ -8,6 +8,14 @@ struct FavoriteApp: Identifiable, Codable, Hashable {
     let bundlePath: String?
 }
 
+struct FavoriteFolder: Identifiable, Codable, Hashable {
+    let path: String
+
+    var id: String { path }
+    var name: String { FileManager.default.displayName(atPath: path) }
+    var url: URL { URL(fileURLWithPath: path, isDirectory: true) }
+}
+
 struct BlockedWindowRule: Identifiable, Codable, Hashable {
     let appKey: String
     let applicationName: String
@@ -63,6 +71,7 @@ struct BlockedWindowRule: Identifiable, Codable, Hashable {
 
 struct WindowModel: Identifiable, Hashable {
     let id: String
+    let nativeWindowID: String
     let pid: pid_t
     let bundleIdentifier: String?
     let applicationName: String
@@ -75,6 +84,7 @@ struct WindowModel: Identifiable, Hashable {
     let isFocused: Bool
     let isMain: Bool
     let axWindow: AXUIElement
+    let finderTab: AXUIElement?
 
     var appKey: String { bundleIdentifier ?? "name:\(applicationName)" }
 

@@ -4,6 +4,14 @@ import SwiftUI
 
 @MainActor
 final class TaskbarPanelController {
+    private struct ReservationContext: Equatable {
+        let panelFrame: CGRect
+        let screenFrame: CGRect
+        let visibleFrame: CGRect
+        let enabled: Bool
+        let layoutMode: TaskDockLayoutMode
+    }
+
     private struct AppFocusObserver {
         let observer: AXObserver
         let application: AXUIElement
@@ -14,19 +22,32 @@ final class TaskbarPanelController {
     private let dockGeometryService = DockGeometryService()
     private let settings = SettingsStore()
     private let systemDockVisibility = SystemDockVisibilityController()
+    private let trashStatus = TrashStatusService()
     private var panel: NSPanel?
     private var timer: Timer?
     private var windows: [WindowModel] = []
+    private var recentApplications: [FavoriteApp] = []
+    private var runningApplicationIDs: Set<String> = []
+    private var recentWindowFocusDates: [String: Date] = [:]
     private var hostingView: NSHostingView<TaskbarView>?
     private var dockFinderPanel: NSPanel?
     private var dockFinderHostingView: NSHostingView<TaskbarView>?
     private var settingsWindowController: SettingsWindowController?
     private var reorderRefreshPauseUntil: Date?
+    private var favoriteHoverActiveUntil: Date?
+    private var favoriteHoverRefreshPauseUntil: Date?
+    private var lastReservationContext: ReservationContext?
+    private var lastReservationUpdateAt = Date.distantPast
     private var panelDragStartOrigin: NSPoint?
     private var customPanelOrigins: [TaskDockLayoutMode: NSPoint] = [:]
     private var isHiddenInDock = false
     private var dockRestoreAvailableAt = Date.distantPast
     private var shortcutMonitor: ModifierDoubleTapMonitor?
+    private var optionHotKeyMonitor: OptionWindowHotKeyMonitor?
+    private var registeredOptionShortcuts = OptionWindowHotKeyMonitor.Registered()
+    private var registeredWindowCount = -1
+    private var registeredFavoriteCount = -1
+    private var registeredShortcutMode: TaskDockLayoutMode?
     private var lastRenderedWindowSignature = ""
     private var appFocusObservers: [pid_t: AppFocusObserver] = [:]
     private var appliedTaskbarAlignment: TaskbarAlignment?
@@ -44,7 +65,8 @@ final class TaskbarPanelController {
     }
 
     func show() {
-        systemDockVisibility.synchronize(hidden: settings.hideSystemDock)
+        synchronizeSystemDockVisibility()
+        seedRecentApplications()
         let view = makeTaskbarView(windows: windows, showsFavorites: true, showsControls: true, showsEmptyState: true)
         let hosting = NSHostingView(rootView: view)
         hostingView = hosting
@@ -55,14 +77,22 @@ final class TaskbarPanelController {
         let finderHosting = NSHostingView(rootView: finderView)
         dockFinderHostingView = finderHosting
         dockFinderPanel = makePanel(contentView: finderHosting)
-        shortcutMonitor = ModifierDoubleTapMonitor(settings: settings) { [weak self] in
-            self?.toggleTaskbarVisibility()
+        optionHotKeyMonitor = OptionWindowHotKeyMonitor { [weak self] target in
+            switch target {
+            case .window(let index): self?.openShortcutWindow(index)
+            case .favorite(let index): self?.openShortcutFavorite(index)
+            }
         }
+        shortcutMonitor = ModifierDoubleTapMonitor(
+            settings: settings,
+            onDoubleTap: { [weak self] in self?.toggleTaskbarVisibility() },
+            onOptionHoldChanged: { [weak self] isHeld in self?.setOptionShortcutsVisible(isHeld) }
+        )
         shortcutMonitor?.start()
         reposition()
         panel.orderFrontRegardless()
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.automaticRefresh() }
         }
         let workspaceNotifications = NSWorkspace.shared.notificationCenter
@@ -78,6 +108,9 @@ final class TaskbarPanelController {
         systemDockVisibility.restore()
         timer?.invalidate()
         shortcutMonitor?.stop()
+        stopRegisteredHotKeys()
+        settings.activeTaskbarShortcutIndices = []
+        settings.activeFavoriteShortcutIndices = []
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         removeAllAppFocusObservers()
         windowService.clearWindowSpaceReservations(restore: true, windows: windows)
@@ -105,6 +138,8 @@ final class TaskbarPanelController {
 
     func setLayoutMode(_ mode: TaskDockLayoutMode) {
         guard settings.layoutMode != mode else { return }
+        setOptionShortcutsVisible(false)
+        stopRegisteredHotKeys()
         settings.layoutMode = mode
         refresh()
     }
@@ -131,6 +166,7 @@ final class TaskbarPanelController {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovable = false
+        panel.acceptsMouseMovedEvents = true
         panel.contentView = contentView
         return panel
     }
@@ -143,23 +179,29 @@ final class TaskbarPanelController {
     ) -> TaskbarView {
         TaskbarView(
             windows: windows,
+            recentApplications: settings.layoutMode == .taskbar ? recentApplications : [],
+            runningApplicationIDs: settings.layoutMode == .taskbar ? runningApplicationIDs : [],
             isAccessibilityTrusted: permissionService.isTrusted,
             onRequestPermission: { [weak self] in self?.requestPermission() },
             onSelect: { [weak self] window in self?.select(window) },
             onMinimizeAll: { [weak self] in self?.minimizeAll() },
+            onOpenTrash: { [weak self] in self?.openTrash() },
             onShowAppWindows: { [weak self] window in self?.showAppWindows(for: window) },
             onBlockWindowType: { [weak self] window in self?.blockWindowType(window) },
             onClose: { [weak self] window in self?.close(window) },
             onOpenFavorite: { [weak self] favorite in self?.openFavorite(favorite) },
+            onQuitRecentApp: { [weak self] favorite in self?.quitRecentApp(favorite) },
             showsFavorites: showsFavorites,
             showsControls: showsControls,
             showsEmptyState: showsEmptyState,
             settings: settings,
+            trashStatus: trashStatus,
             onSettingsChanged: { [weak self] in
                 self?.lastRenderedWindowSignature = ""
                 self?.refresh()
             },
             onAppDragChanged: { [weak self] isDragging in self?.setAppReordering(isDragging) },
+            onFavoriteHoverActivity: { [weak self] isActive in self?.setFavoriteHoverActivity(isActive) },
             onPanelDragChanged: { [weak self] translation in self?.movePanel(by: translation) },
             onPanelDragEnded: { [weak self] in self?.finishPanelDrag() }
         )
@@ -187,7 +229,7 @@ final class TaskbarPanelController {
             return
         }
         dockFinderPanel?.orderOut(nil)
-        panel?.level = .floating
+        panel?.level = settings.layoutMode == .matrix ? .statusBar : .floating
         dockFinderPanel?.level = .floating
 
         if settings.layoutMode == .taskbar {
@@ -195,26 +237,30 @@ final class TaskbarPanelController {
                 customPanelOrigins.removeValue(forKey: .taskbar)
                 appliedTaskbarAlignment = settings.taskbarAlignment
             }
-            let preferredItemWidth: CGFloat = 198
+            let scale = settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
+            let preferredItemWidth: CGFloat = 132 * scale
             let favoriteWidth = settings.favoriteApps.isEmpty
                 ? 0
-                : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
-            let controlsAndPadding: CGFloat = 48 + favoriteWidth
-            let itemSpacing = CGFloat(max(windows.count - 1, 0)) * 4
+                : (CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14) * scale
+                    + 2 * FavoriteMagnificationLayout.sideClearance(for: scale)
+            let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 46 * scale
+            let folderWidth = CGFloat(settings.favoriteFolders.count) * 34 * scale
+                + (settings.favoriteFolders.isEmpty ? 0 : 12 * scale)
+            let controlsAndPadding: CGFloat = 84 * scale + favoriteWidth + recentApplicationWidth + folderWidth
+            let itemSpacing = CGFloat(max(windows.count - 1, 0)) * 4 * scale
             let desiredWidth: CGFloat
             if !permissionService.isTrusted {
-                desiredWidth = 600
+                desiredWidth = 600 * scale
             } else if windows.isEmpty {
-                desiredWidth = max(390, controlsAndPadding + 90)
+                desiredWidth = controlsAndPadding + 32 * scale
             } else {
                 desiredWidth = CGFloat(windows.count) * preferredItemWidth + itemSpacing + controlsAndPadding
             }
             let width = settings.taskbarWidthMode == .fullWidth
                 ? screenFrame.width - 8
                 : min(screenFrame.width - 24, desiredWidth)
-            // Keep transparent headroom above the 38-point taskbar so favorite
-            // icons can magnify upward without changing the taskbar's base height.
-            let height: CGFloat = 58
+            // Transparent headroom lets favorite icons magnify above the bar.
+            let height = settings.taskbarHeight + FavoriteMagnificationLayout.headroom(for: scale)
             let defaultX: CGFloat
             if settings.taskbarWidthMode == .fullWidth {
                 defaultX = screenFrame.minX + 4
@@ -228,13 +274,13 @@ final class TaskbarPanelController {
                     defaultX = screenFrame.maxX - width - 4
                 }
             }
-            let defaultOrigin = NSPoint(x: defaultX, y: screenFrame.minY + 4)
+            let physicalBottom = screen.frame.minY
+            let defaultOrigin = NSPoint(x: defaultX, y: physicalBottom)
             let proposedOrigin = customPanelOrigins[.taskbar] ?? defaultOrigin
             let maxX = max(screenFrame.minX, screenFrame.maxX - width)
-            let maxY = max(screenFrame.minY, screenFrame.maxY - height)
             let origin = NSPoint(
                 x: min(max(proposedOrigin.x, screenFrame.minX), maxX),
-                y: min(max(proposedOrigin.y, screenFrame.minY), maxY)
+                y: physicalBottom
             )
             setPanelFrameIfNeeded(
                 NSRect(origin: origin, size: NSSize(width: width, height: height)),
@@ -257,13 +303,14 @@ final class TaskbarPanelController {
         let desiredHeight = CGFloat(maxWindowCount) * 32 + CGFloat(max(maxWindowCount - 1, 0)) * 2 + 4
         let height = min(screenFrame.height * 0.58, max(42, desiredHeight))
 
-        let defaultOrigin = NSPoint(x: screenFrame.maxX - width - 4, y: screenFrame.minY + 4)
+        let physicalBottom = screen.frame.minY
+        let defaultOrigin = NSPoint(x: screenFrame.maxX - width - 4, y: physicalBottom)
         let proposedOrigin = customPanelOrigins[.matrix] ?? defaultOrigin
         let maxX = max(screenFrame.minX, screenFrame.maxX - width)
-        let maxY = max(screenFrame.minY, screenFrame.maxY - height)
+        let maxY = max(physicalBottom, screenFrame.maxY - height)
         let origin = NSPoint(
             x: min(max(proposedOrigin.x, screenFrame.minX), maxX),
-            y: min(max(proposedOrigin.y, screenFrame.minY), maxY)
+            y: min(max(proposedOrigin.y, physicalBottom), maxY)
         )
         let frame = NSRect(origin: origin, size: NSSize(width: width, height: height))
         setPanelFrameIfNeeded(frame)
@@ -385,6 +432,8 @@ final class TaskbarPanelController {
         let favoriteWidth = !showsFavorites || settings.favoriteApps.isEmpty
             ? 0
             : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
+        let recentApplicationWidth: CGFloat = !showsFavorites || isDockCompanion || recentApplications.isEmpty
+            ? 0 : 46
         let resolvedShowsControls = showsControls && (!isDockCompanion || settings.dockCompanionShowsBottomBar)
         let controlsAndPadding: CGFloat
         if isDockCompanion {
@@ -394,13 +443,20 @@ final class TaskbarPanelController {
                 controlsAndPadding = 0
             }
         } else {
-            controlsAndPadding = (resolvedShowsControls ? 48 : 16) * panelScale + favoriteWidth
+            controlsAndPadding = (resolvedShowsControls ? 48 : 16) * panelScale
+                + favoriteWidth + recentApplicationWidth
         }
         let spacing = isDockCompanion ? DockCompanionSizing.itemSpacing(for: dockHeight) : 4
-        let itemSpacing = CGFloat(max(displayedWindows.count - 1, 0)) * spacing
+        let displayCount = isDockCompanion
+            ? FusionDisplayPolicy.displayCount(
+                appKeys: displayedWindows.map(\.appKey),
+                collapseThreshold: settings.dockCompanionCollapseThreshold
+            )
+            : displayedWindows.count
+        let itemSpacing = CGFloat(max(displayCount - 1, 0)) * spacing
         if !permissionService.isTrusted { return 600 }
-        if displayedWindows.isEmpty { return resolvedShowsControls ? controlsAndPadding : 0 }
-        return CGFloat(displayedWindows.count) * preferredItemWidth + itemSpacing + controlsAndPadding
+        if displayCount == 0 { return resolvedShowsControls ? controlsAndPadding : 0 }
+        return CGFloat(displayCount) * preferredItemWidth + itemSpacing + controlsAndPadding
     }
 
     private func stabilizedDockFrame(for observed: DockGeometrySnapshot) -> CGRect {
@@ -472,9 +528,31 @@ final class TaskbarPanelController {
     private var dockCompanionWindows: [WindowModel] {
         let countsByApp = Dictionary(grouping: windows, by: \.appKey).mapValues(\.count)
         let availableAppKeys = Set(countsByApp.keys)
+        let recentIDs: Set<String>
+        if settings.dockCompanionShowsRecentWindows {
+            let candidates = windows.map { window in
+                FusionDisplayPolicy.Candidate(
+                    id: window.id,
+                    appKey: window.appKey,
+                    isFocused: window.isFocused,
+                    isAllowedOnRight: settings.dockCompanionSide(
+                        for: window.appKey, availableAppKeys: availableAppKeys
+                    ) == .right
+                )
+            }
+            recentIDs = FusionDisplayPolicy.recentWindowIDs(
+                from: candidates,
+                focusedAt: recentWindowFocusDates,
+                minimumWindowCount: settings.dockCompanionMinimumWindowCount,
+                now: Date()
+            )
+        } else {
+            recentIDs = []
+        }
         return windows.filter {
             let isFinder = $0.bundleIdentifier == "com.apple.finder"
-            guard isFinder || countsByApp[$0.appKey, default: 0] >= settings.dockCompanionMinimumWindowCount else {
+            guard isFinder || countsByApp[$0.appKey, default: 0] >= settings.dockCompanionMinimumWindowCount
+                    || recentIDs.contains($0.id) else {
                 return false
             }
             return settings.dockCompanionSide(
@@ -503,23 +581,36 @@ final class TaskbarPanelController {
     }
 
     private func refresh() {
+        if settings.layoutMode == .matrix || isHiddenInDock {
+            setOptionShortcutsVisible(false)
+        }
         // Focus notifications can arrive during a drag even while the timer is paused.
         // Do not enumerate windows or resize the panel until the gesture has settled.
         if let pauseUntil = reorderRefreshPauseUntil, pauseUntil > Date() { return }
-        systemDockVisibility.synchronize(hidden: settings.hideSystemDock)
+        synchronizeSystemDockVisibility()
         syncAppFocusObservers()
         let refreshedWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
             showHiddenApps: settings.showHiddenApps,
             blacklistedAppKeys: settings.blacklistedAppKeys,
-            blockedWindowRules: settings.blockedWindowRules
+            blockedWindowRules: settings.blockedWindowRules,
+            finderTabsAsWindows: settings.finderTabsAsWindows
         )
         windows = refreshedWindows
-        settings.reconcileAppOrder(with: windows.map(\.appKey))
+        updateRecentWindowFocus()
+        refreshRecentApplications()
+        if settings.layoutMode == .taskbar { trashStatus.refresh() }
+        if settings.layoutMode == .taskbar {
+            settings.reconcileTaskbarOrder(with: windows)
+        } else {
+            settings.reconcileAppOrder(with: windows.map(\.appKey))
+        }
+        synchronizeHotKeys()
         reposition()
-        updateWindowSpaceReservations()
         let signature = windowRenderSignature(isTrusted: permissionService.isTrusted)
-        if signature != lastRenderedWindowSignature {
+        let contentChanged = signature != lastRenderedWindowSignature
+        updateWindowSpaceReservations(force: contentChanged)
+        if contentChanged {
             lastRenderedWindowSignature = signature
             let primaryWindows = settings.layoutMode == .dockCompanion ? otherWindows : windows
             hostingView?.rootView = makeTaskbarView(
@@ -557,6 +648,96 @@ final class TaskbarPanelController {
         _ = windowService.toggle(window)
         refreshAfterWindowAction()
     }
+
+    private func setOptionShortcutsVisible(_ visible: Bool) {
+        let shouldShow = visible && settings.layoutMode != .matrix
+            && !isHiddenInDock && permissionService.isTrusted
+        let windowIndices = shouldShow ? registeredOptionShortcuts.windows : []
+        let favoriteIndices = shouldShow ? registeredOptionShortcuts.favorites : []
+        if settings.activeTaskbarShortcutIndices != windowIndices {
+            settings.activeTaskbarShortcutIndices = windowIndices
+        }
+        if settings.activeFavoriteShortcutIndices != favoriteIndices {
+            settings.activeFavoriteShortcutIndices = favoriteIndices
+        }
+    }
+
+    private func synchronizeHotKeys() {
+        guard settings.layoutMode != .matrix, !isHiddenInDock,
+              permissionService.isTrusted else {
+            stopRegisteredHotKeys()
+            setOptionShortcutsVisible(false)
+            return
+        }
+        let isCompanion = settings.layoutMode == .dockCompanion
+        let windowCount = min(
+            isCompanion ? fusionShortcutWindows(for: otherWindows).count : windows.count,
+            isCompanion ? 5 : OptionWindowHotKeyMonitor.windowShortcutLabels.count
+        )
+        let favoriteCount = min(
+            isCompanion ? fusionShortcutWindows(for: finderWindows).count : settings.favoriteApps.count,
+            isCompanion ? 8 : OptionWindowHotKeyMonitor.favoriteShortcutLabels.count
+        )
+        guard windowCount != registeredWindowCount
+                || favoriteCount != registeredFavoriteCount
+                || settings.layoutMode != registeredShortcutMode else { return }
+        registeredOptionShortcuts = optionHotKeyMonitor?.start(
+            windowCount: windowCount,
+            favoriteCount: favoriteCount
+        ) ?? .init()
+        registeredWindowCount = windowCount
+        registeredFavoriteCount = favoriteCount
+        registeredShortcutMode = settings.layoutMode
+        if shortcutMonitor?.isOptionShortcutActive == true {
+            setOptionShortcutsVisible(true)
+        }
+    }
+
+    private func stopRegisteredHotKeys() {
+        optionHotKeyMonitor?.stop()
+        registeredOptionShortcuts = .init()
+        registeredWindowCount = -1
+        registeredFavoriteCount = -1
+        registeredShortcutMode = nil
+    }
+
+    private func openShortcutWindow(_ index: Int) {
+        guard settings.layoutMode != .matrix, !isHiddenInDock,
+              registeredOptionShortcuts.windows.contains(index) else { return }
+        let ordered = settings.layoutMode == .dockCompanion
+            ? fusionShortcutWindows(for: otherWindows)
+            : settings.orderedWindows(windows)
+        guard ordered.indices.contains(index - 1) else { return }
+        _ = windowService.toggle(ordered[index - 1])
+        refreshAfterWindowAction()
+    }
+
+    private func openShortcutFavorite(_ index: Int) {
+        guard settings.layoutMode != .matrix, !isHiddenInDock,
+              registeredOptionShortcuts.favorites.contains(index),
+              index > 0 else { return }
+        if settings.layoutMode == .dockCompanion {
+            let ordered = fusionShortcutWindows(for: finderWindows)
+            guard ordered.indices.contains(index - 1) else { return }
+            _ = windowService.toggle(ordered[index - 1])
+            refreshAfterWindowAction()
+            return
+        }
+        guard settings.favoriteApps.indices.contains(index - 1) else { return }
+        let favorite = settings.favoriteApps[index - 1]
+        let focusedWindow = windows.first { window in
+            windowService.isCurrentlyFocused(window) && (
+                favorite.bundleIdentifier.map { $0 == window.bundleIdentifier } ?? false ||
+                favorite.bundleIdentifier == nil && window.applicationName == favorite.applicationName
+            )
+        }
+        if let focusedWindow {
+            _ = windowService.toggle(focusedWindow)
+            refreshAfterWindowAction()
+        } else {
+            openFavorite(favorite)
+        }
+    }
     private func minimizeAll() {
         let allWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
@@ -566,6 +747,12 @@ final class TaskbarPanelController {
         )
         windowService.minimizeAll(allWindows)
         refreshAfterWindowAction()
+    }
+
+    private func openTrash() {
+        let trashURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".Trash", isDirectory: true)
+        NSWorkspace.shared.open(trashURL)
     }
     private func showAppWindows(for window: WindowModel) {
         windowService.showAllWindows(for: window.pid, from: windows)
@@ -615,8 +802,12 @@ final class TaskbarPanelController {
         )
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController(settings: settings, windows: configurableWindows) { [weak self] in
-                self?.lastRenderedWindowSignature = ""
-                self?.refresh()
+                guard let self else { return }
+                if self.shortcutMonitor?.isOptionShortcutActive == true {
+                    self.setOptionShortcutsVisible(true)
+                }
+                self.lastRenderedWindowSignature = ""
+                self.refresh()
             }
         }
         settingsWindowController?.update(windows: configurableWindows)
@@ -624,9 +815,31 @@ final class TaskbarPanelController {
     }
 
     private func automaticRefresh() {
-        if let pauseUntil = reorderRefreshPauseUntil, pauseUntil > Date() { return }
+        let now = Date()
+        if let pauseUntil = reorderRefreshPauseUntil, pauseUntil > now { return }
+        if settings.layoutMode == .taskbar,
+           settings.favoriteMagnificationEnabled {
+            if let activeUntil = favoriteHoverActiveUntil, activeUntil > now { return }
+            if let pauseUntil = favoriteHoverRefreshPauseUntil, pauseUntil > now { return }
+        }
         reorderRefreshPauseUntil = nil
+        favoriteHoverActiveUntil = nil
+        favoriteHoverRefreshPauseUntil = nil
         refresh()
+    }
+
+    private func setFavoriteHoverActivity(_ isActive: Bool) {
+        // AX enumeration can block the main thread long enough to interrupt the Dock wave.
+        // Remain paused while the pointer rests on the icons, and briefly after
+        // it exits. The active deadline recovers if macOS misses mouseExited.
+        let now = Date()
+        if isActive {
+            favoriteHoverActiveUntil = now.addingTimeInterval(10)
+            favoriteHoverRefreshPauseUntil = nil
+        } else {
+            favoriteHoverActiveUntil = nil
+            favoriteHoverRefreshPauseUntil = now.addingTimeInterval(1.5)
+        }
     }
 
     private func setAppReordering(_ isDragging: Bool) {
@@ -653,14 +866,18 @@ final class TaskbarPanelController {
         if panelDragStartOrigin == nil { panelDragStartOrigin = panel.frame.origin }
         guard let start = panelDragStartOrigin else { return }
 
-        let screenFrame = (panel.screen ?? NSScreen.screens.first)?.visibleFrame ?? .zero
+        let screen = panel.screen ?? NSScreen.screens.first
+        let screenFrame = screen?.visibleFrame ?? .zero
+        let minimumY = settings.layoutMode == .matrix ? (screen?.frame.minY ?? screenFrame.minY) : screenFrame.minY
         let proposedX = start.x + translation.width
         let proposedY = start.y - translation.height
         let maxX = max(screenFrame.minX, screenFrame.maxX - panel.frame.width)
-        let maxY = max(screenFrame.minY, screenFrame.maxY - panel.frame.height)
+        let maxY = max(minimumY, screenFrame.maxY - panel.frame.height)
         panel.setFrameOrigin(NSPoint(
             x: min(max(proposedX, screenFrame.minX), maxX),
-            y: min(max(proposedY, screenFrame.minY), maxY)
+            y: settings.layoutMode == .taskbar
+                ? (screen?.frame.minY ?? screenFrame.minY)
+                : min(max(proposedY, minimumY), maxY)
         ))
     }
 
@@ -673,7 +890,10 @@ final class TaskbarPanelController {
     }
 
     private func hideInDock() {
+        setOptionShortcutsVisible(false)
+        stopRegisteredHotKeys()
         isHiddenInDock = true
+        synchronizeSystemDockVisibility()
         dockRestoreAvailableAt = Date().addingTimeInterval(0.8)
         finishPanelDrag()
         settingsWindowController?.hide()
@@ -681,6 +901,14 @@ final class TaskbarPanelController {
         NSApp.setActivationPolicy(.regular)
         panel?.orderOut(nil)
         dockFinderPanel?.orderOut(nil)
+    }
+
+    private func synchronizeSystemDockVisibility() {
+        if isHiddenInDock {
+            systemDockVisibility.restore()
+        } else {
+            systemDockVisibility.synchronize(hidden: settings.layoutMode == .taskbar)
+        }
     }
 
     private func toggleTaskbarVisibility() {
@@ -696,18 +924,94 @@ final class TaskbarPanelController {
         let windowState = windows.map {
             "\($0.id)|\($0.title)|\($0.isMinimized)|\($0.isFocused)|\($0.isMain)"
         }.joined(separator: "\u{1F}")
-        return "\(isTrusted)|\(settings.layoutMode.rawValue)|\(windowState)"
+        let recentState = recentApplications.map(\.id).joined(separator: "\u{1F}")
+        let runningState = runningApplicationIDs.sorted().joined(separator: "\u{1F}")
+        let fusionState = settings.layoutMode == .dockCompanion
+            ? dockCompanionWindows.map(\.id).joined(separator: "\u{1F}") : ""
+        return "\(isTrusted)|\(settings.layoutMode.rawValue)|\(windowState)|\(recentState)|\(runningState)|\(fusionState)"
     }
 
-    private func updateWindowSpaceReservations() {
+    private func updateRecentWindowFocus() {
+        let now = Date()
+        let liveIDs = Set(windows.map(\.id))
+        recentWindowFocusDates = recentWindowFocusDates.filter {
+            liveIDs.contains($0.key) && now.timeIntervalSince($0.value) <= FusionDisplayPolicy.recentLifetime
+        }
+        let focusedID = windows.first(where: \.isFocused)?.id
+        if let focusedID {
+            recentWindowFocusDates[focusedID] = now
+        }
+    }
+
+    private func fusionShortcutWindows(for displayedWindows: [WindowModel]) -> [WindowModel] {
+        let ordered = settings.orderedWindows(displayedWindows)
+        let grouped = Dictionary(grouping: ordered, by: \.appKey)
+        var seen = Set<String>()
+        return ordered.compactMap { window in
+            guard let group = grouped[window.appKey] else { return nil }
+            if group.count >= settings.dockCompanionCollapseThreshold {
+                guard seen.insert(window.appKey).inserted else { return nil }
+                return group.first(where: \.isFocused) ?? group[0]
+            }
+            return window
+        }
+    }
+
+    private func appKey(for application: NSRunningApplication) -> String? {
+        guard application.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              !application.isTerminated else { return nil }
+        if let bundleIdentifier = application.bundleIdentifier, !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+        guard let name = application.localizedName, !name.isEmpty else { return nil }
+        return "name:\(name)"
+    }
+
+    private func recentApp(for application: NSRunningApplication) -> FavoriteApp? {
+        guard application.activationPolicy == .regular,
+              let id = appKey(for: application),
+              let name = application.localizedName else { return nil }
+        guard !settings.blacklistedAppKeys.contains(id) else { return nil }
+        return FavoriteApp(
+            id: id,
+            bundleIdentifier: application.bundleIdentifier,
+            applicationName: name,
+            bundlePath: application.bundleURL?.path
+        )
+    }
+
+    private func seedRecentApplications() {
+        let running = NSWorkspace.shared.runningApplications
+            .sorted { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }
+        for application in running {
+            guard let recent = recentApp(for: application),
+                  !settings.recentApps.contains(where: { $0.id == recent.id }) else { continue }
+            settings.recordRecentApp(recent)
+        }
+        refreshRecentApplications()
+    }
+
+    private func refreshRecentApplications() {
+        runningApplicationIDs = Set(NSWorkspace.shared.runningApplications.compactMap(appKey(for:)))
+        recentApplications = RecentAppDisplayPolicy.visible(
+            from: settings.recentApps,
+            excluding: { settings.isFavorite($0.id) }
+        )
+    }
+
+    private func quitRecentApp(_ recent: FavoriteApp) {
+        for application in NSWorkspace.shared.runningApplications {
+            guard appKey(for: application) == recent.id else { continue }
+            _ = application.terminate()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.refresh()
+        }
+    }
+
+    private func updateWindowSpaceReservations(force: Bool) {
         guard let panel,
               let screen = panel.screen ?? NSScreen.screens.first else { return }
-        let reservationWindows = windowService.enumerateWindows(
-            excludingPID: ProcessInfo.processInfo.processIdentifier,
-            showHiddenApps: true,
-            blacklistedAppKeys: [],
-            blockedWindowRules: []
-        )
         let reservationPanelFrame: CGRect
         if settings.layoutMode == .dockCompanion,
            let finderPanel = dockFinderPanel,
@@ -725,17 +1029,39 @@ final class TaskbarPanelController {
                 x: panel.frame.minX,
                 y: panel.frame.minY,
                 width: panel.frame.width,
-                height: settings.layoutMode == .dockCompanion ? settings.dockCompanionHeight : 38
+                height: settings.layoutMode == .dockCompanion ? settings.dockCompanionHeight : settings.taskbarHeight
             )
         } else {
             reservationPanelFrame = panel.frame
         }
+        let context = ReservationContext(
+            panelFrame: reservationPanelFrame,
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            enabled: !isHiddenInDock && panel.isVisible && settings.layoutMode != .matrix,
+            layoutMode: settings.layoutMode
+        )
+        let now = Date()
+        guard force || context != lastReservationContext
+                || now.timeIntervalSince(lastReservationUpdateAt) >= 1.5 else { return }
+        lastReservationContext = context
+        lastReservationUpdateAt = now
+        guard context.enabled else {
+            windowService.clearWindowSpaceReservations(restore: true, windows: [])
+            return
+        }
+        let reservationWindows = windowService.enumerateWindows(
+            excludingPID: ProcessInfo.processInfo.processIdentifier,
+            showHiddenApps: true,
+            blacklistedAppKeys: [],
+            blockedWindowRules: []
+        )
         windowService.updateWindowSpaceReservations(
             for: reservationWindows,
             panelFrame: reservationPanelFrame,
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
-            enabled: !isHiddenInDock && panel.isVisible
+            enabled: true
         )
     }
 
@@ -790,6 +1116,12 @@ final class TaskbarPanelController {
     }
 
     @objc private func workspaceChanged(_ notification: Notification) {
+        if notification.name == NSWorkspace.didLaunchApplicationNotification
+            || notification.name == NSWorkspace.didActivateApplicationNotification,
+           let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+           let recent = recentApp(for: application) {
+            settings.recordRecentApp(recent)
+        }
         refresh()
         guard notification.name == NSWorkspace.didActivateApplicationNotification else { return }
         // Alt-Tab helpers can publish app activation just before Accessibility updates

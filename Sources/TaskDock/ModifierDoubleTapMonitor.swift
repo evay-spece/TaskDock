@@ -4,14 +4,23 @@ import AppKit
 final class ModifierDoubleTapMonitor {
     private let settings: SettingsStore
     private let onDoubleTap: () -> Void
+    private let onOptionHoldChanged: (Bool) -> Void
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var lastTapAt: Date?
     private var modifierIsDown = false
+    private var optionOnlyIsDown = false
+    private var optionHoldIsActive = false
+    var isOptionShortcutActive: Bool { optionHoldIsActive }
 
-    init(settings: SettingsStore, onDoubleTap: @escaping () -> Void) {
+    init(
+        settings: SettingsStore,
+        onDoubleTap: @escaping () -> Void,
+        onOptionHoldChanged: @escaping (Bool) -> Void
+    ) {
         self.settings = settings
         self.onDoubleTap = onDoubleTap
+        self.onOptionHoldChanged = onOptionHoldChanged
     }
 
     func start() {
@@ -31,6 +40,9 @@ final class ModifierDoubleTapMonitor {
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         globalMonitor = nil
         localMonitor = nil
+        if optionHoldIsActive { onOptionHoldChanged(false) }
+        optionHoldIsActive = false
+        optionOnlyIsDown = false
         lastTapAt = nil
         modifierIsDown = false
     }
@@ -44,17 +56,31 @@ final class ModifierDoubleTapMonitor {
         let desiredFlag = modifierFlag
         let relevantFlags = event.modifierFlags.intersection([.option, .command, .control, .shift])
         let desiredIsDown = relevantFlags.contains(desiredFlag)
+        var doubleTapped = false
 
         if desiredIsDown, !modifierIsDown, relevantFlags == desiredFlag {
             let now = Date()
             if let lastTapAt, now.timeIntervalSince(lastTapAt) <= 0.38 {
                 self.lastTapAt = nil
+                doubleTapped = true
                 onDoubleTap()
             } else {
                 lastTapAt = now
             }
         }
         modifierIsDown = desiredIsDown
+
+        let optionOnlyIsDown = relevantFlags == .option
+        if optionOnlyIsDown != self.optionOnlyIsDown {
+            self.optionOnlyIsDown = optionOnlyIsDown
+            if optionOnlyIsDown, !doubleTapped {
+                optionHoldIsActive = true
+                onOptionHoldChanged(true)
+            } else if optionHoldIsActive {
+                optionHoldIsActive = false
+                onOptionHoldChanged(false)
+            }
+        }
     }
 
     private var modifierFlag: NSEvent.ModifierFlags {

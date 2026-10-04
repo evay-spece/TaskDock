@@ -1,6 +1,12 @@
 import Foundation
 
 enum WindowFilterRules {
+    private static let appsWithMinimizedDialogWindows: Set<String> = [
+        "com.microsoft.Excel",
+        "com.tencent.xinWeChat",
+        "com.apple.iCal",
+        "com.apple.Notes"
+    ]
     private static let transientApplicationBundleIdentifiers: Set<String> = [
         "com.apple.quicklook.QuickLookUIService"
     ]
@@ -32,5 +38,16 @@ enum WindowFilterRules {
         if isMinimized { return false }
         guard !title.isEmpty else { return true }
         return subrole != "AXStandardWindow"
+    }
+
+    static func shouldKeepMinimizedDocumentWindow(
+        bundleIdentifier: String?,
+        title: String,
+        subrole: String?,
+        isMinimized: Bool,
+        isModal: Bool
+    ) -> Bool {
+        bundleIdentifier.map { appsWithMinimizedDialogWindows.contains($0) } == true &&
+            isMinimized && !isModal && !title.isEmpty && subrole == "AXDialog"
     }
 }

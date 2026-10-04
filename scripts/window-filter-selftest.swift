@@ -36,9 +36,69 @@ struct WindowFilterSelfTest {
         precondition(!WindowFilterRules.shouldIgnoreFinderWindow(
             title: "下载", subrole: "AXDialog", isMinimized: true
         ))
+        precondition(WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+            bundleIdentifier: "com.microsoft.Excel", title: "工作簿1", subrole: "AXDialog",
+            isMinimized: true, isModal: false
+        ))
+        for identifier in ["com.tencent.xinWeChat", "com.apple.iCal", "com.apple.Notes"] {
+            precondition(WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+                bundleIdentifier: identifier, title: "文档", subrole: "AXDialog",
+                isMinimized: true, isModal: false
+            ))
+            precondition(!WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+                bundleIdentifier: identifier, title: "保存", subrole: "AXDialog",
+                isMinimized: false, isModal: false
+            ))
+            precondition(!WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+                bundleIdentifier: identifier, title: "文档", subrole: "AXDialog",
+                isMinimized: true, isModal: true
+            ))
+        }
+        precondition(!WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+            bundleIdentifier: "com.microsoft.Excel", title: "保存", subrole: "AXDialog",
+            isMinimized: false, isModal: true
+        ))
+        precondition(!WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+            bundleIdentifier: "com.microsoft.Excel", title: "", subrole: "AXDialog",
+            isMinimized: true, isModal: false
+        ))
+        precondition(!WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+            bundleIdentifier: "com.apple.Preview", title: "图片", subrole: "AXDialog",
+            isMinimized: true, isModal: false
+        ))
 
         var liveChecks: [String] = []
         for app in NSWorkspace.shared.runningApplications {
+            if let identifier = app.bundleIdentifier,
+               ["com.tencent.xinWeChat", "com.apple.iCal", "com.apple.Notes"].contains(identifier) {
+                let application = AXUIElementCreateApplication(app.processIdentifier)
+                var windowValue: CFTypeRef?
+                if AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windowValue) == .success,
+                   let windows = windowValue as? [AXUIElement] {
+                    for window in windows {
+                        var roleValue: CFTypeRef?
+                        var subroleValue: CFTypeRef?
+                        var minimizedValue: CFTypeRef?
+                        var modalValue: CFTypeRef?
+                        var titleValue: CFTypeRef?
+                        guard AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &roleValue) == .success,
+                              (roleValue as? String) == kAXWindowRole,
+                              AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subroleValue) == .success,
+                              (subroleValue as? String) == "AXDialog",
+                              AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue) == .success,
+                              (minimizedValue as? Bool) == true,
+                              AXUIElementCopyAttributeValue(window, kAXModalAttribute as CFString, &modalValue) == .success,
+                              (modalValue as? Bool) == false,
+                              AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success,
+                              let title = titleValue as? String else { continue }
+                        precondition(WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+                            bundleIdentifier: identifier, title: title, subrole: "AXDialog",
+                            isMinimized: true, isModal: false
+                        ))
+                        liveChecks.append("minimized-dialog")
+                    }
+                }
+            }
             if let bundleIdentifier = app.bundleIdentifier,
                bundleIdentifier.lowercased().contains("inputmethod") ||
                 bundleIdentifier.lowercased().contains("textinput") {

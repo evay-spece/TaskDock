@@ -17,12 +17,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         )
         let hostingView = NSHostingView(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "TaskDock 设置"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
         window.center()
