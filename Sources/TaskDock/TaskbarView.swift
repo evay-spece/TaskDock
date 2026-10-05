@@ -1231,9 +1231,14 @@ private struct RecentApplicationDockView: View {
     let onQuit: (FavoriteApp) -> Void
     @State private var isShowingApplications = false
     @State private var hoveredApplicationID: String?
+    @State private var pointerLocationWhenOpened: NSPoint?
 
     var body: some View {
         Button {
+            if !isShowingApplications {
+                pointerLocationWhenOpened = NSEvent.mouseLocation
+                hoveredApplicationID = nil
+            }
             isShowingApplications.toggle()
         } label: {
             HStack(spacing: 3) {
@@ -1312,15 +1317,27 @@ private struct RecentApplicationDockView: View {
                     }
                     .contentShape(Rectangle())
                     .onHover { isHovered in
-                        hoveredApplicationID = isHovered ? application.id :
-                            (hoveredApplicationID == application.id ? nil : hoveredApplicationID)
+                        if isHovered {
+                            let currentLocation = NSEvent.mouseLocation
+                            let hasMovedSinceOpening = pointerLocationWhenOpened.map {
+                                hypot(currentLocation.x - $0.x, currentLocation.y - $0.y) > 4
+                            } ?? true
+                            if hasMovedSinceOpening {
+                                hoveredApplicationID = application.id
+                            }
+                        } else if hoveredApplicationID == application.id {
+                            hoveredApplicationID = nil
+                        }
                     }
                 }
             }
             .padding(12)
         }
         .onChange(of: isShowingApplications) { isShowing in
-            if !isShowing { hoveredApplicationID = nil }
+            if !isShowing {
+                hoveredApplicationID = nil
+                pointerLocationWhenOpened = nil
+            }
         }
     }
 }
