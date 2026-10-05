@@ -45,7 +45,7 @@ struct TaskbarView: View {
                 matrixView
             }
         }
-        .preferredColorScheme(settings.layoutMode == .dockCompanion ? nil : settings.appearance.colorScheme)
+        .preferredColorScheme(settings.appearancePreference(in: settings.layoutMode).colorScheme)
         .simultaneousGesture(optionPanelMoveGesture)
     }
 
@@ -438,8 +438,7 @@ struct TaskbarView: View {
     }
 
     private var effectiveAppearance: TaskbarAppearance {
-        guard settings.layoutMode == .dockCompanion else { return settings.appearance }
-        return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        settings.resolvedAppearance(in: settings.layoutMode)
     }
 
     private var taskbarDragArea: some View {

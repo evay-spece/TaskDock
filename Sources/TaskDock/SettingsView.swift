@@ -87,9 +87,16 @@ struct SettingsView: View {
                             Image(systemName: tab.systemImage)
                                 .font(.system(size: 25, weight: .regular))
                                 .frame(height: 29)
-                            Text(tab.label)
-                                .font(.system(size: 12, weight: .medium))
-                                .lineLimit(1)
+                            HStack(spacing: 3) {
+                                Text(tab.label)
+                                    .font(.system(size: 12, weight: .medium))
+                                if tab == .dockCompanion || tab == .matrix {
+                                    Text("实验")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                            .lineLimit(1)
                         }
                         .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
                         .frame(width: 106, height: 70)
@@ -126,26 +133,14 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         tabScrollView {
-            settingsSection(title: "模式与主题", description: "选择 TaskDock 的显示模式和整体明暗主题。") {
+            settingsSection(title: "显示模式", description: "选择 TaskDock 当前使用的模式；外观与窗口显示在各模式中分别设置。") {
                 Picker("显示模式", selection: $settings.layoutMode) {
                     ForEach(TaskDockLayoutMode.allCases) { mode in
                         Label(mode.label, systemImage: mode.systemImage).tag(mode)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .onChange(of: settings.layoutMode) { _ in onChanged() }
-
-                Picker("主题", selection: $settings.appearance) {
-                    ForEach(TaskbarAppearance.allCases) { appearance in
-                        Label(
-                            appearance.label,
-                            systemImage: appearance == .light ? "sun.max.fill" : "moon.fill"
-                        )
-                        .tag(appearance)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: settings.appearance) { _ in onChanged() }
             }
 
             settingsSection(title: "任务项外观", description: "设置窗口卡片的高亮和文字显示。") {
@@ -154,42 +149,11 @@ struct SettingsView: View {
                         Text(style.label).tag(style)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .onChange(of: settings.taskItemHighlightStyle) { _ in onChanged() }
 
                 Toggle("显示 App 名称", isOn: $settings.showApplicationName)
                     .onChange(of: settings.showApplicationName) { _ in onChanged() }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("非选中项透明度")
-                        Spacer()
-                        Text("\(Int(settings.nonSelectedItemTransparency * 100))%")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $settings.nonSelectedItemTransparency, in: 0...0.7, step: 0.05)
-                        .onChange(of: settings.nonSelectedItemTransparency) { _ in onChanged() }
-                    Text("只影响非当前焦点的任务项。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            settingsSection(title: "窗口显示", description: "控制隐藏 App 的窗口是否纳入 TaskDock。") {
-                Toggle("显示隐藏 App 的窗口", isOn: $settings.showHiddenApps)
-                    .onChange(of: settings.showHiddenApps) { _ in onChanged() }
-                Toggle("Finder 标签按窗口显示", isOn: $settings.finderTabsAsWindows)
-                    .onChange(of: settings.finderTabsAsWindows) { _ in onChanged() }
-                Text("开启后，Finder 每个标签单独显示为任务项；关闭时仍按原生窗口显示。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            settingsSection(title: "系统 Dock", description: "系统 Dock 随 TaskDock 显示模式自动切换。") {
-                Text("任务栏模式隐藏系统 Dock；Dock 融合和窗口矩阵模式显示系统 Dock。退出 TaskDock 时恢复启动前的系统 Dock 偏好。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             settingsSection(title: "隐藏/显示快捷键", description: "连续按两次选定的修饰键。") {
@@ -199,7 +163,8 @@ struct SettingsView: View {
                     }
                 }
                 .labelsHidden()
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
+                .onChange(of: settings.toggleModifier) { _ in onChanged() }
             }
 
             settingsSection(
@@ -290,14 +255,15 @@ struct SettingsView: View {
                 mode: .taskbar
             )
 
+            modeVisualSettings(for: .taskbar)
+
             settingsSection(title: "位置与尺寸", description: "设置任务栏在屏幕底部的对齐方式、宽度和高度。") {
                 Picker("任务栏位置", selection: $settings.taskbarAlignment) {
                     ForEach(TaskbarAlignment.allCases) { alignment in
                         Text(alignment.label).tag(alignment)
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .disabled(settings.taskbarWidthMode == .fullWidth)
                 .onChange(of: settings.taskbarAlignment) { _ in onChanged() }
                 if settings.taskbarWidthMode == .fullWidth {
@@ -310,8 +276,7 @@ struct SettingsView: View {
                         Text(mode.label).tag(mode)
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .onChange(of: settings.taskbarWidthMode) { _ in onChanged() }
                 HStack {
                     Label("任务栏高度", systemImage: "arrow.up.and.down")
@@ -338,8 +303,7 @@ struct SettingsView: View {
                         Text("\(Int(size))").tag(size)
                     }
                 }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                     .onChange(of: settings.taskbarItemFontSize) { _ in onChanged() }
                 Text("仅调整任务栏任务项文字，共 5 档；默认 12 pt。")
                     .font(.caption)
@@ -447,6 +411,8 @@ struct SettingsView: View {
                 mode: .dockCompanion
             )
 
+            modeVisualSettings(for: .dockCompanion)
+
             settingsSection(title: "左侧 App", description: "所选 App 的窗口显示在原生 Dock 左边。") {
                 dockCompanionAppList(side: .left)
             }
@@ -464,32 +430,26 @@ struct SettingsView: View {
             }
 
             settingsSection(title: "窗口与栏位", description: "设置融合栏显示条件和底栏外观。Finder 不受窗口数量门槛限制。") {
-                Stepper(value: Binding(
+                Picker("至少需要的窗口数", selection: Binding(
                     get: { settings.dockCompanionMinimumWindowCount },
                     set: { settings.dockCompanionMinimumWindowCount = min(max($0, 1), 20) }
-                ), in: 1...20) {
-                    HStack {
-                        Text("至少需要的窗口数")
-                        Spacer()
-                        Text("\(settings.dockCompanionMinimumWindowCount) 个")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                )) {
+                    ForEach(1...20, id: \.self) { count in
+                        Text("\(count) 个").tag(count)
                     }
                 }
+                .pickerStyle(.menu)
                 .onChange(of: settings.dockCompanionMinimumWindowCount) { _ in onChanged() }
                 Divider()
-                Stepper(value: Binding(
+                Picker("App 窗口折叠门槛", selection: Binding(
                     get: { settings.dockCompanionCollapseThreshold },
                     set: { settings.dockCompanionCollapseThreshold = min(max($0, 2), 20) }
-                ), in: 2...20) {
-                    HStack {
-                        Text("App 窗口折叠门槛")
-                        Spacer()
-                        Text("\(settings.dockCompanionCollapseThreshold) 个")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                )) {
+                    ForEach(2...20, id: \.self) { count in
+                        Text("\(count) 个").tag(count)
                     }
                 }
+                .pickerStyle(.menu)
                 .onChange(of: settings.dockCompanionCollapseThreshold) { _ in onChanged() }
                 Text("达到门槛后只占一个位置；点击 App 入口可选择具体窗口。")
                     .font(.caption)
@@ -631,6 +591,8 @@ struct SettingsView: View {
                 mode: .matrix
             )
 
+            modeVisualSettings(for: .matrix)
+
             settingsSection(title: "排列方式", description: "矩阵会自动根据可用宽度压缩任务项。") {
                 Label("每个 App 独立成列", systemImage: "rectangle.split.3x1")
                 Label("最先打开的窗口排列在底部", systemImage: "arrow.down.to.line")
@@ -648,6 +610,45 @@ struct SettingsView: View {
             .padding(.horizontal, 42)
             .padding(.vertical, 20)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func modeVisualSettings(for mode: TaskDockLayoutMode) -> some View {
+        Group {
+            settingsSection(title: "外观", description: "仅影响当前模式的任务项。") {
+                Picker("主题", selection: Binding(
+                    get: { settings.appearancePreference(in: mode) },
+                    set: { settings.setAppearance($0, in: mode); onChanged() }
+                )) {
+                    ForEach(ModeAppearance.allCases) { appearance in
+                        Text(appearance.label).tag(appearance)
+                    }
+                }
+                .pickerStyle(.menu)
+                Picker("非选中项透明度", selection: Binding(
+                    get: { Int((settings.transparency(in: mode) * 100).rounded()) },
+                    set: { settings.setTransparency(Double($0) / 100, in: mode); onChanged() }
+                )) {
+                    ForEach(Array(stride(from: 0, through: 70, by: 5)), id: \.self) { percent in
+                        Text("\(percent)%").tag(percent)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            settingsSection(title: "窗口显示", description: "仅影响当前模式的窗口清单。") {
+                Toggle("显示隐藏 App 的窗口", isOn: Binding(
+                    get: { settings.showsHiddenApps(in: mode) },
+                    set: { settings.setShowsHiddenApps($0, in: mode); onChanged() }
+                ))
+                Toggle("Finder 标签按窗口显示", isOn: Binding(
+                    get: { settings.showsFinderTabsAsWindows(in: mode) },
+                    set: { settings.setShowsFinderTabsAsWindows($0, in: mode); onChanged() }
+                ))
+                Text("开启后，Finder 每个标签单独显示为任务项；关闭时仍按原生窗口显示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -683,7 +684,17 @@ struct SettingsView: View {
                 .frame(width: 34, height: 34)
                 .foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.title3.weight(.semibold))
+                HStack(spacing: 8) {
+                    Text(title).font(.title3.weight(.semibold))
+                    if mode != .taskbar {
+                        Text("实验功能")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.orange.opacity(0.12), in: Capsule())
+                    }
+                }
                 Text(description)
                     .font(.callout)
                     .foregroundStyle(.secondary)

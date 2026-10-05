@@ -13,7 +13,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         let rootView = AnyView(
             SettingsView(settings: settings, windows: windows, onChanged: onChanged)
-                .preferredColorScheme(settings.appearance.colorScheme)
         )
         let hostingView = NSHostingView(rootView: rootView)
         let window = NSWindow(
@@ -41,7 +40,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func update(windows: [WindowModel]) {
         hostingView.rootView = AnyView(
             SettingsView(settings: settings, windows: windows, onChanged: onChanged)
-                .preferredColorScheme(settings.appearance.colorScheme)
         )
     }
 

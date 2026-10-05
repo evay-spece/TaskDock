@@ -10,6 +10,29 @@ enum TaskbarAppearance: String, CaseIterable, Identifiable {
     var colorScheme: ColorScheme { self == .light ? .light : .dark }
 }
 
+enum ModeAppearance: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
 enum TaskItemHighlightStyle: String, CaseIterable, Identifiable {
     case systemAccent
     case white
@@ -98,13 +121,17 @@ final class SettingsStore: ObservableObject {
     static let recentAppHistoryLimit = 50
     @Published var blacklistedAppKeys: Set<String> { didSet { save() } }
     @Published private(set) var blockedWindowRules: [BlockedWindowRule] { didSet { save() } }
-    @Published var showHiddenApps: Bool { didSet { save() } }
-    @Published var finderTabsAsWindows: Bool { didSet { save() } }
+    @Published private(set) var appearanceByMode: [TaskDockLayoutMode: ModeAppearance] { didSet { save() } }
+    @Published private(set) var transparencyByMode: [TaskDockLayoutMode: Double] { didSet { save() } }
+    @Published private(set) var hiddenAppsByMode: [TaskDockLayoutMode: Bool] { didSet { save() } }
+    @Published private(set) var finderTabsByMode: [TaskDockLayoutMode: Bool] { didSet { save() } }
     @Published var showApplicationName: Bool { didSet { save() } }
-    @Published var nonSelectedItemTransparency: Double { didSet { save() } }
     @Published var taskItemHighlightStyle: TaskItemHighlightStyle { didSet { save() } }
-    @Published var appearance: TaskbarAppearance { didSet { save() } }
     @Published var layoutMode: TaskDockLayoutMode { didSet { save() } }
+    var showHiddenApps: Bool { showsHiddenApps(in: layoutMode) }
+    var finderTabsAsWindows: Bool { showsFinderTabsAsWindows(in: layoutMode) }
+    var nonSelectedItemTransparency: Double { transparency(in: layoutMode) }
+    var appearance: TaskbarAppearance { resolvedAppearance(in: layoutMode) }
     @Published var activeTaskbarShortcutIndices: Set<Int> = []
     @Published var activeFavoriteShortcutIndices: Set<Int> = []
     @Published var dockCompanionHeight: CGFloat = 39
@@ -169,14 +196,29 @@ final class SettingsStore: ObservableObject {
         } else {
             blockedWindowRules = []
         }
-        showHiddenApps = defaults.bool(forKey: hiddenAppsKey)
-        finderTabsAsWindows = defaults.bool(forKey: finderTabsAsWindowsKey)
+        let legacyHiddenApps = defaults.bool(forKey: hiddenAppsKey)
+        let legacyFinderTabs = defaults.bool(forKey: finderTabsAsWindowsKey)
+        let legacyTransparency = min(max(defaults.object(forKey: nonSelectedItemTransparencyKey) as? Double ?? 0, 0), 0.7)
+        let legacyAppearance = ModeAppearance(rawValue: defaults.string(forKey: appearanceKey) ?? "dark") ?? .dark
+        let storedDefaults = UserDefaults.standard
+        appearanceByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
+            let fallback: ModeAppearance = mode == .dockCompanion ? .system : legacyAppearance
+            return (mode, ModeAppearance(rawValue: storedDefaults.string(forKey: Self.modeKey(mode, "appearance")) ?? "") ?? fallback)
+        })
+        transparencyByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
+            let value = storedDefaults.object(forKey: Self.modeKey(mode, "nonSelectedItemTransparency")) as? Double ?? legacyTransparency
+            return (mode, min(max(value, 0), 0.7))
+        })
+        hiddenAppsByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
+            (mode, storedDefaults.object(forKey: Self.modeKey(mode, "showHiddenApps")) as? Bool ?? legacyHiddenApps)
+        })
+        finderTabsByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
+            (mode, storedDefaults.object(forKey: Self.modeKey(mode, "finderTabsAsWindows")) as? Bool ?? legacyFinderTabs)
+        })
         showApplicationName = defaults.object(forKey: showApplicationNameKey) as? Bool ?? true
-        nonSelectedItemTransparency = min(max(defaults.object(forKey: nonSelectedItemTransparencyKey) as? Double ?? 0, 0), 0.7)
         taskItemHighlightStyle = TaskItemHighlightStyle(
             rawValue: defaults.string(forKey: taskItemHighlightStyleKey) ?? "white"
         ) ?? .white
-        appearance = TaskbarAppearance(rawValue: defaults.string(forKey: appearanceKey) ?? "dark") ?? .dark
         layoutMode = TaskDockLayoutMode(rawValue: defaults.string(forKey: layoutModeKey) ?? "matrix") ?? .matrix
         taskbarAlignment = TaskbarAlignment(rawValue: defaults.string(forKey: taskbarAlignmentKey) ?? "center") ?? .center
         taskbarWidthMode = TaskbarWidthMode(rawValue: defaults.string(forKey: taskbarWidthModeKey) ?? "adaptive") ?? .adaptive
@@ -440,17 +482,69 @@ final class SettingsStore: ObservableObject {
         return !wasAdded || previousSide != side
     }
 
+    private static func modeKey(_ mode: TaskDockLayoutMode, _ field: String) -> String {
+        "taskdock.mode.\(mode.rawValue).\(field)"
+    }
+
+    func appearancePreference(in mode: TaskDockLayoutMode) -> ModeAppearance {
+        appearanceByMode[mode] ?? .system
+    }
+
+    func setAppearance(_ value: ModeAppearance, in mode: TaskDockLayoutMode) {
+        guard appearanceByMode[mode] != value else { return }
+        appearanceByMode[mode] = value
+    }
+
+    func resolvedAppearance(in mode: TaskDockLayoutMode) -> TaskbarAppearance {
+        switch appearancePreference(in: mode) {
+        case .light: return .light
+        case .dark: return .dark
+        case .system:
+            return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        }
+    }
+
+    func transparency(in mode: TaskDockLayoutMode) -> Double {
+        transparencyByMode[mode] ?? 0
+    }
+
+    func setTransparency(_ value: Double, in mode: TaskDockLayoutMode) {
+        let clamped = min(max(value, 0), 0.7)
+        guard transparencyByMode[mode] != clamped else { return }
+        transparencyByMode[mode] = clamped
+    }
+
+    func showsHiddenApps(in mode: TaskDockLayoutMode) -> Bool {
+        hiddenAppsByMode[mode] ?? false
+    }
+
+    func setShowsHiddenApps(_ value: Bool, in mode: TaskDockLayoutMode) {
+        guard hiddenAppsByMode[mode] != value else { return }
+        hiddenAppsByMode[mode] = value
+    }
+
+    func showsFinderTabsAsWindows(in mode: TaskDockLayoutMode) -> Bool {
+        finderTabsByMode[mode] ?? false
+    }
+
+    func setShowsFinderTabsAsWindows(_ value: Bool, in mode: TaskDockLayoutMode) {
+        guard finderTabsByMode[mode] != value else { return }
+        finderTabsByMode[mode] = value
+    }
+
     private func save() {
         defaults.set(Array(blacklistedAppKeys), forKey: blacklistKey)
         if let data = try? JSONEncoder().encode(blockedWindowRules) {
             defaults.set(data, forKey: blockedWindowRulesKey)
         }
-        defaults.set(showHiddenApps, forKey: hiddenAppsKey)
-        defaults.set(finderTabsAsWindows, forKey: finderTabsAsWindowsKey)
         defaults.set(showApplicationName, forKey: showApplicationNameKey)
-        defaults.set(nonSelectedItemTransparency, forKey: nonSelectedItemTransparencyKey)
         defaults.set(taskItemHighlightStyle.rawValue, forKey: taskItemHighlightStyleKey)
-        defaults.set(appearance.rawValue, forKey: appearanceKey)
+        for mode in TaskDockLayoutMode.allCases {
+            defaults.set(appearancePreference(in: mode).rawValue, forKey: Self.modeKey(mode, "appearance"))
+            defaults.set(transparency(in: mode), forKey: Self.modeKey(mode, "nonSelectedItemTransparency"))
+            defaults.set(showsHiddenApps(in: mode), forKey: Self.modeKey(mode, "showHiddenApps"))
+            defaults.set(showsFinderTabsAsWindows(in: mode), forKey: Self.modeKey(mode, "finderTabsAsWindows"))
+        }
         defaults.set(layoutMode.rawValue, forKey: layoutModeKey)
         defaults.set(taskbarAlignment.rawValue, forKey: taskbarAlignmentKey)
         defaults.set(taskbarWidthMode.rawValue, forKey: taskbarWidthModeKey)
