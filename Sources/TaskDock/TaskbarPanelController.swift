@@ -246,7 +246,7 @@ final class TaskbarPanelController {
                 ? 0
                 : (CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14) * scale
                     + 2 * FavoriteMagnificationLayout.sideClearance(for: scale)
-            let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 46 * scale
+            let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 40 * scale
             let folderWidth = CGFloat(settings.favoriteFolders.count) * 34 * scale
                 + (settings.favoriteFolders.isEmpty ? 0 : 12 * scale)
             let controlsAndPadding: CGFloat = 84 * scale + favoriteWidth + recentApplicationWidth + folderWidth
@@ -436,7 +436,7 @@ final class TaskbarPanelController {
             ? 0
             : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
         let recentApplicationWidth: CGFloat = !showsFavorites || isDockCompanion || recentApplications.isEmpty
-            ? 0 : 46
+            ? 0 : 40
         let resolvedShowsControls = showsControls && (!isDockCompanion || settings.dockCompanionShowsBottomBar)
         let controlsAndPadding: CGFloat
         if isDockCompanion {

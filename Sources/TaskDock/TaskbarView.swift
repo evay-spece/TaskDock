@@ -378,7 +378,7 @@ struct TaskbarView: View {
             ? 0
             : (CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14) * taskbarPanelScale
                 + 2 * FavoriteMagnificationLayout.sideClearance(for: taskbarPanelScale)
-        let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 46 * taskbarPanelScale
+        let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 40 * taskbarPanelScale
         let favoriteFolderWidth: CGFloat = settings.layoutMode == .taskbar && showsControls
             ? CGFloat(settings.favoriteFolders.count) * 34 * taskbarPanelScale
                 + (settings.favoriteFolders.isEmpty ? 0 : 12 * taskbarPanelScale)
@@ -1241,20 +1241,15 @@ private struct RecentApplicationDockView: View {
             }
             isShowingApplications.toggle()
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 17 * sizeScale, weight: .medium))
-                Text("\(applications.count)")
-                    .font(.system(size: 10 * sizeScale, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-            }
-            .foregroundStyle(isDark ? Color.white.opacity(0.82) : Color(red: 0.30, green: 0.39, blue: 0.49))
-            .frame(width: 38 * sizeScale, height: 30 * sizeScale)
-            .contentShape(Rectangle())
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 17 * sizeScale, weight: .medium))
+                .foregroundStyle(isDark ? Color.white.opacity(0.82) : Color(red: 0.30, green: 0.39, blue: 0.49))
+                .frame(width: 32 * sizeScale, height: 30 * sizeScale)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("最近打开的 App（\(applications.count) 个）")
-        .accessibilityLabel("最近打开的 App，\(applications.count) 个；点击展开列表")
+        .help("最近打开的 App")
+        .accessibilityLabel("最近打开的 App；点击展开列表")
         .popover(isPresented: $isShowingApplications, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("最近打开的 App")
