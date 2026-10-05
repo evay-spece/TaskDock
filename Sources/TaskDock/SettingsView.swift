@@ -142,6 +142,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
                 .onChange(of: settings.layoutMode) { _ in onChanged() }
             }
 
@@ -152,6 +153,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
                 .onChange(of: settings.taskItemHighlightStyle) { _ in onVisualChanged() }
 
                 Toggle("显示 App 名称", isOn: $settings.showApplicationName)
@@ -166,6 +168,7 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
                 .onChange(of: settings.toggleModifier) { _ in onChanged() }
             }
 
@@ -266,6 +269,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
                 .disabled(settings.taskbarWidthMode == .fullWidth)
                 .onChange(of: settings.taskbarAlignment) { _ in onLayoutChanged() }
                 if settings.taskbarWidthMode == .fullWidth {
@@ -279,6 +283,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
                 .onChange(of: settings.taskbarWidthMode) { _ in onLayoutChanged() }
                 HStack {
                     Label("任务栏高度", systemImage: "arrow.up.and.down")
@@ -306,6 +311,7 @@ struct SettingsView: View {
                     }
                 }
                     .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
                     .onChange(of: settings.taskbarItemFontSize) { _ in onVisualChanged() }
                 Text("仅调整任务栏任务项文字，共 5 档；默认 12 pt。")
                     .font(.caption)
@@ -441,6 +447,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
                 .onChange(of: settings.dockCompanionMinimumWindowCount) { _ in onChanged() }
                 Divider()
                 Picker("App 窗口折叠门槛", selection: Binding(
@@ -452,6 +459,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
                 .onChange(of: settings.dockCompanionCollapseThreshold) { _ in onChanged() }
                 Text("达到门槛后只占一个位置；点击 App 入口可选择具体窗口。")
                     .font(.caption)
@@ -628,6 +636,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
                 if mode == .dockCompanion {
                     Text("手动指定浅色或深色仅改变 TaskDock；原生 Dock 仍跟随系统，外观可能不一致。")
                         .font(.caption)
@@ -642,6 +651,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
             }
 
             settingsSection(title: "窗口显示", description: "仅影响当前模式的窗口清单。") {
