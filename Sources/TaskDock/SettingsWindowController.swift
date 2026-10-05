@@ -5,14 +5,29 @@ import SwiftUI
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let settings: SettingsStore
     private let onChanged: () -> Void
+    private let onVisualChanged: () -> Void
+    private let onLayoutChanged: () -> Void
     private var hostingView: NSHostingView<AnyView>!
 
-    init(settings: SettingsStore, windows: [WindowModel], onChanged: @escaping () -> Void) {
+    init(
+        settings: SettingsStore,
+        windows: [WindowModel],
+        onChanged: @escaping () -> Void,
+        onVisualChanged: @escaping () -> Void,
+        onLayoutChanged: @escaping () -> Void
+    ) {
         self.settings = settings
         self.onChanged = onChanged
+        self.onVisualChanged = onVisualChanged
+        self.onLayoutChanged = onLayoutChanged
 
         let rootView = AnyView(
-            SettingsView(settings: settings, windows: windows, onChanged: onChanged)
+            SettingsView(
+                settings: settings, windows: windows,
+                onChanged: onChanged,
+                onVisualChanged: onVisualChanged,
+                onLayoutChanged: onLayoutChanged
+            )
         )
         let hostingView = NSHostingView(rootView: rootView)
         let window = NSWindow(
@@ -39,7 +54,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func update(windows: [WindowModel]) {
         hostingView.rootView = AnyView(
-            SettingsView(settings: settings, windows: windows, onChanged: onChanged)
+            SettingsView(
+                settings: settings, windows: windows,
+                onChanged: onChanged,
+                onVisualChanged: onVisualChanged,
+                onLayoutChanged: onLayoutChanged
+            )
         )
     }
 

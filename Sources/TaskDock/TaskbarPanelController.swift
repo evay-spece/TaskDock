@@ -36,6 +36,8 @@ final class TaskbarPanelController {
     private var reorderRefreshPauseUntil: Date?
     private var favoriteHoverActiveUntil: Date?
     private var favoriteHoverRefreshPauseUntil: Date?
+    private var settingsRefreshPauseUntil: Date?
+    private var pendingLayoutRefreshToken: UUID?
     private var lastReservationContext: ReservationContext?
     private var lastReservationUpdateAt = Date.distantPast
     private var panelDragStartOrigin: NSPoint?
@@ -106,6 +108,7 @@ final class TaskbarPanelController {
 
     func stop() {
         systemDockVisibility.restore()
+        pendingLayoutRefreshToken = nil
         timer?.invalidate()
         shortcutMonitor?.stop()
         stopRegisteredHotKeys()
@@ -612,19 +615,7 @@ final class TaskbarPanelController {
         updateWindowSpaceReservations(force: contentChanged)
         if contentChanged {
             lastRenderedWindowSignature = signature
-            let primaryWindows = settings.layoutMode == .dockCompanion ? otherWindows : windows
-            hostingView?.rootView = makeTaskbarView(
-                windows: primaryWindows,
-                showsFavorites: settings.layoutMode != .dockCompanion,
-                showsControls: true,
-                showsEmptyState: settings.layoutMode != .dockCompanion
-            )
-            dockFinderHostingView?.rootView = makeTaskbarView(
-                windows: finderWindows,
-                showsFavorites: false,
-                showsControls: false,
-                showsEmptyState: false
-            )
+            redrawPanels()
         }
         if isHiddenInDock {
             panel?.orderOut(nil)
@@ -801,14 +792,22 @@ final class TaskbarPanelController {
             blockedWindowRules: []
         )
         if settingsWindowController == nil {
-            settingsWindowController = SettingsWindowController(settings: settings, windows: configurableWindows) { [weak self] in
-                guard let self else { return }
-                if self.shortcutMonitor?.isOptionShortcutActive == true {
-                    self.setOptionShortcutsVisible(true)
-                }
-                self.lastRenderedWindowSignature = ""
-                self.refresh()
-            }
+            settingsWindowController = SettingsWindowController(
+                settings: settings,
+                windows: configurableWindows,
+                onChanged: { [weak self] in
+                    guard let self else { return }
+                    self.pendingLayoutRefreshToken = nil
+                    self.settingsRefreshPauseUntil = nil
+                    if self.shortcutMonitor?.isOptionShortcutActive == true {
+                        self.setOptionShortcutsVisible(true)
+                    }
+                    self.lastRenderedWindowSignature = ""
+                    self.refresh()
+                },
+                onVisualChanged: { [weak self] in self?.refreshVisualSettings() },
+                onLayoutChanged: { [weak self] in self?.refreshLayoutSettings() }
+            )
         }
         settingsWindowController?.update(windows: configurableWindows)
         settingsWindowController?.show()
@@ -816,6 +815,7 @@ final class TaskbarPanelController {
 
     private func automaticRefresh() {
         let now = Date()
+        if let pauseUntil = settingsRefreshPauseUntil, pauseUntil > now { return }
         if let pauseUntil = reorderRefreshPauseUntil, pauseUntil > now { return }
         if settings.layoutMode == .taskbar,
            settings.favoriteMagnificationEnabled {
@@ -826,6 +826,41 @@ final class TaskbarPanelController {
         favoriteHoverActiveUntil = nil
         favoriteHoverRefreshPauseUntil = nil
         refresh()
+    }
+
+    private func redrawPanels() {
+        let primaryWindows = settings.layoutMode == .dockCompanion ? otherWindows : windows
+        hostingView?.rootView = makeTaskbarView(
+            windows: primaryWindows,
+            showsFavorites: settings.layoutMode != .dockCompanion,
+            showsControls: true,
+            showsEmptyState: settings.layoutMode != .dockCompanion
+        )
+        dockFinderHostingView?.rootView = makeTaskbarView(
+            windows: finderWindows,
+            showsFavorites: false,
+            showsControls: false,
+            showsEmptyState: false
+        )
+    }
+
+    private func refreshVisualSettings() {
+        settingsRefreshPauseUntil = Date().addingTimeInterval(0.4)
+        redrawPanels()
+    }
+
+    private func refreshLayoutSettings() {
+        settingsRefreshPauseUntil = Date().addingTimeInterval(0.45)
+        reposition()
+        redrawPanels()
+        let token = UUID()
+        pendingLayoutRefreshToken = token
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, self.pendingLayoutRefreshToken == token else { return }
+            self.pendingLayoutRefreshToken = nil
+            self.settingsRefreshPauseUntil = nil
+            self.refresh()
+        }
     }
 
     private func setFavoriteHoverActivity(_ isActive: Bool) {

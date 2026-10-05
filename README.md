@@ -44,7 +44,7 @@ swift run
 - 点击窗口卡片时激活应用、取消最小化并尝试 raise 精确窗口
 - 窗口卡片支持悬停、焦点高亮、最小化标记、右键和长按菜单
 - 没有可访问窗口的应用不会产生窗口列
-- 设置中支持 App 黑名单、显示隐藏 App 窗口、浅色/深色主题
+- 设置中支持 App 黑名单；主题、非选中项透明度与窗口显示可按模式分别设置
 - 当前焦点窗口仅增加透明白底提亮，不使用强调色背景或描边；底部强调色指示条保留
 - 设置窗口支持从 GitHub Release 检查更新、下载安装包并自动重启，无需手动下载
 - 支持拖动任意窗口卡片，以 App 窗口列为整体调整顺序
@@ -63,6 +63,14 @@ swift run
 - Dock 融合模式将 Finder 窗口置于系统 Dock 左侧，其他多窗口 App 置于右侧；单窗口 App 默认不占用右侧空间
 - Dock 融合模式中同一 App 达到 3 个窗口时默认折叠为一个入口，点击可选择具体窗口；门槛可在设置中调整
 - Dock 融合模式可临时显示 5 分钟内使用过、尚未达到显示门槛的最多 2 个窗口；遵守手动隐藏的 App 设置，可关闭
+- 仅调整外观时直接重绘；拖动任务栏高度时先更新布局，停手后再同步窗口占用区域
+
+偏好迁移自测可运行：
+
+```bash
+swiftc Sources/TaskDockPreferences/ModePreferenceStorage.swift scripts/mode-preference-selftest.swift -o /tmp/taskdock-mode-preference-selftest
+/tmp/taskdock-mode-preference-selftest
+```
 
 ## 当前限制
 

@@ -35,6 +35,8 @@ struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .general
     let windows: [WindowModel]
     let onChanged: () -> Void
+    let onVisualChanged: () -> Void
+    let onLayoutChanged: () -> Void
 
     private var apps: [(key: String, name: String, icon: NSImage?)] {
         let grouped = Dictionary(grouping: windows, by: { $0.appKey })
@@ -150,10 +152,10 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .onChange(of: settings.taskItemHighlightStyle) { _ in onChanged() }
+                .onChange(of: settings.taskItemHighlightStyle) { _ in onVisualChanged() }
 
                 Toggle("显示 App 名称", isOn: $settings.showApplicationName)
-                    .onChange(of: settings.showApplicationName) { _ in onChanged() }
+                    .onChange(of: settings.showApplicationName) { _ in onVisualChanged() }
             }
 
             settingsSection(title: "隐藏/显示快捷键", description: "连续按两次选定的修饰键。") {
@@ -265,7 +267,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .disabled(settings.taskbarWidthMode == .fullWidth)
-                .onChange(of: settings.taskbarAlignment) { _ in onChanged() }
+                .onChange(of: settings.taskbarAlignment) { _ in onLayoutChanged() }
                 if settings.taskbarWidthMode == .fullWidth {
                     Text("左右铺满时，任务栏会固定从屏幕可用区域左边延伸到右边。")
                         .font(.caption)
@@ -277,7 +279,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .onChange(of: settings.taskbarWidthMode) { _ in onChanged() }
+                .onChange(of: settings.taskbarWidthMode) { _ in onLayoutChanged() }
                 HStack {
                     Label("任务栏高度", systemImage: "arrow.up.and.down")
                     Spacer()
@@ -287,7 +289,7 @@ struct SettingsView: View {
                 }
                 Slider(value: $settings.taskbarHeight, in: SettingsStore.taskbarHeightRange, step: 2)
                     .accessibilityLabel("任务栏高度")
-                    .onChange(of: settings.taskbarHeight) { _ in onChanged() }
+                    .onChange(of: settings.taskbarHeight) { _ in onLayoutChanged() }
                 Text("任务栏、图标和任务项同步调整；默认 38 pt。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -304,7 +306,7 @@ struct SettingsView: View {
                     }
                 }
                     .pickerStyle(.menu)
-                    .onChange(of: settings.taskbarItemFontSize) { _ in onChanged() }
+                    .onChange(of: settings.taskbarItemFontSize) { _ in onVisualChanged() }
                 Text("仅调整任务栏任务项文字，共 5 档；默认 12 pt。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -327,7 +329,7 @@ struct SettingsView: View {
                     Spacer()
                 }
                 Toggle("收藏图标悬停反馈", isOn: $settings.favoriteMagnificationEnabled)
-                    .onChange(of: settings.favoriteMagnificationEnabled) { _ in onChanged() }
+                    .onChange(of: settings.favoriteMagnificationEnabled) { _ in onVisualChanged() }
                 Text("鼠标移到收藏图标上时，图标会弹性放大；关闭后保持固定大小。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -618,16 +620,22 @@ struct SettingsView: View {
             settingsSection(title: "外观", description: "仅影响当前模式的任务项。") {
                 Picker("主题", selection: Binding(
                     get: { settings.appearancePreference(in: mode) },
-                    set: { settings.setAppearance($0, in: mode); onChanged() }
+                    set: { settings.setAppearance($0, in: mode); onVisualChanged() }
                 )) {
                     ForEach(ModeAppearance.allCases) { appearance in
-                        Text(appearance.label).tag(appearance)
+                        Text(mode == .dockCompanion && appearance == .system
+                             ? "跟随系统（推荐）" : appearance.label).tag(appearance)
                     }
                 }
                 .pickerStyle(.menu)
+                if mode == .dockCompanion {
+                    Text("手动指定浅色或深色仅改变 TaskDock；原生 Dock 仍跟随系统，外观可能不一致。")
+                        .font(.caption)
+                        .foregroundStyle(settings.appearancePreference(in: mode) == .system ? Color.secondary : Color.orange)
+                }
                 Picker("非选中项透明度", selection: Binding(
                     get: { Int((settings.transparency(in: mode) * 100).rounded()) },
-                    set: { settings.setTransparency(Double($0) / 100, in: mode); onChanged() }
+                    set: { settings.setTransparency(Double($0) / 100, in: mode); onVisualChanged() }
                 )) {
                     ForEach(Array(stride(from: 0, through: 70, by: 5)), id: \.self) { percent in
                         Text("\(percent)%").tag(percent)

@@ -213,6 +213,7 @@ struct TaskbarView: View {
                                             availableWidth: itemWidth,
                                             itemHeight: taskbarItemHeight,
                                             contentScale: taskbarContentScale,
+                                            nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
                                             shortcutLabel: shortcutLabel(for: group.windows.first(where: \.isFocused) ?? group.windows[0]),
                                             onSelect: onSelect
                                         )
@@ -856,6 +857,7 @@ private struct FusionCollapsedAppView: View {
     let availableWidth: CGFloat
     let itemHeight: CGFloat
     let contentScale: CGFloat
+    let nonSelectedItemTransparency: Double
     let shortcutLabel: String?
     let onSelect: (WindowModel) -> Void
     @State private var isShowingWindows = false
@@ -921,6 +923,7 @@ private struct FusionCollapsedAppView: View {
             }
         }
         .buttonStyle(.plain)
+        .opacity(windows.contains(where: \.isFocused) ? 1 : 1 - nonSelectedItemTransparency)
         .onHover { isHovered = $0 }
         .help("\(representative.applicationName)：\(windows.count) 个窗口，点击展开")
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口")

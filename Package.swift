@@ -5,5 +5,8 @@ let package = Package(
     name: "TaskDock",
     platforms: [.macOS(.v12)],
     products: [.executable(name: "TaskDock", targets: ["TaskDock"])],
-    targets: [.executableTarget(name: "TaskDock", path: "Sources/TaskDock")]
+    targets: [
+        .target(name: "TaskDockPreferences", path: "Sources/TaskDockPreferences"),
+        .executableTarget(name: "TaskDock", dependencies: ["TaskDockPreferences"], path: "Sources/TaskDock")
+    ]
 )
