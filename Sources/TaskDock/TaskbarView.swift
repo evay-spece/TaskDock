@@ -1384,7 +1384,9 @@ private struct FavoriteDockView: View {
 
     private var itemStep: CGFloat { 32 * sizeScale }
     private var buttonSize: CGFloat { 30 * sizeScale }
-    private var hoverSafetyWidth: CGFloat { 12 * sizeScale }
+    private var hoverSafetyWidth: CGFloat {
+        FavoriteMagnificationLayout.sideClearance(for: sizeScale)
+    }
 
     var body: some View {
         HStack(spacing: itemStep - buttonSize) {
@@ -1437,6 +1439,8 @@ private struct FavoriteDockView: View {
                 runningApplicationIDs: runningApplicationIDs,
                 sizeScale: sizeScale,
                 dragOffsets: favorites.map { offset(for: $0.id) },
+                draggedFavoriteID: draggedFavoriteID,
+                isSettlingDrag: isSettlingDrag,
                 controller: visualController
             )
             .allowsHitTesting(false)
@@ -1449,9 +1453,11 @@ private struct FavoriteDockView: View {
                     visualController.updatePointer(nil)
                     return
                 }
-                let rowWidth = CGFloat(favorites.count) * itemStep
-                let pointerX = min(max(location.x - hoverSafetyWidth, itemStep / 2),
-                                   rowWidth - itemStep / 2)
+                let pointerX = FavoriteMagnificationLayout.clampedPointerX(
+                    trackingX: location.x,
+                    count: favorites.count,
+                    sizeScale: sizeScale
+                )
                 visualController.updatePointer(pointerX)
             }
             .frame(width: CGFloat(favorites.count) * itemStep + 2 * hoverSafetyWidth)
@@ -1611,6 +1617,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
     let runningApplicationIDs: Set<String>
     let sizeScale: CGFloat
     let dragOffsets: [CGFloat]
+    let draggedFavoriteID: String?
+    let isSettlingDrag: Bool
     let controller: FavoriteDockVisualController
 
     func makeNSView(context: Context) -> DrawingView {
@@ -1620,7 +1628,9 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             favorites: favorites,
             runningApplicationIDs: runningApplicationIDs,
             sizeScale: sizeScale,
-            dragOffsets: dragOffsets
+            dragOffsets: dragOffsets,
+            draggedFavoriteID: draggedFavoriteID,
+            isSettlingDrag: isSettlingDrag
         )
         return view
     }
@@ -1631,7 +1641,9 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             favorites: favorites,
             runningApplicationIDs: runningApplicationIDs,
             sizeScale: sizeScale,
-            dragOffsets: dragOffsets
+            dragOffsets: dragOffsets,
+            draggedFavoriteID: draggedFavoriteID,
+            isSettlingDrag: isSettlingDrag
         )
     }
 
@@ -1653,6 +1665,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         private var runningApplicationIDs: Set<String> = []
         private var sizeScale: CGFloat = 1
         private var dragOffsets: [CGFloat] = []
+        private var draggedFavoriteID: String?
+        private var isSettlingDrag = false
         private var pointerX: CGFloat?
         private var entryStates: [EntryState] = []
         private var entryStartedAt: CFTimeInterval?
@@ -1679,22 +1693,24 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             favorites: [FavoriteApp],
             runningApplicationIDs: Set<String>,
             sizeScale: CGFloat,
-            dragOffsets: [CGFloat]
+            dragOffsets: [CGFloat],
+            draggedFavoriteID: String?,
+            isSettlingDrag: Bool
         ) {
             let ids = favorites.map(\.id)
             let favoritesChanged = ids != favoriteIDs
             let indicatorsChanged = favoritesChanged || self.runningApplicationIDs != runningApplicationIDs
             if favoritesChanged {
                 stopEntryAnimation()
-                iconLayers.forEach { $0.removeFromSuperlayer() }
-                indicatorLayers.forEach { $0.removeFromSuperlayer() }
-                indicatorLayers = favorites.map { _ in
-                    let indicator = CALayer()
-                    indicator.zPosition = 0.5
-                    layer?.addSublayer(indicator)
-                    return indicator
+                let oldIcons = Dictionary(uniqueKeysWithValues: zip(favoriteIDs, iconLayers))
+                let oldIndicators = Dictionary(uniqueKeysWithValues: zip(favoriteIDs, indicatorLayers))
+                let retainedIDs = Set(ids)
+                for id in favoriteIDs where !retainedIDs.contains(id) {
+                    oldIcons[id]?.removeFromSuperlayer()
+                    oldIndicators[id]?.removeFromSuperlayer()
                 }
                 iconLayers = favorites.map { favorite in
+                    if let existing = oldIcons[favorite.id] { return existing }
                     let icon = CALayer()
                     icon.contents = FavoriteApplicationIcon.image(for: favorite)
                         .cgImage(forProposedRect: nil, context: nil, hints: nil)
@@ -1705,12 +1721,24 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                     layer?.addSublayer(icon)
                     return icon
                 }
+                indicatorLayers = favorites.map { favorite in
+                    if let existing = oldIndicators[favorite.id] { return existing }
+                    let indicator = CALayer()
+                    indicator.zPosition = 0.5
+                    layer?.addSublayer(indicator)
+                    return indicator
+                }
                 favoriteIDs = ids
             }
-            guard indicatorsChanged || self.sizeScale != sizeScale || self.dragOffsets != dragOffsets else { return }
+            let dragOffsetsChanged = self.dragOffsets != dragOffsets
+            guard indicatorsChanged || self.sizeScale != sizeScale || dragOffsetsChanged
+                    || self.draggedFavoriteID != draggedFavoriteID
+                    || self.isSettlingDrag != isSettlingDrag else { return }
             self.runningApplicationIDs = runningApplicationIDs
             self.sizeScale = sizeScale
             self.dragOffsets = dragOffsets
+            self.draggedFavoriteID = draggedFavoriteID
+            self.isSettlingDrag = isSettlingDrag
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             let iconSize = FavoriteMagnificationLayout.iconSize * sizeScale
@@ -1723,7 +1751,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             }
             if indicatorsChanged { updateIndicatorColors() }
             CATransaction.commit()
-            updateLayers(animated: false)
+            updateLayers(animated: false, animateReorder: draggedFavoriteID != nil
+                && (favoritesChanged || dragOffsetsChanged))
         }
 
         private func updateIndicatorColors() {
@@ -1776,7 +1805,19 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             entryStates = []
         }
 
-        private func updateLayers(animated: Bool) {
+        private func animateReorderPosition(_ target: CGPoint, on layer: CALayer) {
+            guard layer.position != target else { return }
+            let current = layer.presentation()?.position ?? layer.position
+            layer.position = target
+            let movement = CABasicAnimation(keyPath: "position")
+            movement.fromValue = current
+            movement.toValue = target
+            movement.duration = 0.18
+            movement.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(movement, forKey: "favorite-reorder-position")
+        }
+
+        private func updateLayers(animated: Bool, animateReorder: Bool = false) {
             let layout = FavoriteMagnificationLayout(
                 count: iconLayers.count,
                 pointerX: pointerX,
@@ -1796,8 +1837,9 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                 CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
             }
             for (index, icon) in iconLayers.enumerated() {
+                let favoriteID = favoriteIDs[index]
                 let scale = layout.scales[index]
-                let isRunning = runningApplicationIDs.contains(favoriteIDs[index])
+                let isRunning = runningApplicationIDs.contains(favoriteID)
                 let geometry = layout.visualGeometry(
                     at: index,
                     sizeScale: sizeScale,
@@ -1812,14 +1854,21 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                 let displayedScale = entry.map {
                     $0.iconScale + (scale - $0.iconScale) * entryProgress
                 } ?? scale
-                icon.position = entry.map {
+                let displayedIconPosition = entry.map {
                     CGPoint(
                         x: $0.iconPosition.x + (targetIconPosition.x - $0.iconPosition.x) * entryProgress,
                         y: $0.iconPosition.y + (targetIconPosition.y - $0.iconPosition.y) * entryProgress
                     )
                 } ?? targetIconPosition
+                let animatePosition = animateReorder
+                    && (favoriteID != draggedFavoriteID || isSettlingDrag)
+                if animatePosition {
+                    animateReorderPosition(displayedIconPosition, on: icon)
+                } else {
+                    icon.position = displayedIconPosition
+                }
                 icon.transform = CATransform3DMakeScale(displayedScale, displayedScale, 1)
-                icon.zPosition = displayedScale
+                icon.zPosition = favoriteID == draggedFavoriteID ? 20 : displayedScale
 
                 let indicator = indicatorLayers[index]
                 let targetIndicatorPosition = CGPoint(
@@ -1827,12 +1876,17 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                     y: geometry.indicatorCenterY
                 )
                 let indicatorScale = 1 + (scale - 1) * 0.5
-                indicator.position = entry.map {
+                let displayedIndicatorPosition = entry.map {
                     CGPoint(
                         x: $0.indicatorPosition.x + (targetIndicatorPosition.x - $0.indicatorPosition.x) * entryProgress,
                         y: $0.indicatorPosition.y + (targetIndicatorPosition.y - $0.indicatorPosition.y) * entryProgress
                     )
                 } ?? targetIndicatorPosition
+                if animatePosition {
+                    animateReorderPosition(displayedIndicatorPosition, on: indicator)
+                } else {
+                    indicator.position = displayedIndicatorPosition
+                }
                 let displayedIndicatorScale = entry.map {
                     $0.indicatorScale + (indicatorScale - $0.indicatorScale) * entryProgress
                 } ?? indicatorScale

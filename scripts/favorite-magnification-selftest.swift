@@ -5,6 +5,15 @@ struct FavoriteMagnificationSelfTest {
     static func main() {
         let idle = FavoriteMagnificationLayout(count: 9, pointerX: nil)
         precondition(FavoriteMagnificationLayout.sideClearance(for: 1) == 25)
+        let safety = FavoriteMagnificationLayout.sideClearance(for: 1)
+        let rightEdgePointer = FavoriteMagnificationLayout.clampedPointerX(
+            trackingX: 9 * 32 + 2 * safety,
+            count: 9,
+            sizeScale: 1
+        )
+        precondition(rightEdgePointer == 8.5 * 32)
+        precondition(FavoriteMagnificationLayout(count: 9, pointerX: rightEdgePointer).scales[8]
+            == FavoriteMagnificationLayout.maximumScale)
         precondition(idle.scales.allSatisfy { $0 == 1 })
         precondition(idle.offsets.allSatisfy { $0 == 0 })
 
@@ -44,6 +53,15 @@ struct FavoriteMagnificationSelfTest {
         for sizeScale in [CGFloat(34.0 / 38), CGFloat(54.0 / 38), CGFloat(64.0 / 38)] {
             let step = 32 * sizeScale
             let icon = 26 * sizeScale
+            let rightmostPointer = FavoriteMagnificationLayout.clampedPointerX(
+                trackingX: 9 * step + 2 * FavoriteMagnificationLayout.sideClearance(for: sizeScale),
+                count: 9,
+                sizeScale: sizeScale
+            )
+            precondition(abs(rightmostPointer - 8.5 * step) < 0.001)
+            precondition(abs(FavoriteMagnificationLayout(
+                count: 9, pointerX: rightmostPointer, sizeScale: sizeScale
+            ).scales[8] - FavoriteMagnificationLayout.maximumScale) < 0.001)
             precondition(FavoriteMagnificationLayout.headroom(for: sizeScale)
                 > (30 * (FavoriteMagnificationLayout.maximumScale - 1) + 4.5) * sizeScale)
             for pointer in stride(from: CGFloat.zero, through: 9 * step, by: step / 8) {

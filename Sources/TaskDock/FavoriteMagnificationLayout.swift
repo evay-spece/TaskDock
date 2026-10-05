@@ -70,6 +70,14 @@ struct FavoriteMagnificationLayout {
         ceil(25 * sizeScale)
     }
 
+    static func clampedPointerX(trackingX: CGFloat, count: Int, sizeScale: CGFloat) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let step = itemStep * sizeScale
+        let rowWidth = CGFloat(count) * step
+        let pointerX = trackingX - sideClearance(for: sizeScale)
+        return min(max(pointerX, step / 2), rowWidth - step / 2)
+    }
+
     func visualGeometry(
         at index: Int,
         sizeScale: CGFloat,
