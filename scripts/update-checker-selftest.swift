@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 struct UpdateCheckerSelfTest {
     static func main() async {
+        precondition(UpdateSupport.isNewer("1.0.2", than: "1.0.1"))
+        precondition(!UpdateSupport.isNewer("1.0.1", than: "1.0.1"))
         let checker = UpdateChecker(currentVersion: "0.1.0")
         checker.check()
 
