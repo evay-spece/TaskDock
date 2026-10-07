@@ -63,7 +63,7 @@ struct WindowFilterSelfTest {
             bundleIdentifier: "com.microsoft.Excel", title: "工作簿1", subrole: "AXDialog",
             isMinimized: true, isModal: false
         ))
-        for identifier in ["com.tencent.xinWeChat", "com.apple.iCal", "com.apple.Notes"] {
+        for identifier in ["com.apple.Terminal", "com.tencent.xinWeChat", "com.apple.iCal", "com.apple.Notes"] {
             precondition(WindowFilterRules.shouldKeepMinimizedDocumentWindow(
                 bundleIdentifier: identifier, title: "文档", subrole: "AXDialog",
                 isMinimized: true, isModal: false

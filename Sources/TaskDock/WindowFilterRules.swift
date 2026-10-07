@@ -2,6 +2,7 @@ import Foundation
 
 enum WindowFilterRules {
     private static let appsWithMinimizedDialogWindows: Set<String> = [
+        "com.apple.Terminal",
         "com.microsoft.Excel",
         "com.tencent.xinWeChat",
         "com.apple.iCal",
