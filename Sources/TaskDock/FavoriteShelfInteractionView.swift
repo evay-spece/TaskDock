@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+struct FavoriteShelfMenuAction {
+    let title: String?
+    let perform: (() -> Void)?
+
+    static let separator = FavoriteShelfMenuAction(title: nil, perform: nil)
+}
+
 /// Owns the mouse capture so dragging continues above and outside the panel.
 struct FavoriteShelfInteractionView: NSViewRepresentable {
     let shelfInset: CGFloat
@@ -12,6 +19,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
     let iconForItem: (String) -> NSImage?
     let canDragItem: (String) -> Bool
     let onClick: (String) -> Void
+    let onContextMenu: (String) -> [FavoriteShelfMenuAction]
     let onDragUpdate: (String, CGSize, Bool, CGFloat) -> Void
     let onDragEnd: (Bool) -> Void
     let onRemove: (String) -> Void
@@ -37,6 +45,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         view.iconForItem = iconForItem
         view.canDragItem = canDragItem
         view.onClick = onClick
+        view.onContextMenu = onContextMenu
         view.onDragUpdate = onDragUpdate
         view.onDragEnd = onDragEnd
         view.onRemove = onRemove
@@ -59,6 +68,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         var iconForItem: ((String) -> NSImage?)?
         var canDragItem: ((String) -> Bool)?
         var onClick: ((String) -> Void)?
+        var onContextMenu: ((String) -> [FavoriteShelfMenuAction])?
         var onDragUpdate: ((String, CGSize, Bool, CGFloat) -> Void)?
         var onDragEnd: ((Bool) -> Void)?
         var onRemove: ((String) -> Void)?
@@ -82,6 +92,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         private var pendingDrag: (id: String, translation: CGSize, outside: Bool, x: CGFloat)?
         private var dragUpdateScheduled = false
         private var dragUpdateGeneration = 0
+        private var contextMenuActions: [() -> Void] = []
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -215,18 +226,29 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
 
         override func rightMouseDown(with event: NSEvent) {
             guard !dragging, let id = itemAt?(convert(event.locationInWindow, from: nil)),
-                  canDragItem?(id) == true else { return }
+                  let actions = onContextMenu?(id), !actions.isEmpty else { return }
             let menu = NSMenu()
-            let item = NSMenuItem(title: "取消收藏", action: #selector(removeFromMenu(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = id
-            menu.addItem(item)
+            menu.autoenablesItems = false
+            contextMenuActions = []
+            for action in actions {
+                guard let title = action.title, let perform = action.perform else {
+                    if !menu.items.isEmpty { menu.addItem(.separator()) }
+                    continue
+                }
+                let item = NSMenuItem(title: title,
+                    action: #selector(performContextMenuAction(_:)), keyEquivalent: "")
+                item.target = self
+                item.tag = contextMenuActions.count
+                contextMenuActions.append(perform)
+                menu.addItem(item)
+            }
             NSMenu.popUpContextMenu(menu, with: event, for: self)
+            contextMenuActions = []
         }
 
-        @objc private func removeFromMenu(_ sender: NSMenuItem) {
-            guard let id = sender.representedObject as? String else { return }
-            onRemove?(id)
+        @objc private func performContextMenuAction(_ sender: NSMenuItem) {
+            guard contextMenuActions.indices.contains(sender.tag) else { return }
+            contextMenuActions[sender.tag]()
         }
 
         private func updateRemoval(outside: Bool, id: String) {

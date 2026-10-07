@@ -212,6 +212,7 @@ struct TaskbarView: View {
                             showsHoverLabel: settings.layoutMode == .taskbar,
                             sizeScale: taskbarPanelScale,
                             onOpen: onOpenFavorite,
+                            onQuit: onQuitRecentApp,
                             onOpenTrash: onOpenTrash,
                             onOpenFolder: onOpenFolder,
                             onRemove: { favorite in
@@ -1625,6 +1626,7 @@ private struct FavoriteDockView: View {
     let showsHoverLabel: Bool
     let sizeScale: CGFloat
     let onOpen: (FavoriteApp) -> Void
+    let onQuit: (FavoriteApp) -> Void
     let onOpenTrash: () -> Void
     let onOpenFolder: (FavoriteFolder) -> Void
     let onRemove: (FavoriteApp) -> Void
@@ -1691,9 +1693,6 @@ private struct FavoriteDockView: View {
                         case .trash: onOpenTrash()
                         case .folder(let folder): onOpenFolder(folder)
                         }
-                    },
-                    onRemove: {
-                        remove(item)
                     }
                     )
                     .offset(x: offset(for: item.id))
@@ -1780,6 +1779,11 @@ private struct FavoriteDockView: View {
                     case .separator, .insertionGap: break
                     }
                 },
+                onContextMenu: { id in
+                    guard draggedFavoriteID == nil,
+                          let item = items.first(where: { $0.id == id }) else { return [] }
+                    return contextMenuActions(for: item)
+                },
                 onDragUpdate: updateDrag,
                 onDragEnd: { outside in
                     visualController.view?.hideDraggedItem(nil)
@@ -1848,6 +1852,54 @@ private struct FavoriteDockView: View {
         case .app(let app): onRemove(app)
         case .folder(let folder): onRemoveFolder(folder)
         case .separator, .trash, .insertionGap: break
+        }
+    }
+
+    private func contextMenuActions(for item: FavoriteShelfItem) -> [FavoriteShelfMenuAction] {
+        func action(_ title: String, _ perform: @escaping () -> Void) -> FavoriteShelfMenuAction {
+            FavoriteShelfMenuAction(title: title, perform: perform)
+        }
+
+        switch item {
+        case .app(let app):
+            var actions = [action("打开", { onOpen(app) })]
+            let runningApp = NSWorkspace.shared.runningApplications.first { running in
+                if let bundleIdentifier = app.bundleIdentifier {
+                    return running.bundleIdentifier == bundleIdentifier
+                }
+                guard let bundlePath = app.bundlePath else { return false }
+                return running.bundleURL?.path == bundlePath
+            }
+            if let runningApp {
+                actions.append(action(runningApp.isHidden ? "显示" : "隐藏", {
+                    if runningApp.isHidden { onOpen(app) }
+                    else { _ = runningApp.hide() }
+                }))
+                actions.append(action("退出", { onQuit(app) }))
+            }
+            if let url = runningApp?.bundleURL ?? app.bundlePath.map(URL.init(fileURLWithPath:)),
+               FileManager.default.fileExists(atPath: url.path) {
+                actions.append(action("在 Finder 中显示", {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }))
+            }
+            actions.append(.separator)
+            actions.append(action("取消收藏", { onRemove(app) }))
+            return actions
+        case .folder(let folder):
+            var actions = [action("打开", { onOpenFolder(folder) })]
+            if FileManager.default.fileExists(atPath: folder.path) {
+                actions.append(action("在 Finder 中显示", {
+                    NSWorkspace.shared.activateFileViewerSelecting([folder.url])
+                }))
+            }
+            actions.append(.separator)
+            actions.append(action("取消收藏", { onRemoveFolder(folder) }))
+            return actions
+        case .trash:
+            return [action("打开废纸篓", onOpenTrash)]
+        case .separator, .insertionGap:
+            return []
         }
     }
 
@@ -2757,17 +2809,9 @@ private struct FavoriteShelfButton: View {
     let shortcutLabel: String?
     let sizeScale: CGFloat
     let onOpen: () -> Void
-    let onRemove: () -> Void
 
-    @ViewBuilder
     var body: some View {
-        if item.app != nil {
-            button.contextMenu {
-                Button("取消收藏", role: .destructive, action: onRemove)
-            }
-        } else {
-            button
-        }
+        button
     }
 
     private var button: some View {
