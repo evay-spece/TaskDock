@@ -150,7 +150,9 @@ final class TaskbarPanelController {
     var currentLayoutMode: TaskDockLayoutMode { settings.layoutMode }
     var isTaskDockHidden: Bool { isHiddenInDock }
     var canRestoreMinimizedWindows: Bool {
-        bulkMinimizedWindows.contains { windowService.isMinimized($0) }
+        !bulkMinimizedWindows.isEmpty &&
+            bulkMinimizedWindows.contains { windowService.isMinimized($0) } &&
+            !hasVisibleWindowOutsideTaskDock()
     }
 
     func minimizeAllWindows() {
@@ -635,7 +637,7 @@ final class TaskbarPanelController {
             finderTabsAsWindows: settings.finderTabsAsWindows
         )
         windows = refreshedWindows
-        bulkMinimizedWindows = bulkMinimizedWindows.filter { windowService.isMinimized($0) }
+        synchronizeBulkMinimizeState()
         updateRecentWindowFocus()
         refreshRecentApplications()
         refreshFavoriteBadgesIfNeeded()
@@ -767,7 +769,7 @@ final class TaskbarPanelController {
         }
     }
     private func minimizeAll() {
-        bulkMinimizedWindows = bulkMinimizedWindows.filter { windowService.isMinimized($0) }
+        synchronizeBulkMinimizeState()
         if !bulkMinimizedWindows.isEmpty {
             windowService.restoreMinimized(bulkMinimizedWindows)
             bulkMinimizedWindows = []
@@ -782,6 +784,24 @@ final class TaskbarPanelController {
         )
         bulkMinimizedWindows = windowService.minimizeAll(allWindows)
         refreshAfterWindowAction()
+    }
+
+    private func synchronizeBulkMinimizeState() {
+        guard !bulkMinimizedWindows.isEmpty else { return }
+        bulkMinimizedWindows = bulkMinimizedWindows.filter { windowService.isMinimized($0) }
+        if hasVisibleWindowOutsideTaskDock() {
+            // Opening or restoring any window ends the show-desktop state.
+            bulkMinimizedWindows = []
+        }
+    }
+
+    private func hasVisibleWindowOutsideTaskDock() -> Bool {
+        windowService.enumerateWindows(
+            excludingPID: ProcessInfo.processInfo.processIdentifier,
+            showHiddenApps: false,
+            blacklistedAppKeys: [],
+            blockedWindowRules: []
+        ).contains { !$0.isMinimized }
     }
 
     private func openTrash() {
