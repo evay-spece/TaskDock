@@ -24,6 +24,11 @@ struct WindowFilterSelfTest {
         precondition(WindowFilterRules.shouldIgnoreWindow(subrole: "AXQuickLook"))
         precondition(!WindowFilterRules.shouldIgnoreWindow(subrole: "AXStandardWindow"))
         precondition(!WindowFilterRules.shouldIgnoreWindow(subrole: nil))
+        precondition(WindowFilterRules.shouldIncludeNormalWindow(subrole: "AXStandardWindow"))
+        for subrole in ["AXUnknown", "AXMenu", "AXPopover", "AXDialog", "AXFloatingWindow"] {
+            precondition(!WindowFilterRules.shouldIncludeNormalWindow(subrole: subrole))
+        }
+        precondition(!WindowFilterRules.shouldIncludeNormalWindow(subrole: nil))
         precondition(WindowFilterRules.shouldIgnoreFinderWindow(
             title: "", subrole: "AXUnknown", isMinimized: false
         ))

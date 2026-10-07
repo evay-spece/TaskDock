@@ -1869,12 +1869,12 @@ private struct FavoriteDockView: View {
                     actions.append(.separator)
                     for favorite in sidebarFavorites {
                         if let url = favorite.url {
-                            actions.append(action("打开\(favorite.name)", {
+                            actions.append(action("打开 \(favorite.name)", {
                                 NSWorkspace.shared.open(url)
                             }))
                         } else {
                             actions.append(FavoriteShelfMenuAction(
-                                title: "打开\(favorite.name)（当前不可用）",
+                                title: "打开 \(favorite.name)（当前不可用）",
                                 isEnabled: false,
                                 perform: {}
                             ))
@@ -2858,7 +2858,8 @@ private struct FavoriteShelfButton: View {
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(accessibilityValue)
         .accessibilityHint(item.isRemovable
-            ? "点击打开；拖动可调整收藏顺序，拖出停留 0.5 秒后松手移除收藏" : "点击打开")
+            ? "点击打开；长按或右键显示菜单；拖动可调整收藏顺序，拖出停留 0.5 秒后松手移除收藏"
+            : "点击打开；长按或右键显示菜单")
     }
 
     private var accessibilityLabel: String {

@@ -91,6 +91,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         private var dragging = false
         private var removalState = FavoriteDragRemovalState()
         private var removalTimer: Timer?
+        private var longPressTimer: Timer?
         private var captureHeartbeat: Timer?
         private var preview: NSPanel?
         private var escapeMonitor: Any?
@@ -149,18 +150,39 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             startPoint = convert(event.locationInWindow, from: nil)
             pressedID = itemAt?(startPoint)
+            longPressTimer?.invalidate()
+            longPressTimer = nil
             if let pressedID, let iconCenter = iconCenterForItem?(pressedID) {
                 grabOffset = CGPoint(x: startPoint.x - iconCenter.x,
                                      y: startPoint.y - iconCenter.y)
             } else {
                 grabOffset = .zero
             }
+            if let id = pressedID {
+                let timer = Timer(timeInterval: 0.55, repeats: false) { [weak self] _ in
+                    guard let self, self.pressedID == id, !self.dragging,
+                          NSEvent.pressedMouseButtons & 1 != 0,
+                          let window = self.window else { return }
+                    let point = self.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+                    guard hypot(point.x - self.startPoint.x, point.y - self.startPoint.y) < 8,
+                          self.itemAt?(point) == id else { return }
+                    self.pressedID = nil
+                    self.longPressTimer = nil
+                    self.showContextMenu(for: id, event: nil)
+                }
+                longPressTimer = timer
+                RunLoop.main.add(timer, forMode: .common)
+            }
         }
 
         override func mouseDragged(with event: NSEvent) {
+            let location = convert(event.locationInWindow, from: nil)
+            if hypot(location.x - startPoint.x, location.y - startPoint.y) >= 8 {
+                longPressTimer?.invalidate()
+                longPressTimer = nil
+            }
             guard let id = pressedID, canDragItem?(id) == true,
                   !event.modifierFlags.contains(.option) else { return }
-            let location = convert(event.locationInWindow, from: nil)
             let translation = CGSize(width: location.x - startPoint.x, height: location.y - startPoint.y)
             guard dragging || hypot(translation.width, translation.height) >= 12 else { return }
             let justStarted = !dragging
@@ -210,6 +232,8 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         }
 
         override func mouseUp(with event: NSEvent) {
+            longPressTimer?.invalidate()
+            longPressTimer = nil
             let id = pressedID
             let wasDragging = dragging
             let location = convert(event.locationInWindow, from: nil)
@@ -232,8 +256,14 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         }
 
         override func rightMouseDown(with event: NSEvent) {
-            guard !dragging, let id = itemAt?(convert(event.locationInWindow, from: nil)),
-                  let actions = onContextMenu?(id), !actions.isEmpty else { return }
+            longPressTimer?.invalidate()
+            longPressTimer = nil
+            guard !dragging, let id = itemAt?(convert(event.locationInWindow, from: nil)) else { return }
+            showContextMenu(for: id, event: event)
+        }
+
+        private func showContextMenu(for id: String, event: NSEvent?) {
+            guard let actions = onContextMenu?(id), !actions.isEmpty else { return }
             let menu = NSMenu()
             menu.autoenablesItems = false
             contextMenuActions = []
@@ -250,7 +280,11 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
                 contextMenuActions.append(perform)
                 menu.addItem(item)
             }
-            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            if let event {
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
+            } else {
+                menu.popUp(positioning: nil, at: startPoint, in: self)
+            }
             contextMenuActions = []
         }
 
@@ -319,6 +353,8 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
             captureHeartbeat = nil
             removalTimer?.invalidate()
             removalTimer = nil
+            longPressTimer?.invalidate()
+            longPressTimer = nil
             removalState.cancel()
             preview?.orderOut(nil)
             preview = nil

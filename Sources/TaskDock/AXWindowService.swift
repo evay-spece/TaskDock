@@ -554,12 +554,11 @@ final class AXWindowService {
             return false
         }
 
-        let transientSubroles: Set<String> = [
-            kAXDialogSubrole,
-            kAXSystemDialogSubrole,
-            kAXFloatingWindowSubrole
-        ]
-        return subrole.map { !transientSubroles.contains($0) } ?? true
+        // Toolbar menus and temporary pickers can report AXWindow with AXUnknown
+        // (Excel does this for its Conditional Formatting menu). Only a standard
+        // top-level window becomes a task item; minimized document exceptions
+        // have already returned above.
+        return WindowFilterRules.shouldIncludeNormalWindow(subrole: subrole)
     }
 
     private func copyAttribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
