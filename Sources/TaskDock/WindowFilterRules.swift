@@ -5,6 +5,7 @@ enum WindowFilterRules {
         "com.apple.Terminal",
         "com.apple.Safari",
         "com.apple.systempreferences",
+        "com.liguangming.Shadowrocket",
         "com.microsoft.Excel",
         "com.tencent.xinWeChat",
         "com.apple.iCal",
