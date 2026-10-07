@@ -35,8 +35,12 @@ enum WindowFilterRules {
     }
 
     static func shouldIgnoreFinderWindow(title: String, subrole: String?, isMinimized: Bool) -> Bool {
-        if isMinimized { return false }
-        guard !title.isEmpty else { return true }
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
+        // Only normal folder windows can become AXDialog when minimized.
+        // Desktop and transient accessibility windows must stay excluded.
+        if isMinimized {
+            return subrole != "AXStandardWindow" && subrole != "AXDialog"
+        }
         return subrole != "AXStandardWindow"
     }
 

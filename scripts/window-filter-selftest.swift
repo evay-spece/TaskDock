@@ -36,6 +36,24 @@ struct WindowFilterSelfTest {
         precondition(!WindowFilterRules.shouldIgnoreFinderWindow(
             title: "下载", subrole: "AXDialog", isMinimized: true
         ))
+        for title in ["", "  ", "\n"] {
+            for subrole in ["AXUnknown", "AXStandardWindow", "AXDialog"] {
+                precondition(WindowFilterRules.shouldIgnoreFinderWindow(
+                    title: title, subrole: subrole, isMinimized: true
+                ))
+            }
+        }
+        for subrole in ["AXUnknown", "AXSystemDialog", "AXFloatingWindow", "Quick Look"] {
+            precondition(WindowFilterRules.shouldIgnoreFinderWindow(
+                title: "Finder", subrole: subrole, isMinimized: true
+            ))
+        }
+        precondition(WindowFilterRules.shouldIgnoreFinderWindow(
+            title: "Finder", subrole: nil, isMinimized: true
+        ))
+        precondition(!WindowFilterRules.shouldIgnoreFinderWindow(
+            title: "下载", subrole: "AXStandardWindow", isMinimized: true
+        ))
         precondition(WindowFilterRules.shouldKeepMinimizedDocumentWindow(
             bundleIdentifier: "com.microsoft.Excel", title: "工作簿1", subrole: "AXDialog",
             isMinimized: true, isModal: false
@@ -66,6 +84,11 @@ struct WindowFilterSelfTest {
             bundleIdentifier: "com.apple.Preview", title: "图片", subrole: "AXDialog",
             isMinimized: true, isModal: false
         ))
+
+        guard CommandLine.arguments.contains("--live") else {
+            print("WINDOW_FILTER_OK static")
+            return
+        }
 
         var liveChecks: [String] = []
         for app in NSWorkspace.shared.runningApplications {

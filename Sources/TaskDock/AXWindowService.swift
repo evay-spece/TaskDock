@@ -19,6 +19,8 @@ final class AXWindowService {
     private let logger = Logger(subsystem: "com.taskdock.app", category: "accessibility")
     private var windowOrder: [String: Int] = [:]
     private var nextWindowOrder = 0
+    private var knownFinderDocumentWindows: [AXUIElement] = []
+    private var hasEnumeratedFinderWindows = false
     private var reservedWindowFrames: [String: ReservedWindowFrame] = [:]
     private var activationRequestID = UUID()
     private var recentActivation: (windowID: String, date: Date)?
@@ -65,6 +67,9 @@ final class AXWindowService {
                     appKey: appKey,
                     blockedWindowRules: blockedWindowRules
                 )
+            }
+            if app.bundleIdentifier == "com.apple.finder", !knownFinderDocumentWindows.isEmpty {
+                hasEnumeratedFinderWindows = true
             }
             let topmostAXWindow: AXUIElement? = topmostWindow.flatMap { screenWindow in
                 guard screenWindow.pid == pid else { return nil }
@@ -514,11 +519,27 @@ final class AXWindowService {
            ) {
             return false
         }
-        if bundleIdentifier == "com.apple.finder", isMinimized {
-            return true
+        let isModal = (copyAttribute(window, kAXModalAttribute) as? Bool) == true
+        if bundleIdentifier == "com.apple.finder" {
+            guard !isModal else { return false }
+            let wasKnownDocument = knownFinderDocumentWindows.contains { CFEqual($0, window) }
+            if subrole == kAXStandardWindowSubrole {
+                if !wasKnownDocument { knownFinderDocumentWindows.append(window) }
+                return true
+            }
+            if isMinimized {
+                // Finder may expose a second AXDialog record only after minimizing.
+                // Keep a dialog only when it is the same previously seen folder window.
+                // Bootstrap already minimized folders once on startup; subsequent
+                // refreshes must not introduce newly appearing dialog records.
+                if !hasEnumeratedFinderWindows && !wasKnownDocument {
+                    knownFinderDocumentWindows.append(window)
+                    return true
+                }
+                return wasKnownDocument
+            }
         }
 
-        let isModal = (copyAttribute(window, kAXModalAttribute) as? Bool) == true
         if WindowFilterRules.shouldKeepMinimizedDocumentWindow(
             bundleIdentifier: bundleIdentifier,
             title: title,

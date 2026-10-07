@@ -23,10 +23,14 @@ final class TaskbarPanelController {
     private let settings = SettingsStore()
     private let systemDockVisibility = SystemDockVisibilityController()
     private let trashStatus = TrashStatusService()
+    private let favoriteBadges = FavoriteBadgeStore()
+    private let trialManager = TrialManager()
+    private let badgePollQueue = DispatchQueue(label: "taskdock.dock-badges", qos: .utility)
     private var panel: NSPanel?
     private var timer: Timer?
     private var windows: [WindowModel] = []
     private var recentApplications: [FavoriteApp] = []
+    private let recentAppPopoverState = RecentAppPopoverState()
     private var runningApplicationIDs: Set<String> = []
     private var recentWindowFocusDates: [String: Date] = [:]
     private var hostingView: NSHostingView<TaskbarView>?
@@ -51,8 +55,9 @@ final class TaskbarPanelController {
     private var registeredFavoriteCount = -1
     private var registeredShortcutMode: TaskDockLayoutMode?
     private var lastRenderedWindowSignature = ""
+    private var lastBadgePollAt = Date.distantPast
+    private var badgePollInFlight = false
     private var appFocusObservers: [pid_t: AppFocusObserver] = [:]
-    private var appliedTaskbarAlignment: TaskbarAlignment?
     private var appliedLayoutMode: TaskDockLayoutMode?
     private var stableDockGeometry: DockGeometrySnapshot?
     private var pendingDockGeometry: DockGeometrySnapshot?
@@ -183,17 +188,23 @@ final class TaskbarPanelController {
         TaskbarView(
             windows: windows,
             recentApplications: settings.layoutMode == .taskbar ? recentApplications : [],
+            recentAppPopoverState: recentAppPopoverState,
             runningApplicationIDs: settings.layoutMode == .taskbar ? runningApplicationIDs : [],
+            favoriteBadges: favoriteBadges,
             isAccessibilityTrusted: permissionService.isTrusted,
             onRequestPermission: { [weak self] in self?.requestPermission() },
-            onSelect: { [weak self] window in self?.select(window) },
-            onMinimizeAll: { [weak self] in self?.minimizeAll() },
-            onOpenTrash: { [weak self] in self?.openTrash() },
-            onShowAppWindows: { [weak self] window in self?.showAppWindows(for: window) },
-            onBlockWindowType: { [weak self] window in self?.blockWindowType(window) },
-            onClose: { [weak self] window in self?.close(window) },
-            onOpenFavorite: { [weak self] favorite in self?.openFavorite(favorite) },
-            onQuitRecentApp: { [weak self] favorite in self?.quitRecentApp(favorite) },
+            onSelect: { [weak self] window in self?.recordTrialOperation(); self?.select(window) },
+            onMinimizeAll: { [weak self] in self?.recordTrialOperation(); self?.minimizeAll() },
+            onOpenTrash: { [weak self] in self?.recordTrialOperation(); self?.openTrash() },
+            onOpenFolder: { [weak self] folder in
+                self?.recordTrialOperation()
+                NSWorkspace.shared.open(folder.url)
+            },
+            onShowAppWindows: { [weak self] window in self?.recordTrialOperation(); self?.showAppWindows(for: window) },
+            onBlockWindowType: { [weak self] window in self?.recordTrialOperation(); self?.blockWindowType(window) },
+            onClose: { [weak self] window in self?.recordTrialOperation(); self?.close(window) },
+            onOpenFavorite: { [weak self] favorite in self?.recordTrialOperation(); self?.openFavorite(favorite) },
+            onQuitRecentApp: { [weak self] favorite in self?.recordTrialOperation(); self?.quitRecentApp(favorite) },
             showsFavorites: showsFavorites,
             showsControls: showsControls,
             showsEmptyState: showsEmptyState,
@@ -203,11 +214,29 @@ final class TaskbarPanelController {
                 self?.lastRenderedWindowSignature = ""
                 self?.refresh()
             },
+            onRecentPopoverVisibilityChanged: { [weak self] isOpen in
+                guard let self else { return }
+                if !isOpen { self.refresh() }
+            },
             onAppDragChanged: { [weak self] isDragging in self?.setAppReordering(isDragging) },
             onFavoriteHoverActivity: { [weak self] isActive in self?.setFavoriteHoverActivity(isActive) },
             onPanelDragChanged: { [weak self] translation in self?.movePanel(by: translation) },
             onPanelDragEnded: { [weak self] in self?.finishPanelDrag() }
         )
+    }
+
+    private func recordTrialOperation() {
+        guard trialManager.recordOperation() else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.trialManager.isExpired() else { return }
+            let alert = NSAlert()
+            alert.messageText = "TaskDock 试用期已结束"
+            alert.informativeText = "你仍可继续使用。此提醒会在每 10 次任务栏操作后再次出现。"
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "稍后")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
     }
 
     private func reposition(
@@ -236,55 +265,36 @@ final class TaskbarPanelController {
         dockFinderPanel?.level = .floating
 
         if settings.layoutMode == .taskbar {
-            if appliedTaskbarAlignment != settings.taskbarAlignment {
-                customPanelOrigins.removeValue(forKey: .taskbar)
-                appliedTaskbarAlignment = settings.taskbarAlignment
-            }
             let scale = settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
             let preferredItemWidth: CGFloat = 132 * scale
-            let favoriteWidth = settings.favoriteApps.isEmpty
-                ? 0
-                : (CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14) * scale
-                    + 2 * FavoriteMagnificationLayout.sideClearance(for: scale)
+            let favoriteWidth = TaskbarFavoriteLaneLayout.flowWidth(
+                contentWidth: TaskbarFavoriteLaneLayout.contentWidth(
+                    appCount: settings.favoriteApps.count,
+                    folderCount: settings.favoriteFolders.count),
+                limit: settings.taskbarFavoriteFlowWidth) * scale
             let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 40 * scale
-            let folderWidth = CGFloat(settings.favoriteFolders.count) * 34 * scale
-                + (settings.favoriteFolders.isEmpty ? 0 : 12 * scale)
-            let controlsAndPadding: CGFloat = 84 * scale + favoriteWidth + recentApplicationWidth + folderWidth
-            let itemSpacing = CGFloat(max(windows.count - 1, 0)) * 4 * scale
+            let controlsAndPadding: CGFloat = 40 * scale + favoriteWidth + recentApplicationWidth
+            let displayCount = settings.taskbarCollapseSameAppWindows
+                ? FusionDisplayPolicy.displayCount(appKeys: windows.map(\.appKey), collapseThreshold: 3)
+                : windows.count
+            let itemSpacing = CGFloat(max(displayCount - 1, 0)) * 4 * scale
             let desiredWidth: CGFloat
             if !permissionService.isTrusted {
                 desiredWidth = 600 * scale
             } else if windows.isEmpty {
                 desiredWidth = controlsAndPadding + 32 * scale
             } else {
-                desiredWidth = CGFloat(windows.count) * preferredItemWidth + itemSpacing + controlsAndPadding
+                desiredWidth = CGFloat(displayCount) * preferredItemWidth + itemSpacing + controlsAndPadding
             }
+            let animationMargins = 2 * settings.taskbarSideInset
             let width = settings.taskbarWidthMode == .fullWidth
-                ? screenFrame.width - 8
-                : min(screenFrame.width - 24, desiredWidth)
-            // Transparent headroom lets favorite icons magnify above the bar.
+                ? screenFrame.width
+                : min(screenFrame.width, desiredWidth + animationMargins)
+            // Keep the transparent side margins inside the window so magnified
+            // icons can draw and receive pointer events beyond the idle bar.
             let height = settings.taskbarHeight + FavoriteMagnificationLayout.headroom(for: scale)
-            let defaultX: CGFloat
-            if settings.taskbarWidthMode == .fullWidth {
-                defaultX = screenFrame.minX + 4
-            } else {
-                switch settings.taskbarAlignment {
-                case .left:
-                    defaultX = screenFrame.minX + 4
-                case .center:
-                    defaultX = screenFrame.midX - width / 2
-                case .right:
-                    defaultX = screenFrame.maxX - width - 4
-                }
-            }
             let physicalBottom = screen.frame.minY
-            let defaultOrigin = NSPoint(x: defaultX, y: physicalBottom)
-            let proposedOrigin = customPanelOrigins[.taskbar] ?? defaultOrigin
-            let maxX = max(screenFrame.minX, screenFrame.maxX - width)
-            let origin = NSPoint(
-                x: min(max(proposedOrigin.x, screenFrame.minX), maxX),
-                y: physicalBottom
-            )
+            let origin = NSPoint(x: screenFrame.midX - width / 2, y: physicalBottom)
             setPanelFrameIfNeeded(
                 NSRect(origin: origin, size: NSSize(width: width, height: height)),
                 animated: animated,
@@ -434,7 +444,14 @@ final class TaskbarPanelController {
             : 174
         let favoriteWidth = !showsFavorites || settings.favoriteApps.isEmpty
             ? 0
-            : CGFloat(settings.favoriteApps.count) * 32 + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
+            : isDockCompanion
+                ? CGFloat(settings.favoriteApps.count) * 32
+                    + CGFloat(max(settings.favoriteApps.count - 1, 0)) * 2 + 14
+                : TaskbarFavoriteLaneLayout.flowWidth(
+                    contentWidth: TaskbarFavoriteLaneLayout.contentWidth(
+                        appCount: settings.favoriteApps.count,
+                        folderCount: settings.favoriteFolders.count),
+                    limit: settings.taskbarFavoriteFlowWidth)
         let recentApplicationWidth: CGFloat = !showsFavorites || isDockCompanion || recentApplications.isEmpty
             ? 0 : 40
         let resolvedShowsControls = showsControls && (!isDockCompanion || settings.dockCompanionShowsBottomBar)
@@ -455,7 +472,10 @@ final class TaskbarPanelController {
                 appKeys: displayedWindows.map(\.appKey),
                 collapseThreshold: settings.dockCompanionCollapseThreshold
             )
-            : displayedWindows.count
+            : settings.taskbarCollapseSameAppWindows
+                ? FusionDisplayPolicy.displayCount(
+                    appKeys: displayedWindows.map(\.appKey), collapseThreshold: 3)
+                : displayedWindows.count
         let itemSpacing = CGFloat(max(displayCount - 1, 0)) * spacing
         if !permissionService.isTrusted { return 600 }
         if displayCount == 0 { return resolvedShowsControls ? controlsAndPadding : 0 }
@@ -584,6 +604,7 @@ final class TaskbarPanelController {
     }
 
     private func refresh() {
+        if recentAppPopoverState.isPresented { return }
         if settings.layoutMode == .matrix || isHiddenInDock {
             setOptionShortcutsVisible(false)
         }
@@ -602,6 +623,7 @@ final class TaskbarPanelController {
         windows = refreshedWindows
         updateRecentWindowFocus()
         refreshRecentApplications()
+        refreshFavoriteBadgesIfNeeded()
         if settings.layoutMode == .taskbar { trashStatus.refresh() }
         if settings.layoutMode == .taskbar {
             settings.reconcileTaskbarOrder(with: windows)
@@ -814,6 +836,7 @@ final class TaskbarPanelController {
     }
 
     private func automaticRefresh() {
+        if recentAppPopoverState.isPresented { return }
         let now = Date()
         if let pauseUntil = settingsRefreshPauseUntil, pauseUntil > now { return }
         if let pauseUntil = reorderRefreshPauseUntil, pauseUntil > now { return }
@@ -897,7 +920,7 @@ final class TaskbarPanelController {
     }
 
     private func movePanel(by translation: CGSize) {
-        guard !isHiddenInDock, settings.layoutMode != .dockCompanion, let panel else { return }
+        guard !isHiddenInDock, settings.layoutMode == .matrix, let panel else { return }
         if panelDragStartOrigin == nil { panelDragStartOrigin = panel.frame.origin }
         guard let start = panelDragStartOrigin else { return }
 
@@ -1032,6 +1055,33 @@ final class TaskbarPanelController {
             from: settings.recentApps,
             excluding: { settings.isFavorite($0.id) }
         )
+    }
+
+    private func refreshFavoriteBadgesIfNeeded() {
+        guard settings.layoutMode == .taskbar, !isHiddenInDock,
+              permissionService.isTrusted, !settings.favoriteApps.isEmpty else {
+            favoriteBadges.update([:])
+            return
+        }
+        let now = Date()
+        guard !badgePollInFlight,
+              now.timeIntervalSince(lastBadgePollAt) >= 2,
+              favoriteHoverActiveUntil.map({ $0 <= now }) ?? true,
+              let dockPID = NSRunningApplication.runningApplications(
+                  withBundleIdentifier: "com.apple.dock"
+              ).first?.processIdentifier else { return }
+        lastBadgePollAt = now
+        badgePollInFlight = true
+        let favorites = settings.favoriteApps
+        badgePollQueue.async { [weak self] in
+            let badges = DockBadgeService.badges(for: favorites, dockPID: dockPID)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.badgePollInFlight = false
+                guard self.settings.layoutMode == .taskbar, !self.isHiddenInDock else { return }
+                self.favoriteBadges.update(badges)
+            }
+        }
     }
 
     private func quitRecentApp(_ recent: FavoriteApp) {

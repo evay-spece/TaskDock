@@ -255,28 +255,14 @@ struct SettingsView: View {
         tabScrollView {
             modeHeader(
                 title: "任务栏模式",
-                description: "显示所有可用窗口，并支持收藏 App、拖动排序和位置对齐。",
+                description: "显示所有可用窗口，并支持收藏 App 和拖动排序。",
                 systemImage: SettingsTab.taskbar.systemImage,
                 mode: .taskbar
             )
 
             modeVisualSettings(for: .taskbar)
 
-            settingsSection(title: "位置与尺寸", description: "设置任务栏在屏幕底部的对齐方式、宽度和高度。") {
-                Picker("任务栏位置", selection: $settings.taskbarAlignment) {
-                    ForEach(TaskbarAlignment.allCases) { alignment in
-                        Text(alignment.label).tag(alignment)
-                    }
-                }
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
-                .disabled(settings.taskbarWidthMode == .fullWidth)
-                .onChange(of: settings.taskbarAlignment) { _ in onLayoutChanged() }
-                if settings.taskbarWidthMode == .fullWidth {
-                    Text("左右铺满时，任务栏会固定从屏幕可用区域左边延伸到右边。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            settingsSection(title: "位置与尺寸", description: "调整任务栏两侧留白、长度和高度。") {
                 Picker("任务栏长度", selection: $settings.taskbarWidthMode) {
                     ForEach(TaskbarWidthMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -285,6 +271,19 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 .fixedSize(horizontal: true, vertical: false)
                 .onChange(of: settings.taskbarWidthMode) { _ in onLayoutChanged() }
+                HStack {
+                    Label("任务栏两侧留白", systemImage: "arrow.left.and.right")
+                    Spacer()
+                    Text("\(Int(settings.taskbarSideInset.rounded())) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $settings.taskbarSideInset, in: SettingsStore.taskbarSideInsetRange, step: 1)
+                    .accessibilityLabel("任务栏两侧留白")
+                    .onChange(of: settings.taskbarSideInset) { _ in onLayoutChanged() }
+                Text("向右拖动，两侧同步向内收缩；实时生效并自动保存。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 HStack {
                     Label("任务栏高度", systemImage: "arrow.up.and.down")
                     Spacer()
@@ -323,6 +322,19 @@ struct SettingsView: View {
                     .font(.caption)
                 Text("⌥ + 1–9：从左到右的前 9 个收藏 App。再次按相同快捷键可最小化当前窗口。")
                     .font(.caption)
+            }
+
+            settingsSection(title: "任务项与动画", description: "只影响任务栏模式。") {
+                Toggle("同一 App 有 3 个及以上窗口时折叠", isOn: $settings.taskbarCollapseSameAppWindows)
+                    .onChange(of: settings.taskbarCollapseSameAppWindows) { _ in onLayoutChanged() }
+                Text("点击折叠的任务项，可从列表选择具体窗口；1–2 个窗口仍分别显示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("降低动画强度", isOn: $settings.taskbarReduceMotion)
+                    .onChange(of: settings.taskbarReduceMotion) { _ in onVisualChanged() }
+                Text("缩小图标放大幅度并缩短任务项动画；也会跟随 macOS 的“减少动态效果”设置。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             settingsSection(title: "收藏 App", description: "收藏固定在任务栏左侧；也可从任务项右键菜单添加。") {
@@ -368,7 +380,7 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection(title: "收藏文件夹", description: "显示在任务栏最右侧；点击图标会在 Finder 中打开。") {
+            settingsSection(title: "收藏文件夹", description: "显示在收藏栏分隔线后、废纸篓左侧；点击图标会在 Finder 中打开。") {
                 HStack {
                     Button {
                         chooseFavoriteFolders()
