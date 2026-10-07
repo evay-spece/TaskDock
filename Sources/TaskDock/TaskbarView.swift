@@ -1864,18 +1864,24 @@ private struct FavoriteDockView: View {
         case .app(let app):
             var actions = [action("打开", { onOpen(app) })]
             if app.bundleIdentifier == "com.apple.finder" {
-                let home = FileManager.default.homeDirectoryForCurrentUser
-                let destinations: [(String, URL)] = [
-                    ("桌面", home.appendingPathComponent("Desktop", isDirectory: true)),
-                    ("文稿", home.appendingPathComponent("Documents", isDirectory: true)),
-                    ("下载", home.appendingPathComponent("Downloads", isDirectory: true)),
-                    ("应用程序", URL(fileURLWithPath: "/Applications", isDirectory: true))
-                ]
-                actions.append(.separator)
-                for (name, url) in destinations where FileManager.default.fileExists(atPath: url.path) {
-                    actions.append(action("打开\(name)", { NSWorkspace.shared.open(url) }))
+                let sidebarFavorites = FinderSidebarFavoritesService.favorites()
+                if !sidebarFavorites.isEmpty {
+                    actions.append(.separator)
+                    for favorite in sidebarFavorites {
+                        if let url = favorite.url {
+                            actions.append(action("打开\(favorite.name)", {
+                                NSWorkspace.shared.open(url)
+                            }))
+                        } else {
+                            actions.append(FavoriteShelfMenuAction(
+                                title: "打开\(favorite.name)（当前不可用）",
+                                isEnabled: false,
+                                perform: {}
+                            ))
+                        }
+                    }
+                    actions.append(.separator)
                 }
-                actions.append(.separator)
             }
             let runningApp = NSWorkspace.shared.runningApplications.first { running in
                 if let bundleIdentifier = app.bundleIdentifier {

@@ -3,7 +3,14 @@ import SwiftUI
 
 struct FavoriteShelfMenuAction {
     let title: String?
+    let isEnabled: Bool
     let perform: (() -> Void)?
+
+    init(title: String?, isEnabled: Bool = true, perform: (() -> Void)?) {
+        self.title = title
+        self.isEnabled = isEnabled
+        self.perform = perform
+    }
 
     static let separator = FavoriteShelfMenuAction(title: nil, perform: nil)
 }
@@ -238,6 +245,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
                 let item = NSMenuItem(title: title,
                     action: #selector(performContextMenuAction(_:)), keyEquivalent: "")
                 item.target = self
+                item.isEnabled = action.isEnabled
                 item.tag = contextMenuActions.count
                 contextMenuActions.append(perform)
                 menu.addItem(item)
