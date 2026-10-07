@@ -29,6 +29,7 @@ final class TaskbarPanelController {
     private var panel: NSPanel?
     private var timer: Timer?
     private var windows: [WindowModel] = []
+    private var bulkMinimizedWindows: [WindowModel] = []
     private var recentApplications: [FavoriteApp] = []
     private let recentAppPopoverState = RecentAppPopoverState()
     private var runningApplicationIDs: Set<String> = []
@@ -112,6 +113,7 @@ final class TaskbarPanelController {
     }
 
     func stop() {
+        bulkMinimizedWindows = []
         systemDockVisibility.restore()
         pendingLayoutRefreshToken = nil
         timer?.invalidate()
@@ -139,6 +141,9 @@ final class TaskbarPanelController {
 
     var currentLayoutMode: TaskDockLayoutMode { settings.layoutMode }
     var isTaskDockHidden: Bool { isHiddenInDock }
+    var canRestoreMinimizedWindows: Bool {
+        bulkMinimizedWindows.contains { windowService.isMinimized($0) }
+    }
 
     func minimizeAllWindows() {
         minimizeAll()
@@ -192,6 +197,7 @@ final class TaskbarPanelController {
             runningApplicationIDs: settings.layoutMode == .taskbar ? runningApplicationIDs : [],
             favoriteBadges: favoriteBadges,
             isAccessibilityTrusted: permissionService.isTrusted,
+            canRestoreMinimizedWindows: !bulkMinimizedWindows.isEmpty,
             onRequestPermission: { [weak self] in self?.requestPermission() },
             onSelect: { [weak self] window in self?.recordTrialOperation(); self?.select(window) },
             onMinimizeAll: { [weak self] in self?.recordTrialOperation(); self?.minimizeAll() },
@@ -621,6 +627,7 @@ final class TaskbarPanelController {
             finderTabsAsWindows: settings.finderTabsAsWindows
         )
         windows = refreshedWindows
+        bulkMinimizedWindows = bulkMinimizedWindows.filter { windowService.isMinimized($0) }
         updateRecentWindowFocus()
         refreshRecentApplications()
         refreshFavoriteBadgesIfNeeded()
@@ -752,13 +759,20 @@ final class TaskbarPanelController {
         }
     }
     private func minimizeAll() {
+        bulkMinimizedWindows = bulkMinimizedWindows.filter { windowService.isMinimized($0) }
+        if !bulkMinimizedWindows.isEmpty {
+            windowService.restoreMinimized(bulkMinimizedWindows)
+            bulkMinimizedWindows = []
+            refreshAfterWindowAction()
+            return
+        }
         let allWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
             showHiddenApps: true,
             blacklistedAppKeys: [],
             blockedWindowRules: []
         )
-        windowService.minimizeAll(allWindows)
+        bulkMinimizedWindows = windowService.minimizeAll(allWindows)
         refreshAfterWindowAction()
     }
 
@@ -986,7 +1000,7 @@ final class TaskbarPanelController {
         let runningState = runningApplicationIDs.sorted().joined(separator: "\u{1F}")
         let fusionState = settings.layoutMode == .dockCompanion
             ? dockCompanionWindows.map(\.id).joined(separator: "\u{1F}") : ""
-        return "\(isTrusted)|\(settings.layoutMode.rawValue)|\(windowState)|\(recentState)|\(runningState)|\(fusionState)"
+        return "\(isTrusted)|\(settings.layoutMode.rawValue)|\(!bulkMinimizedWindows.isEmpty)|\(windowState)|\(recentState)|\(runningState)|\(fusionState)"
     }
 
     private func updateRecentWindowFocus() {

@@ -43,8 +43,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildStatusMenu() {
         statusMenu.removeAllItems()
 
-        let minimizeItem = NSMenuItem(title: "最小化全部窗口", action: #selector(minimizeAllWindows), keyEquivalent: "")
-        minimizeItem.image = NSImage(systemSymbolName: "minus.rectangle", accessibilityDescription: nil)
+        let canRestore = panelController?.canRestoreMinimizedWindows == true
+        let minimizeItem = NSMenuItem(
+            title: canRestore ? "恢复刚才最小化的窗口" : "最小化全部窗口",
+            action: #selector(minimizeAllWindows), keyEquivalent: ""
+        )
+        minimizeItem.image = NSImage(
+            systemSymbolName: canRestore ? "rectangle.stack" : "minus.rectangle",
+            accessibilityDescription: nil
+        )
         minimizeItem.target = self
         statusMenu.addItem(minimizeItem)
 

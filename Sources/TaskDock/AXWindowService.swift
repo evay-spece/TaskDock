@@ -191,9 +191,22 @@ final class AXWindowService {
         return activate(window)
     }
 
-    func minimizeAll(_ windows: [WindowModel]) {
-        for window in windows where !window.isMinimized {
-            setAttribute(window.axWindow, kAXMinimizedAttribute, value: true as CFBoolean)
+    func isMinimized(_ window: WindowModel) -> Bool {
+        guard NSRunningApplication(processIdentifier: window.pid) != nil else { return false }
+        return (copyAttribute(window.axWindow, kAXMinimizedAttribute) as? Bool) == true
+    }
+
+    func minimizeAll(_ windows: [WindowModel]) -> [WindowModel] {
+        windows.filter { window in
+            guard !isMinimized(window),
+                  NSRunningApplication(processIdentifier: window.pid)?.isHidden == false else { return false }
+            return setAttribute(window.axWindow, kAXMinimizedAttribute, value: true as CFBoolean)
+        }
+    }
+
+    func restoreMinimized(_ windows: [WindowModel]) {
+        for window in windows where isMinimized(window) {
+            _ = setAttribute(window.axWindow, kAXMinimizedAttribute, value: false as CFBoolean)
         }
     }
 

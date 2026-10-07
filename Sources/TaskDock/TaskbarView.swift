@@ -22,6 +22,7 @@ struct TaskbarView: View {
     let runningApplicationIDs: Set<String>
     @ObservedObject var favoriteBadges: FavoriteBadgeStore
     let isAccessibilityTrusted: Bool
+    let canRestoreMinimizedWindows: Bool
     let onRequestPermission: () -> Void
     let onSelect: (WindowModel) -> Void
     let onMinimizeAll: () -> Void
@@ -406,8 +407,8 @@ struct TaskbarView: View {
                     && settings.dockCompanionShowsBottomBar {
                     HStack(spacing: 2 * taskbarPanelScale) {
                         TaskbarControlButton(
-                            systemImage: "minus.rectangle",
-                            help: "最小化全部窗口",
+                            systemImage: canRestoreMinimizedWindows ? "rectangle.stack" : "minus.rectangle",
+                            help: canRestoreMinimizedWindows ? "恢复刚才最小化的窗口" : "最小化全部窗口",
                             scale: taskbarContentScale,
                             isTaskbarMode: false,
                             action: onMinimizeAll
@@ -419,8 +420,8 @@ struct TaskbarView: View {
                 }
                 if showsControls && settings.layoutMode == .taskbar {
                     TaskbarControlButton(
-                        systemImage: "minus.rectangle",
-                        help: "最小化全部窗口",
+                        systemImage: canRestoreMinimizedWindows ? "rectangle.stack" : "minus.rectangle",
+                        help: canRestoreMinimizedWindows ? "恢复刚才最小化的窗口" : "最小化全部窗口",
                         scale: taskbarContentScale,
                         isTaskbarMode: true,
                         action: onMinimizeAll
@@ -598,7 +599,11 @@ struct TaskbarView: View {
     }
 
     private var matrixControls: some View {
-        TaskbarControlButton(systemImage: "minus.rectangle", help: "最小化全部窗口", action: onMinimizeAll)
+        TaskbarControlButton(
+            systemImage: canRestoreMinimizedWindows ? "rectangle.stack" : "minus.rectangle",
+            help: canRestoreMinimizedWindows ? "恢复刚才最小化的窗口" : "最小化全部窗口",
+            action: onMinimizeAll
+        )
         .padding(3)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
         .frame(maxHeight: .infinity, alignment: .bottom)
