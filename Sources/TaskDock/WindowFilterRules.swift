@@ -3,6 +3,8 @@ import Foundation
 enum WindowFilterRules {
     private static let appsWithMinimizedDialogWindows: Set<String> = [
         "com.apple.Terminal",
+        "com.apple.Safari",
+        "com.apple.systempreferences",
         "com.microsoft.Excel",
         "com.tencent.xinWeChat",
         "com.apple.iCal",
@@ -57,6 +59,8 @@ enum WindowFilterRules {
         isModal: Bool
     ) -> Bool {
         bundleIdentifier.map { appsWithMinimizedDialogWindows.contains($0) } == true &&
-            isMinimized && !isModal && !title.isEmpty && subrole == "AXDialog"
+            isMinimized && !isModal &&
+            (!title.isEmpty || bundleIdentifier == "com.apple.systempreferences") &&
+            subrole == "AXDialog"
     }
 }
