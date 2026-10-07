@@ -48,7 +48,8 @@ struct UpdateSupportSelfTest {
             prepared: prepared,
             currentAppURL: targetApp,
             currentProcessID: oldProcess.processIdentifier,
-            relaunch: false
+            relaunch: false,
+            backupDirectory: testRoot.appendingPathComponent("backups", isDirectory: true)
         )
         oldProcess.terminate()
         oldProcess.waitUntilExit()
@@ -61,6 +62,11 @@ struct UpdateSupportSelfTest {
                 .object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         } while installedVersion != expectedVersion && Date() < deadline
         precondition(installedVersion == expectedVersion)
+        let backups = try FileManager.default.contentsOfDirectory(
+            at: testRoot.appendingPathComponent("backups", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )
+        precondition(backups.count == 1)
         print("UPDATE_SUPPORT_OK")
     }
 }

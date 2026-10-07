@@ -31,7 +31,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
-    @StateObject private var updateChecker = UpdateChecker()
+    @ObservedObject private var updateChecker = UpdateChecker.shared
     @State private var selectedTab: SettingsTab = .general
     let windows: [WindowModel]
     let onChanged: () -> Void
@@ -853,7 +853,16 @@ struct SettingsView: View {
             Button("下载并重启 \(update.version)") { updateChecker.downloadAndRestart(update) }
                 .controlSize(.small)
         case .downloading(let version):
-            updateProgress("正在下载 \(version)…")
+            HStack(spacing: 8) {
+                if let progress = updateChecker.downloadProgress {
+                    ProgressView(value: progress).frame(width: 110)
+                    Text("正在下载 \(version) \(Int(progress * 100))%")
+                } else {
+                    ProgressView().frame(width: 110)
+                    Text("正在下载 \(version)…")
+                }
+            }
+            .font(.caption)
         case .verifying:
             updateProgress("正在验证…")
         case .installing:

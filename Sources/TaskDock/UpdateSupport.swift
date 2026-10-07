@@ -69,7 +69,8 @@ enum UpdateSupport {
         prepared: PreparedUpdate,
         currentAppURL: URL,
         currentProcessID: pid_t,
-        relaunch: Bool = true
+        relaunch: Bool = true,
+        backupDirectory: URL? = nil
     ) throws {
         let parent = currentAppURL.deletingLastPathComponent()
         guard currentAppURL.pathExtension == "app",
@@ -79,6 +80,11 @@ enum UpdateSupport {
         }
 
         let backup = parent.appendingPathComponent("TaskDock-update-backup-\(UUID().uuidString).app")
+        let backupDirectory = backupDirectory ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/TaskDock/Backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+        let retainedBackup = backupDirectory
+            .appendingPathComponent("TaskDock-before-online-update-\(UUID().uuidString).app")
         let script = #"""
         current_app="$1"
         new_app="$2"
@@ -86,6 +92,7 @@ enum UpdateSupport {
         staging_root="$4"
         backup_app="$5"
         should_relaunch="$6"
+        retained_backup="$7"
 
         for _ in {1..200}; do
           if ! /bin/kill -0 "$old_pid" 2>/dev/null; then break; fi
@@ -95,7 +102,8 @@ enum UpdateSupport {
 
         /bin/mv "$current_app" "$backup_app" || exit 11
         if /bin/mv "$new_app" "$current_app" && { [[ "$should_relaunch" != "1" ]] || /usr/bin/open -n "$current_app"; }; then
-          /bin/rm -rf "$backup_app" "$staging_root"
+          /bin/mv "$backup_app" "$retained_backup" || exit 13
+          /bin/rm -rf "$staging_root"
           exit 0
         fi
 
@@ -114,7 +122,8 @@ enum UpdateSupport {
             String(currentProcessID),
             prepared.stagingRoot.path,
             backup.path,
-            relaunch ? "1" : "0"
+            relaunch ? "1" : "0",
+            retainedBackup.path
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

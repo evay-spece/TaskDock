@@ -5,12 +5,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var panelController: TaskbarPanelController?
     private var statusItem: NSStatusItem?
     private let statusMenu = NSMenu()
+    private let updateChecker = UpdateChecker.shared
+    private var updateWindowController: UpdateProgressWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        ReleaseDefaults101.applyIfNeeded()
         panelController = TaskbarPanelController()
         panelController?.show()
         configureStatusItem()
+        updateChecker.check()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -23,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        updateChecker.checkIfNeeded()
         rebuildStatusMenu()
     }
 
@@ -74,6 +79,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsItem.target = self
         statusMenu.addItem(settingsItem)
 
+        let updateAvailable: Bool
+        if case .updateAvailable = updateChecker.status {
+            updateAvailable = true
+        } else {
+            updateAvailable = false
+        }
+        let updateItem = NSMenuItem(title: "检查更新", action: #selector(checkForUpdates), keyEquivalent: "")
+        if updateAvailable {
+            let title = NSMutableAttributedString(string: "检查更新  ")
+            title.append(NSAttributedString(string: "●", attributes: [.foregroundColor: NSColor.systemRed]))
+            updateItem.attributedTitle = title
+            updateItem.setAccessibilityLabel("检查更新，有新版本")
+        }
+        updateItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
+        updateItem.target = self
+        statusMenu.addItem(updateItem)
+
         statusMenu.addItem(.separator())
 
         let isHidden = panelController?.isTaskDockHidden == true
@@ -107,6 +129,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openSettings() {
         panelController?.presentSettings()
+    }
+
+    @objc private func checkForUpdates() {
+        if updateWindowController == nil {
+            updateWindowController = UpdateProgressWindowController(checker: updateChecker)
+        }
+        updateWindowController?.showWindow(nil)
+        updateWindowController?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        updateChecker.checkAndInstall()
     }
 
     @objc private func hideTaskDock() {
