@@ -50,6 +50,7 @@ final class TaskbarPanelController {
     private var isHiddenInDock = false
     private var dockRestoreAvailableAt = Date.distantPast
     private var shortcutMonitor: ModifierDoubleTapMonitor?
+    private var minimizeHotKeyMonitor: GlobalMinimizeHotKeyMonitor?
     private var optionHotKeyMonitor: OptionWindowHotKeyMonitor?
     private var registeredOptionShortcuts = OptionWindowHotKeyMonitor.Registered()
     private var registeredWindowCount = -1
@@ -91,6 +92,11 @@ final class TaskbarPanelController {
             case .favorite(let index): self?.openShortcutFavorite(index)
             }
         }
+        minimizeHotKeyMonitor = GlobalMinimizeHotKeyMonitor { [weak self] in
+            self?.recordTrialOperation()
+            self?.minimizeAll()
+        }
+        minimizeHotKeyMonitor?.start()
         shortcutMonitor = ModifierDoubleTapMonitor(
             settings: settings,
             onDoubleTap: { [weak self] in self?.toggleTaskbarVisibility() },
@@ -114,6 +120,8 @@ final class TaskbarPanelController {
 
     func stop() {
         bulkMinimizedWindows = []
+        minimizeHotKeyMonitor?.stop()
+        minimizeHotKeyMonitor = nil
         systemDockVisibility.restore()
         pendingLayoutRefreshToken = nil
         timer?.invalidate()

@@ -318,6 +318,8 @@ struct SettingsView: View {
             }
 
             settingsSection(title: "快捷键", description: "任务栏显示期间可直接使用；按下 Option 显示对应提示。") {
+                Text("⌥ + D：全局最小化窗口；再按一次恢复这次最小化的窗口。")
+                    .font(.caption)
                 Text("⌥ + J/K/L/;/'/N/M/,/.：从左到右的前 9 个窗口任务项。")
                     .font(.caption)
                 Text("⌥ + 1–9：从左到右的前 9 个收藏 App。再次按相同快捷键可最小化当前窗口。")
@@ -442,6 +444,8 @@ struct SettingsView: View {
             }
 
             settingsSection(title: "快捷键", description: "按住 Option 时，融合栏任务项会显示对应按键。") {
+                Text("⌥ + D：全局最小化窗口；再按一次恢复这次最小化的窗口。")
+                    .font(.caption)
                 Text("左侧窗口：⌥ + 1–8；右侧窗口：⌥ + J/K/L/;/'。")
                     .font(.caption)
                 Text("按一次切换或恢复窗口；焦点已在该窗口时，再按一次将其最小化。")
