@@ -9,7 +9,6 @@ struct ReleaseDefaultsSelfTest {
 
         defaults.set(Data("[]".utf8), forKey: "taskdock.favoriteApps")
         defaults.set(Data("personal-folders".utf8), forKey: "taskdock.favoriteFolders")
-        defaults.set("light", forKey: "taskdock.mode.taskbar.appearance")
         ReleaseDefaults101.applyIfNeeded(to: defaults)
 
         let data = try XCTUnwrap(defaults.data(forKey: "taskdock.favoriteApps"))
@@ -19,7 +18,6 @@ struct ReleaseDefaultsSelfTest {
             "com.apple.reminders", "com.apple.Notes"
         ])
         precondition(defaults.string(forKey: "taskdock.layoutMode") == "taskbar")
-        precondition(defaults.string(forKey: "taskdock.mode.taskbar.appearance") == "dark")
         precondition(defaults.double(forKey: "taskdock.taskbarHeight") == 48)
         precondition(defaults.data(forKey: "taskdock.favoriteFolders") == Data("personal-folders".utf8))
 

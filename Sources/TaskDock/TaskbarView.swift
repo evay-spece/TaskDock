@@ -42,8 +42,6 @@ struct TaskbarView: View {
     let onRecentPopoverVisibilityChanged: (Bool) -> Void
     let onAppDragChanged: (Bool) -> Void
     let onFavoriteHoverActivity: (Bool) -> Void
-    let onPanelDragChanged: (CGSize) -> Void
-    let onPanelDragEnded: () -> Void
     @State private var draggedAppKey: String?
     @State private var dragTranslation: CGFloat = 0
     @State private var dragStartAppKeys: [String]?
@@ -53,11 +51,10 @@ struct TaskbarView: View {
     @State private var pendingDropCandidate: PendingDropCandidate?
     @State private var pendingDropToken: UUID?
     @State private var isSettlingAppDrag = false
-    @State private var isOptionMovingPanel = false
     @State private var favoriteMagnificationActive = false
 
     private var reducesTaskbarMotion: Bool {
-        settings.layoutMode == .taskbar && (settings.taskbarReduceMotion || systemReduceMotion)
+        settings.layoutMode == .taskbar && systemReduceMotion
     }
 
     private func isCollapsed(_ group: AppWindowGroup) -> Bool {
@@ -69,111 +66,8 @@ struct TaskbarView: View {
     }
 
     var body: some View {
-        Group {
-            switch settings.layoutMode {
-            case .taskbar, .dockCompanion:
-                taskbarView
-            case .matrix:
-                matrixView
-            }
-        }
-        .preferredColorScheme(settings.appearancePreference(in: settings.layoutMode).colorScheme)
-        .simultaneousGesture(optionPanelMoveGesture)
-    }
-
-    private var matrixView: some View {
-        GeometryReader { geometry in
-            HStack(alignment: .bottom, spacing: 6) {
-                if !isAccessibilityTrusted {
-                    permissionView
-                } else if windows.isEmpty {
-                    Text("没有可显示的窗口")
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 14)
-                        .frame(height: 36)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.12)))
-                } else {
-                    let columnWidth = appColumnWidth(for: geometry.size.width)
-                    ScrollView(.vertical, showsIndicators: false) {
-                        HStack(alignment: .bottom, spacing: 6) {
-                            ForEach(appGroups) { group in
-                                VStack(spacing: 2) {
-                                    ForEach(Array(group.windows.reversed())) { window in
-                                        WindowTaskItemView(
-                                            window: window,
-                                            availableWidth: columnWidth,
-                                            appearance: settings.appearance,
-                                            isDockCompanion: false,
-                                            showApplicationName: settings.showApplicationName,
-                                            highlightStyle: settings.taskItemHighlightStyle,
-                                            nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
-                                            onShowAppWindows: { onShowAppWindows(window) },
-                                            onBlockWindowType: { onBlockWindowType(window) },
-                                            onClose: { onClose(window) },
-                                            onToggleFavorite: { toggleFavorite(window) },
-                                            favoriteActionTitle: favoriteMenuTitle(for: window)
-                                        )
-                                        .frame(width: columnWidth, height: 32)
-                                        .contentShape(Rectangle())
-                                        .onTapGesture { onSelect(window) }
-                                        .simultaneousGesture(appReorderGesture(for: window, columnWidth: columnWidth))
-                                        .contextMenu {
-                                            Button(favoriteMenuTitle(for: window)) { toggleFavorite(window) }
-                                            Divider()
-                                            Button("显示该 App 的所有窗口") { onShowAppWindows(window) }
-                                            Divider()
-                                            Button("屏蔽此类窗口") { onBlockWindowType(window) }
-                                            Divider()
-                                            Button("关闭此窗口", role: .destructive) { onClose(window) }
-                                        }
-                                        .accessibilityElement(children: .combine)
-                                        .accessibilityAddTraits(.isButton)
-                                        .accessibilityValue(window.isFocused ? "当前焦点窗口" : "非焦点窗口")
-                                        .accessibilityAction { onSelect(window) }
-                                    }
-                                }
-                                .frame(width: columnWidth, alignment: .bottom)
-                                .offset(x: appColumnOffset(for: group.id))
-                                .animation(draggedAppKey == group.id ? nil : appReorderAnimation, value: hoverTargetAppKey)
-                                .animation(draggedAppKey == group.id ? nil : appReorderAnimation, value: dragDirection)
-                                .opacity(draggedAppKey == group.id ? 0.88 : 1)
-                                .scaleEffect(isDropTarget(group.id) ? 0.98 : 1)
-                                .overlay {
-                                    if isReorderHighlighted(group.id) {
-                                        RoundedRectangle(cornerRadius: 9)
-                                            .fill(Color.accentColor.opacity(reorderHighlightOpacity(for: group.id)))
-                                            .overlay {
-                                                RoundedRectangle(cornerRadius: 9)
-                                                    .stroke(Color.accentColor.opacity(0.72), lineWidth: 1.5)
-                                            }
-                                            .allowsHitTesting(false)
-                                    }
-                                }
-                                .shadow(color: isDropTarget(group.id) ? Color.accentColor.opacity(0.2) : .clear, radius: 5)
-                                .zIndex(draggedAppKey == group.id ? 20 : 0)
-                                .transaction { transaction in
-                                    if draggedAppKey == group.id && !isSettlingAppDrag {
-                                        transaction.animation = nil
-                                        transaction.disablesAnimations = true
-                                    }
-                                }
-                            }
-                        }
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: max(0, geometry.size.height - 4),
-                            alignment: .bottomTrailing
-                        )
-                        .padding(2)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                }
-                matrixControls
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-        }
-        .padding(2)
+        taskbarView
+            .preferredColorScheme(.dark)
     }
 
     private var taskbarView: some View {
@@ -187,7 +81,7 @@ struct TaskbarView: View {
                             .buttonStyle(.borderedProminent)
                     }
                     .padding(.leading, 14)
-                    taskbarDragArea
+                    Spacer(minLength: 0)
                 } else {
                     if showsFavorites {
                         FavoriteDockView(
@@ -201,6 +95,7 @@ struct TaskbarView: View {
                             shortcutIndices: settings.layoutMode == .taskbar
                                 ? settings.activeFavoriteShortcutIndices : [],
                             hoverFeedbackEnabled: settings.favoriteMagnificationEnabled,
+                            configuredPeakScale: settings.favoriteMagnificationScale,
                             reducesMotion: reducesTaskbarMotion,
                             hitRegionWidth: settings.layoutMode == .taskbar
                                 ? TaskbarFavoriteLaneLayout.flowWidth(
@@ -277,7 +172,7 @@ struct TaskbarView: View {
                             popoverState: recentAppPopoverState,
                             runningApplicationIDs: runningApplicationIDs,
                             sizeScale: taskbarPanelScale,
-                            isDark: settings.appearance == .dark,
+                            isDark: true,
                             blurredByFavorites: favoriteMagnificationActive,
                             onOpen: onOpenFavorite,
                             onQuit: onQuitRecentApp,
@@ -293,7 +188,7 @@ struct TaskbarView: View {
                     }
 
                     if windows.isEmpty && showsEmptyState {
-                        taskbarDragArea
+                        Spacer(minLength: 0)
                     } else if !windows.isEmpty {
                         let itemWidth = taskbarItemWidth(for: geometry.size.width)
                         HStack(spacing: taskbarItemSpacing) {
@@ -317,7 +212,6 @@ struct TaskbarView: View {
                                             availableWidth: itemWidth,
                                             itemHeight: taskbarItemHeight,
                                             contentScale: taskbarContentScale,
-                                            appearance: effectiveAppearance,
                                             taskbarFontSize: settings.taskbarItemFontSize,
                                             nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
                                             onSelect: onSelect
@@ -332,8 +226,7 @@ struct TaskbarView: View {
                                             WindowTaskItemView(
                                                 window: window,
                                                 availableWidth: itemWidth,
-                                                appearance: effectiveAppearance,
-                                                isDockCompanion: settings.layoutMode == .dockCompanion,
+                                                    isDockCompanion: settings.layoutMode == .dockCompanion,
                                                 isTaskbarMode: settings.layoutMode == .taskbar,
                                                 showApplicationName: settings.showApplicationName,
                                                 highlightStyle: settings.taskItemHighlightStyle,
@@ -540,35 +433,11 @@ struct TaskbarView: View {
             : .easeOut(duration: 0.16)
     }
 
-    private var effectiveAppearance: TaskbarAppearance {
-        settings.resolvedAppearance(in: settings.layoutMode)
-    }
-
-    private var taskbarDragArea: some View {
-        Color.clear
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 2)
-                    .onChanged { onPanelDragChanged($0.translation) }
-                    .onEnded { _ in onPanelDragEnded() },
-                including: settings.layoutMode == .matrix ? .all : .none
-            )
-            .help(settings.layoutMode == .matrix ? "拖动矩阵面板" : "")
-    }
-
-    private func appColumnWidth(for totalWidth: CGFloat) -> CGFloat {
-        let count = max(appGroups.count, 1)
-        let controlAndSpacing: CGFloat = 44 + CGFloat(max(count - 1, 0)) * 6
-        return min(162, max(83, (totalWidth - controlAndSpacing) / CGFloat(count)))
-    }
-
     private var orderedWindows: [WindowModel] {
         settings.orderedWindows(windows)
     }
 
     private func shortcutLabel(for window: WindowModel) -> String? {
-        guard settings.layoutMode != .matrix else { return nil }
         let isCompanionLeft = settings.layoutMode == .dockCompanion && !showsControls
         let labels = isCompanionLeft
             ? OptionWindowHotKeyMonitor.favoriteShortcutLabels.prefix(8).map { $0 }
@@ -585,30 +454,6 @@ struct TaskbarView: View {
         return labels[index]
     }
 
-    private var permissionView: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "lock.shield")
-            Text("需要“辅助功能”权限才能读取和切换窗口")
-            Button("打开设置") { onRequestPermission() }
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 40)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.12)))
-    }
-
-    private var matrixControls: some View {
-        TaskbarControlButton(
-            systemImage: canRestoreMinimizedWindows ? "rectangle.stack" : "minus.rectangle",
-            help: canRestoreMinimizedWindows ? "恢复刚才最小化的窗口" : "最小化全部窗口",
-            action: onMinimizeAll
-        )
-        .padding(3)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .frame(maxHeight: .infinity, alignment: .bottom)
-    }
-
     private func favoriteMenuTitle(for window: WindowModel) -> String {
         settings.isFavorite(window.appKey) ? "取消收藏" : "固定到收藏"
     }
@@ -616,21 +461,6 @@ struct TaskbarView: View {
     private func toggleFavorite(_ window: WindowModel) {
         settings.toggleFavorite(for: window)
         onSettingsChanged()
-    }
-
-    private var optionPanelMoveGesture: some Gesture {
-        DragGesture(minimumDistance: 2)
-            .onChanged { value in
-                guard settings.layoutMode == .matrix,
-                      NSEvent.modifierFlags.contains(.option) else { return }
-                isOptionMovingPanel = true
-                onPanelDragChanged(value.translation)
-            }
-            .onEnded { _ in
-                guard isOptionMovingPanel else { return }
-                isOptionMovingPanel = false
-                onPanelDragEnded()
-            }
     }
 
     private var appGroups: [AppWindowGroup] {
@@ -653,32 +483,6 @@ struct TaskbarView: View {
             }
         }
         return result
-    }
-
-    private func appReorderGesture(for window: WindowModel, columnWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .global)
-            .onChanged { value in
-                guard !isSettlingAppDrag, !NSEvent.modifierFlags.contains(.option) else { return }
-                if draggedAppKey == nil {
-                    let groups = appGroupLayout(columnWidth: columnWidth)
-                    guard groups.keys.contains(window.appKey) else { return }
-                    draggedAppKey = window.appKey
-                    dragStartAppKeys = groups.keys
-                    dragStartGroupLayout = groups
-                    onAppDragChanged(true)
-                }
-
-                guard draggedAppKey == window.appKey else { return }
-
-                dragTranslation = value.translation.width
-                if let dragStartGroupLayout {
-                    updateDropTarget(in: dragStartGroupLayout)
-                }
-            }
-            .onEnded { _ in
-                guard draggedAppKey == window.appKey else { return }
-                finishAppReorder(in: dragStartGroupLayout ?? appGroupLayout(columnWidth: columnWidth), spacing: 6)
-            }
     }
 
     private func taskbarReorderGesture(for window: WindowModel, itemWidth: CGFloat) -> some Gesture {
@@ -821,10 +625,6 @@ struct TaskbarView: View {
         }
     }
 
-    private func appColumnOffset(for appKey: String) -> CGFloat {
-        reorderOffset(for: appKey, spacing: 6)
-    }
-
     private func taskbarItemOffset(for appKey: String) -> CGFloat {
         reorderOffset(for: appKey, spacing: taskbarItemSpacing)
     }
@@ -861,14 +661,6 @@ struct TaskbarView: View {
         if draggedAppKey == appKey { return 0.16 }
         if isDropTarget(appKey) { return 0.12 }
         return 0
-    }
-
-    private func appGroupLayout(columnWidth: CGFloat) -> AppGroupLayout {
-        let keys = appGroups.map(\.id)
-        let step = columnWidth + 6
-        let minXs = keys.indices.map { CGFloat($0) * step }
-        let maxXs = minXs.map { $0 + columnWidth }
-        return AppGroupLayout(keys: keys, minXs: minXs, maxXs: maxXs)
     }
 
     private func taskbarAppGroupLayout(itemWidth: CGFloat) -> AppGroupLayout {
@@ -923,6 +715,9 @@ private struct FusionDockTileSurface: View {
                     .fill(.regularMaterial)
                     .opacity(0.62)
             }
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.black.opacity(0.55))
+                .allowsHitTesting(false)
             if isHighlighted {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.white.opacity(0.07))
@@ -959,7 +754,6 @@ private struct TaskbarCollapsedAppView: View {
     let availableWidth: CGFloat
     let itemHeight: CGFloat
     let contentScale: CGFloat
-    let appearance: TaskbarAppearance
     let taskbarFontSize: CGFloat
     let nonSelectedItemTransparency: Double
     let onSelect: (WindowModel) -> Void
@@ -1002,7 +796,7 @@ private struct TaskbarCollapsedAppView: View {
             .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight)
             .background {
                 RoundedRectangle(cornerRadius: 7 * contentScale)
-                    .fill(Color.white.opacity(appearance == .dark ? 0.14 : 0.24))
+                    .fill(Color.white.opacity(0.14))
                     .overlay {
                         RoundedRectangle(cornerRadius: 7 * contentScale)
                             .stroke(Color.white.opacity(0.24), lineWidth: 0.7)
@@ -1170,7 +964,6 @@ private struct FusionCollapsedAppView: View {
 struct WindowTaskItemView: View {
     let window: WindowModel
     let availableWidth: CGFloat
-    let appearance: TaskbarAppearance
     let isDockCompanion: Bool
     var isTaskbarMode: Bool = false
     var showApplicationName: Bool = true
@@ -1277,7 +1070,7 @@ struct WindowTaskItemView: View {
         }
         .scaleEffect(isHovered && !reducesMotion ? 1.012 : 1.0)
         .opacity(window.isFocused ? 1 : 1 - nonSelectedItemTransparency)
-        .shadow(color: isHovered ? Color.black.opacity(appearance == .dark ? 0.28 : 0.12) : .clear, radius: 4, y: 1)
+        .shadow(color: isHovered ? Color.black.opacity(0.28) : .clear, radius: 4, y: 1)
         .zIndex(isHovered ? 2 : (window.isFocused ? 1 : 0))
         .animation(
             reducesMotion ? .easeOut(duration: 0.07)
@@ -1293,7 +1086,7 @@ struct WindowTaskItemView: View {
     }
 
     private var itemBaseBackground: Color {
-        if isTaskbarMode && appearance == .dark {
+        if isTaskbarMode {
             guard isHovered || window.isFocused else { return .clear }
             switch highlightStyle {
             case .systemAccent:
@@ -1305,44 +1098,34 @@ struct WindowTaskItemView: View {
         if isHovered || window.isFocused {
             switch highlightStyle {
             case .systemAccent:
-                return Color.accentColor.opacity(appearance == .dark ? 0.38 : 0.28)
+                return Color.accentColor.opacity(0.38)
             case .white:
                 if isDockCompanion && window.bundleIdentifier == "com.apple.finder" {
-                    return appearance == .dark ? Color.white.opacity(0.28) : Color.white.opacity(0.38)
+                    return Color.white.opacity(0.28)
                 }
-                return appearance == .dark ? Color.white.opacity(0.44) : Color.white.opacity(0.66)
+                return Color.white.opacity(0.44)
             }
         }
-        return appearance == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.025)
+        return Color.white.opacity(0.055)
     }
 
     private var taskbarGlassItemBackground: Color {
-        if appearance == .dark {
-            return Color.white.opacity(window.isFocused ? 0.18 : (isHovered ? 0.12 : 0.05))
-        }
-        return Color.white.opacity(window.isFocused ? 0.30 : (isHovered ? 0.20 : 0.08))
+        Color.white.opacity(window.isFocused ? 0.18 : (isHovered ? 0.12 : 0.05))
     }
 
     private var cardSurfaceColor: Color {
         if isDockCompanion && window.bundleIdentifier == "com.apple.finder" {
-            return appearance == .dark ? Color.black.opacity(0.06) : Color.white.opacity(0.64)
+            return Color.black.opacity(0.06)
         }
-        return appearance == .dark ? Color.black.opacity(0.08) : Color.white.opacity(0.82)
+        return Color.black.opacity(0.08)
     }
 
     private var titleColor: Color {
-        if isTaskbarMode && appearance == .light {
-            return Color(red: 0.20, green: 0.29, blue: 0.39)
-                .opacity(window.isFocused ? 0.96 : 0.84)
-        }
-        return appearance == .dark ? Color.white.opacity(0.96) : Color.black.opacity(0.88)
+        Color.white.opacity(0.96)
     }
 
     private var subtitleColor: Color {
-        if isTaskbarMode && appearance == .light {
-            return Color(red: 0.34, green: 0.43, blue: 0.53).opacity(0.85)
-        }
-        return appearance == .dark ? Color.white.opacity(isTaskbarMode ? 0.88 : 0.62) : Color.black.opacity(0.56)
+        Color.white.opacity(isTaskbarMode ? 0.88 : 0.62)
     }
 
     private var iconSize: CGFloat {
@@ -1626,6 +1409,7 @@ private struct FavoriteDockView: View {
     let badgeLabels: [String: String]
     let shortcutIndices: Set<Int>
     let hoverFeedbackEnabled: Bool
+    let configuredPeakScale: CGFloat
     let reducesMotion: Bool
     let hitRegionWidth: CGFloat?
     let showsHoverLabel: Bool
@@ -1658,7 +1442,7 @@ private struct FavoriteDockView: View {
     private var hoverSafetyWidth: CGFloat {
         FavoriteMagnificationLayout.sideClearance(for: sizeScale)
     }
-    private var peakScale: CGFloat { reducesMotion ? 1.35 : FavoriteMagnificationLayout.maximumScale }
+    private var peakScale: CGFloat { reducesMotion ? min(configuredPeakScale, 1.35) : configuredPeakScale }
     private var items: [FavoriteShelfItem] {
         var apps = favorites.map(FavoriteShelfItem.app)
         var folderItems = folders.map(FavoriteShelfItem.folder)
@@ -2394,14 +2178,15 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             let indicatorsChanged = favoritesChanged || self.runningApplicationIDs != runningApplicationIDs
             let badgesChanged = favoritesChanged || self.badgeLabels != badgeLabels
             let sizeChanged = self.sizeScale != sizeScale || self.peakScale != peakScale
+            let retainedIDs = Set(favoriteIDs)
             if favoritesChanged {
                 stopEntryAnimation()
                 stopSlotShiftAnimation()
                 let oldIcons = Dictionary(uniqueKeysWithValues: zip(favoriteIDs, iconLayers))
                 let oldIndicators = Dictionary(uniqueKeysWithValues: zip(favoriteIDs, indicatorLayers))
                 let oldBadges = Dictionary(uniqueKeysWithValues: zip(favoriteIDs, badgeLayers))
-                let retainedIDs = Set(ids)
-                for id in favoriteIDs where !retainedIDs.contains(id) {
+                let nextIDs = Set(ids)
+                for id in favoriteIDs where !nextIDs.contains(id) {
                     oldIcons[id]?.removeFromSuperlayer()
                     oldIndicators[id]?.removeFromSuperlayer()
                     oldBadges[id]?.removeFromSuperlayer()
@@ -2499,7 +2284,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                 ?? NSScreen.main?.backingScaleFactor ?? 2
             if indicatorsChanged { updateIndicatorColors() }
             CATransaction.commit()
-            updateLayers(animated: false, animateReorder: favoritesChanged)
+            updateLayers(animated: false, animateReorderIDs: favoritesChanged ? retainedIDs : [])
         }
 
         private func slotShiftProgress(at time: CFTimeInterval) -> CGFloat {
@@ -2616,7 +2401,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             layer.add(movement, forKey: "favorite-reorder-position")
         }
 
-        private func updateLayers(animated: Bool, animateReorder: Bool = false) {
+        private func updateLayers(animated: Bool, animateReorderIDs: Set<String> = []) {
             let layout = FavoriteMagnificationLayout(
                 count: iconLayers.count,
                 pointerX: pointerX,
@@ -2697,7 +2482,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                         y: $0.iconPosition.y + (targetIconPosition.y - $0.iconPosition.y) * entryProgress
                     )
                 } ?? targetIconPosition
-                let animatePosition = animateReorder
+                let animatePosition = animateReorderIDs.contains(favoriteID)
                     && (favoriteID != draggedFavoriteID || isSettlingDrag)
                 if animatePosition {
                     animateReorderPosition(displayedIconPosition, on: icon)

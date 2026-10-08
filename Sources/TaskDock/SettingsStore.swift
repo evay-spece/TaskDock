@@ -2,38 +2,6 @@ import AppKit
 import SwiftUI
 import TaskDockPreferences
 
-enum TaskbarAppearance: String, CaseIterable, Identifiable {
-    case light
-    case dark
-
-    var id: String { rawValue }
-    var label: String { self == .light ? "浅色" : "深色" }
-    var colorScheme: ColorScheme { self == .light ? .light : .dark }
-}
-
-enum ModeAppearance: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .system: return "跟随系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
-        }
-    }
-
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: return nil
-        case .light: return .light
-        case .dark: return .dark
-        }
-    }
-}
-
 enum TaskItemHighlightStyle: String, CaseIterable, Identifiable {
     case systemAccent
     case white
@@ -44,35 +12,19 @@ enum TaskItemHighlightStyle: String, CaseIterable, Identifiable {
 
 enum TaskDockLayoutMode: String, CaseIterable, Identifiable {
     case taskbar
-    case matrix
     case dockCompanion
 
     var id: String { rawValue }
     var label: String {
         switch self {
         case .taskbar: return "任务栏"
-        case .matrix: return "窗口矩阵"
         case .dockCompanion: return "Dock 融合"
         }
     }
     var systemImage: String {
         switch self {
         case .taskbar: return "rectangle.bottomthird.inset.filled"
-        case .matrix: return "rectangle.grid.2x2.fill"
         case .dockCompanion: return "dock.rectangle"
-        }
-    }
-}
-
-enum TaskbarWidthMode: String, CaseIterable, Identifiable {
-    case adaptive
-    case fullWidth
-
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .adaptive: return "适应长度"
-        case .fullWidth: return "左右铺满"
         }
     }
 }
@@ -109,7 +61,6 @@ final class SettingsStore: ObservableObject {
     static let recentAppHistoryLimit = 50
     @Published var blacklistedAppKeys: Set<String> { didSet { save() } }
     @Published private(set) var blockedWindowRules: [BlockedWindowRule] { didSet { save() } }
-    @Published private(set) var appearanceByMode: [TaskDockLayoutMode: ModeAppearance] { didSet { save() } }
     @Published private(set) var transparencyByMode: [TaskDockLayoutMode: Double] { didSet { save() } }
     @Published private(set) var hiddenAppsByMode: [TaskDockLayoutMode: Bool] { didSet { save() } }
     @Published private(set) var finderTabsByMode: [TaskDockLayoutMode: Bool] { didSet { save() } }
@@ -119,7 +70,6 @@ final class SettingsStore: ObservableObject {
     var showHiddenApps: Bool { showsHiddenApps(in: layoutMode) }
     var finderTabsAsWindows: Bool { showsFinderTabsAsWindows(in: layoutMode) }
     var nonSelectedItemTransparency: Double { transparency(in: layoutMode) }
-    var appearance: TaskbarAppearance { resolvedAppearance(in: layoutMode) }
     @Published var activeTaskbarShortcutIndices: Set<Int> = []
     @Published var activeFavoriteShortcutIndices: Set<Int> = []
     @Published var dockCompanionHeight: CGFloat = 39
@@ -130,10 +80,9 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(Double(taskbarSideInset), forKey: taskbarSideInsetKey) }
     }
     @Published var taskbarItemFontSize: CGFloat { didSet { save() } }
-    @Published var taskbarWidthMode: TaskbarWidthMode { didSet { save() } }
     @Published var favoriteMagnificationEnabled: Bool { didSet { save() } }
+    @Published var favoriteMagnificationScale: CGFloat { didSet { save() } }
     @Published var taskbarCollapseSameAppWindows: Bool { didSet { save() } }
-    @Published var taskbarReduceMotion: Bool { didSet { save() } }
     @Published private(set) var dockCompanionLeftAppKeys: Set<String> { didSet { save() } }
     @Published private(set) var dockCompanionRightAppKeys: Set<String> { didSet { save() } }
     @Published private(set) var dockCompanionRightAppsCustomized: Bool { didSet { save() } }
@@ -158,14 +107,13 @@ final class SettingsStore: ObservableObject {
     private let showApplicationNameKey = "taskdock.showApplicationName"
     private let taskItemHighlightStyleKey = "taskdock.taskItemHighlightStyle"
     private let layoutModeKey = "taskdock.layoutMode"
-    private let taskbarWidthModeKey = "taskdock.taskbarWidthMode"
     // Keep the existing preference key so prior slider adjustments are preserved.
     private let taskbarSideInsetKey = "taskdock.taskbarLeadingInset"
     private let taskbarHeightKey = "taskdock.taskbarHeight"
     private let taskbarItemFontSizeKey = "taskdock.taskbarItemFontSize"
     private let favoriteMagnificationEnabledKey = "taskdock.favoriteMagnificationEnabled"
+    private let favoriteMagnificationScaleKey = "taskdock.favoriteMagnificationScale"
     private let taskbarCollapseSameAppWindowsKey = "taskdock.taskbarCollapseSameAppWindows"
-    private let taskbarReduceMotionKey = "taskdock.taskbarReduceMotion"
     private let dockCompanionLeftAppKeysKey = "taskdock.dockCompanionLeftAppKeys"
     private let dockCompanionRightAppKeysKey = "taskdock.dockCompanionRightAppKeys"
     private let dockCompanionRightAppsCustomizedKey = "taskdock.dockCompanionRightAppsCustomized"
@@ -195,9 +143,6 @@ final class SettingsStore: ObservableObject {
         let loadedPreferences = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
             (mode, ModePreferenceStorage.load(mode: mode.rawValue, defaults: storedDefaults))
         })
-        appearanceByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
-            (mode, ModeAppearance(rawValue: loadedPreferences[mode]!.appearance) ?? .system)
-        })
         transparencyByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
             (mode, loadedPreferences[mode]!.transparency)
         })
@@ -211,8 +156,12 @@ final class SettingsStore: ObservableObject {
         taskItemHighlightStyle = TaskItemHighlightStyle(
             rawValue: defaults.string(forKey: taskItemHighlightStyleKey) ?? "white"
         ) ?? .white
-        layoutMode = TaskDockLayoutMode(rawValue: defaults.string(forKey: layoutModeKey) ?? "matrix") ?? .matrix
-        taskbarWidthMode = TaskbarWidthMode(rawValue: defaults.string(forKey: taskbarWidthModeKey) ?? "adaptive") ?? .adaptive
+        let storedLayoutMode = defaults.string(forKey: layoutModeKey)
+        let resolvedLayoutMode = TaskDockLayoutMode(rawValue: storedLayoutMode ?? "taskbar") ?? .taskbar
+        layoutMode = resolvedLayoutMode
+        if storedLayoutMode != resolvedLayoutMode.rawValue {
+            defaults.set(resolvedLayoutMode.rawValue, forKey: layoutModeKey)
+        }
         let savedTaskbarHeight = defaults.object(forKey: taskbarHeightKey) as? Double ?? Double(Self.defaultTaskbarHeight)
         taskbarHeight = min(max(CGFloat(savedTaskbarHeight), Self.taskbarHeightRange.lowerBound), Self.taskbarHeightRange.upperBound)
         let savedLeadingInset = defaults.object(forKey: taskbarSideInsetKey) as? Double ?? Double(Self.defaultTaskbarSideInset)
@@ -224,8 +173,10 @@ final class SettingsStore: ObservableObject {
             abs($0 - CGFloat(savedFontSize)) < abs($1 - CGFloat(savedFontSize))
         } ?? Self.defaultTaskbarItemFontSize
         favoriteMagnificationEnabled = defaults.object(forKey: favoriteMagnificationEnabledKey) as? Bool ?? true
+        let savedMagnificationScale = defaults.object(forKey: favoriteMagnificationScaleKey) as? Double ?? 2.0
+        favoriteMagnificationScale = savedMagnificationScale.isFinite
+            ? min(max(CGFloat(savedMagnificationScale), 1.2), 2.4) : 2.0
         taskbarCollapseSameAppWindows = defaults.object(forKey: taskbarCollapseSameAppWindowsKey) as? Bool ?? true
-        taskbarReduceMotion = defaults.object(forKey: taskbarReduceMotionKey) as? Bool ?? false
         dockCompanionLeftAppKeys = Set(defaults.stringArray(forKey: dockCompanionLeftAppKeysKey) ?? ["com.apple.finder"])
         dockCompanionRightAppKeys = Set(defaults.stringArray(forKey: dockCompanionRightAppKeysKey) ?? [])
         dockCompanionRightAppsCustomized = defaults.bool(forKey: dockCompanionRightAppsCustomizedKey)
@@ -504,24 +455,6 @@ final class SettingsStore: ObservableObject {
         return !wasAdded || previousSide != side
     }
 
-    func appearancePreference(in mode: TaskDockLayoutMode) -> ModeAppearance {
-        appearanceByMode[mode] ?? .system
-    }
-
-    func setAppearance(_ value: ModeAppearance, in mode: TaskDockLayoutMode) {
-        guard appearanceByMode[mode] != value else { return }
-        appearanceByMode[mode] = value
-    }
-
-    func resolvedAppearance(in mode: TaskDockLayoutMode) -> TaskbarAppearance {
-        switch appearancePreference(in: mode) {
-        case .light: return .light
-        case .dark: return .dark
-        case .system:
-            return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
-        }
-    }
-
     func transparency(in mode: TaskDockLayoutMode) -> Double {
         transparencyByMode[mode] ?? 0
     }
@@ -559,19 +492,17 @@ final class SettingsStore: ObservableObject {
         defaults.set(taskItemHighlightStyle.rawValue, forKey: taskItemHighlightStyleKey)
         for mode in TaskDockLayoutMode.allCases {
             ModePreferenceStorage.save(ModePreferenceSnapshot(
-                appearance: appearancePreference(in: mode).rawValue,
                 transparency: transparency(in: mode),
                 showHiddenApps: showsHiddenApps(in: mode),
                 finderTabsAsWindows: showsFinderTabsAsWindows(in: mode)
             ), mode: mode.rawValue, defaults: defaults)
         }
         defaults.set(layoutMode.rawValue, forKey: layoutModeKey)
-        defaults.set(taskbarWidthMode.rawValue, forKey: taskbarWidthModeKey)
         defaults.set(Double(taskbarHeight), forKey: taskbarHeightKey)
         defaults.set(Double(taskbarItemFontSize), forKey: taskbarItemFontSizeKey)
         defaults.set(favoriteMagnificationEnabled, forKey: favoriteMagnificationEnabledKey)
+        defaults.set(Double(favoriteMagnificationScale), forKey: favoriteMagnificationScaleKey)
         defaults.set(taskbarCollapseSameAppWindows, forKey: taskbarCollapseSameAppWindowsKey)
-        defaults.set(taskbarReduceMotion, forKey: taskbarReduceMotionKey)
         defaults.set(Array(dockCompanionLeftAppKeys), forKey: dockCompanionLeftAppKeysKey)
         defaults.set(Array(dockCompanionRightAppKeys), forKey: dockCompanionRightAppKeysKey)
         defaults.set(dockCompanionRightAppsCustomized, forKey: dockCompanionRightAppsCustomizedKey)

@@ -6,7 +6,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case taskbar
     case dockCompanion
-    case matrix
 
     var id: String { rawValue }
 
@@ -15,7 +14,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .general: return "通用"
         case .taskbar: return "任务栏模式"
         case .dockCompanion: return "融合模式"
-        case .matrix: return "矩阵模式"
         }
     }
 
@@ -24,7 +22,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .general: return "gearshape"
         case .taskbar: return "rectangle.bottomthird.inset.filled"
         case .dockCompanion: return "dock.rectangle"
-        case .matrix: return "rectangle.grid.2x2.fill"
         }
     }
 }
@@ -92,7 +89,7 @@ struct SettingsView: View {
                             HStack(spacing: 3) {
                                 Text(tab.label)
                                     .font(.system(size: 12, weight: .medium))
-                                if tab == .dockCompanion || tab == .matrix {
+                                if tab == .dockCompanion {
                                     Text("实验")
                                         .font(.system(size: 9, weight: .semibold))
                                         .foregroundStyle(.orange)
@@ -125,17 +122,17 @@ struct SettingsView: View {
                 case .general: generalTab
                 case .taskbar: taskbarTab
                 case .dockCompanion: dockCompanionTab
-                case .matrix: matrixTab
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 720, minHeight: 660)
+        .preferredColorScheme(.dark)
     }
 
     private var generalTab: some View {
         tabScrollView {
-            settingsSection(title: "显示模式", description: "选择 TaskDock 当前使用的模式；外观与窗口显示在各模式中分别设置。") {
+            settingsSection(title: "显示模式", description: "选择 TaskDock 当前使用的模式；窗口显示在各模式中分别设置。") {
                 Picker("显示模式", selection: $settings.layoutMode) {
                     ForEach(TaskDockLayoutMode.allCases) { mode in
                         Label(mode.label, systemImage: mode.systemImage).tag(mode)
@@ -262,15 +259,7 @@ struct SettingsView: View {
 
             modeVisualSettings(for: .taskbar)
 
-            settingsSection(title: "位置与尺寸", description: "调整任务栏两侧留白、长度和高度。") {
-                Picker("任务栏长度", selection: $settings.taskbarWidthMode) {
-                    ForEach(TaskbarWidthMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
-                .onChange(of: settings.taskbarWidthMode) { _ in onLayoutChanged() }
+            settingsSection(title: "位置与尺寸", description: "调整任务栏内容两侧留白和高度。") {
                 HStack {
                     Label("任务栏两侧留白", systemImage: "arrow.left.and.right")
                     Spacer()
@@ -332,11 +321,6 @@ struct SettingsView: View {
                 Text("点击折叠的任务项，可从列表选择具体窗口；1–2 个窗口仍分别显示。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Toggle("降低动画强度", isOn: $settings.taskbarReduceMotion)
-                    .onChange(of: settings.taskbarReduceMotion) { _ in onVisualChanged() }
-                Text("缩小图标放大幅度并缩短任务项动画；也会跟随 macOS 的“减少动态效果”设置。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             settingsSection(title: "收藏 App", description: "收藏固定在任务栏左侧；也可从任务项右键菜单添加。") {
@@ -353,6 +337,17 @@ struct SettingsView: View {
                 Text("鼠标移到收藏图标上时，图标会弹性放大；关闭后保持固定大小。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                HStack {
+                    Label("图标放大倍率", systemImage: "arrow.up.left.and.arrow.down.right")
+                    Spacer()
+                    Text(String(format: "%.1f×", Double(settings.favoriteMagnificationScale)))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $settings.favoriteMagnificationScale, in: 1.2...2.4, step: 0.1)
+                    .accessibilityLabel("图标放大倍率")
+                    .disabled(!settings.favoriteMagnificationEnabled)
+                    .onChange(of: settings.favoriteMagnificationScale) { _ in onLayoutChanged() }
                 Text("运行中的 App 图标下方显示灰白色指示灯，无论是否有窗口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -608,26 +603,6 @@ struct SettingsView: View {
         }
     }
 
-    private var matrixTab: some View {
-        tabScrollView {
-            modeHeader(
-                title: "矩阵模式",
-                description: "按 App 分列展示窗口，适合同时查看和切换较多窗口。",
-                systemImage: SettingsTab.matrix.systemImage,
-                mode: .matrix
-            )
-
-            modeVisualSettings(for: .matrix)
-
-            settingsSection(title: "排列方式", description: "矩阵会自动根据可用宽度压缩任务项。") {
-                Label("每个 App 独立成列", systemImage: "rectangle.split.3x1")
-                Label("最先打开的窗口排列在底部", systemImage: "arrow.down.to.line")
-                Label("可覆盖在窗口上，不调整其他窗口大小；底边贴齐屏幕", systemImage: "rectangle.on.rectangle")
-                Label("按住 Option 并拖动可移动整个矩阵", systemImage: "option")
-            }
-        }
-    }
-
     private func tabScrollView<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -641,23 +616,7 @@ struct SettingsView: View {
 
     private func modeVisualSettings(for mode: TaskDockLayoutMode) -> some View {
         Group {
-            settingsSection(title: "外观", description: "仅影响当前模式的任务项。") {
-                Picker("主题", selection: Binding(
-                    get: { settings.appearancePreference(in: mode) },
-                    set: { settings.setAppearance($0, in: mode); onVisualChanged() }
-                )) {
-                    ForEach(ModeAppearance.allCases) { appearance in
-                        Text(mode == .dockCompanion && appearance == .system
-                             ? "跟随系统（推荐）" : appearance.label).tag(appearance)
-                    }
-                }
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
-                if mode == .dockCompanion {
-                    Text("手动指定浅色或深色仅改变 TaskDock；原生 Dock 仍跟随系统，外观可能不一致。")
-                        .font(.caption)
-                        .foregroundStyle(settings.appearancePreference(in: mode) == .system ? Color.secondary : Color.orange)
-                }
+            settingsSection(title: "任务项透明度", description: "仅影响当前模式的任务项。") {
                 Picker("非选中项透明度", selection: Binding(
                     get: { Int((settings.transparency(in: mode) * 100).rounded()) },
                     set: { settings.setTransparency(Double($0) / 100, in: mode); onVisualChanged() }

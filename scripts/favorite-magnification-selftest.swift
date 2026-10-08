@@ -4,6 +4,22 @@ import Foundation
 struct FavoriteMagnificationSelfTest {
     static func main() {
         let idle = FavoriteMagnificationLayout(count: 9, pointerX: nil)
+        let reduced = FavoriteMagnificationLayout(count: 9, pointerX: 16, peakScale: 1.2)
+        let enlarged = FavoriteMagnificationLayout(count: 9, pointerX: 16, peakScale: 2.4)
+        precondition(abs(reduced.scales[0] - 1.2) < 0.001)
+        precondition(abs(enlarged.scales[0] - 2.4) < 0.001)
+        precondition(FavoriteMagnificationLayout.headroom(for: 1, peakScale: 2.4)
+            > FavoriteMagnificationLayout.headroom(for: 1, peakScale: 1.2))
+        for pointer in stride(from: CGFloat.zero, through: 9 * 32, by: 4) {
+            let layout = FavoriteMagnificationLayout(count: 9, pointerX: pointer, peakScale: 2.4)
+            let clearance = FavoriteMagnificationLayout.sideClearance(for: 1)
+            for index in 0..<9 {
+                let center = (CGFloat(index) + 0.5) * 32 + layout.offsets[index]
+                let radius = FavoriteMagnificationLayout.iconSize * layout.scales[index] / 2
+                precondition(center + radius <= 9 * 32 + clearance)
+                precondition(center - radius >= -clearance)
+            }
+        }
         precondition(FavoriteMagnificationLayout.sideClearance(for: 1) == 108)
         precondition(FavoriteMagnificationLayout.idleSideClearance(for: 1) == 31)
         let favoriteLaneLimit = TaskbarFavoriteLaneLayout.contentWidth(

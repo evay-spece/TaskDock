@@ -45,8 +45,6 @@ final class TaskbarPanelController {
     private var pendingLayoutRefreshToken: UUID?
     private var lastReservationContext: ReservationContext?
     private var lastReservationUpdateAt = Date.distantPast
-    private var panelDragStartOrigin: NSPoint?
-    private var customPanelOrigins: [TaskDockLayoutMode: NSPoint] = [:]
     private var isHiddenInDock = false
     private var dockRestoreAvailableAt = Date.distantPast
     private var shortcutMonitor: ModifierDoubleTapMonitor?
@@ -186,6 +184,7 @@ final class TaskbarPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovable = false
@@ -235,9 +234,7 @@ final class TaskbarPanelController {
                 if !isOpen { self.refresh() }
             },
             onAppDragChanged: { [weak self] isDragging in self?.setAppReordering(isDragging) },
-            onFavoriteHoverActivity: { [weak self] isActive in self?.setFavoriteHoverActivity(isActive) },
-            onPanelDragChanged: { [weak self] translation in self?.movePanel(by: translation) },
-            onPanelDragEnded: { [weak self] in self?.finishPanelDrag() }
+            onFavoriteHoverActivity: { [weak self] isActive in self?.setFavoriteHoverActivity(isActive) }
         )
     }
 
@@ -277,72 +274,22 @@ final class TaskbarPanelController {
             return
         }
         dockFinderPanel?.orderOut(nil)
-        panel?.level = settings.layoutMode == .matrix ? .statusBar : .floating
+        panel?.level = .floating
         dockFinderPanel?.level = .floating
 
-        if settings.layoutMode == .taskbar {
-            let scale = settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
-            let preferredItemWidth: CGFloat = 132 * scale
-            let favoriteWidth = TaskbarFavoriteLaneLayout.flowWidth(
-                contentWidth: TaskbarFavoriteLaneLayout.contentWidth(
-                    appCount: settings.favoriteApps.count,
-                    folderCount: settings.favoriteFolders.count),
-                limit: settings.taskbarFavoriteFlowWidth) * scale
-            let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 40 * scale
-            let controlsAndPadding: CGFloat = 40 * scale + favoriteWidth + recentApplicationWidth
-            let displayCount = settings.taskbarCollapseSameAppWindows
-                ? FusionDisplayPolicy.displayCount(appKeys: windows.map(\.appKey), collapseThreshold: 3)
-                : windows.count
-            let itemSpacing = CGFloat(max(displayCount - 1, 0)) * 4 * scale
-            let desiredWidth: CGFloat
-            if !permissionService.isTrusted {
-                desiredWidth = 600 * scale
-            } else if windows.isEmpty {
-                desiredWidth = controlsAndPadding + 32 * scale
-            } else {
-                desiredWidth = CGFloat(displayCount) * preferredItemWidth + itemSpacing + controlsAndPadding
-            }
-            let animationMargins = 2 * settings.taskbarSideInset
-            let width = settings.taskbarWidthMode == .fullWidth
-                ? screenFrame.width
-                : min(screenFrame.width, desiredWidth + animationMargins)
-            // Keep the transparent side margins inside the window so magnified
-            // icons can draw and receive pointer events beyond the idle bar.
-            let height = settings.taskbarHeight + FavoriteMagnificationLayout.headroom(for: scale)
-            let physicalBottom = screen.frame.minY
-            let origin = NSPoint(x: screenFrame.midX - width / 2, y: physicalBottom)
-            setPanelFrameIfNeeded(
-                NSRect(origin: origin, size: NSSize(width: width, height: height)),
-                animated: animated,
-                animationDuration: animationDuration,
-                animationTimingFunction: animationTimingFunction
-            )
-            return
-        }
-
-        let appGroups = Dictionary(grouping: windows, by: \.appKey)
-        let appCount = max(appGroups.count, 1)
-        let maxWindowCount = max(appGroups.values.map(\.count).max() ?? 1, 1)
-        let groupSpacing = CGFloat(max(appCount - 1, 0)) * 6
-        let controlsWidth: CGFloat = 44
-        let preferredColumnWidth: CGFloat = 162
-        let maxWidth = screenFrame.width - 24
-        let desiredWidth = CGFloat(appCount) * preferredColumnWidth + groupSpacing + controlsWidth
-        let width = min(maxWidth, max(isAccessibilityTrustedWidth, desiredWidth))
-        let desiredHeight = CGFloat(maxWindowCount) * 32 + CGFloat(max(maxWindowCount - 1, 0)) * 2 + 4
-        let height = min(screenFrame.height * 0.58, max(42, desiredHeight))
-
+        let scale = settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
+        // Keep the transparent side margins inside the window so magnified
+        // icons can draw and receive pointer events beyond the idle bar.
+        let height = settings.taskbarHeight + FavoriteMagnificationLayout.headroom(
+            for: scale, peakScale: settings.favoriteMagnificationScale)
         let physicalBottom = screen.frame.minY
-        let defaultOrigin = NSPoint(x: screenFrame.maxX - width - 4, y: physicalBottom)
-        let proposedOrigin = customPanelOrigins[.matrix] ?? defaultOrigin
-        let maxX = max(screenFrame.minX, screenFrame.maxX - width)
-        let maxY = max(physicalBottom, screenFrame.maxY - height)
-        let origin = NSPoint(
-            x: min(max(proposedOrigin.x, screenFrame.minX), maxX),
-            y: min(max(proposedOrigin.y, physicalBottom), maxY)
+        let origin = NSPoint(x: screenFrame.minX, y: physicalBottom)
+        setPanelFrameIfNeeded(
+            NSRect(origin: origin, size: NSSize(width: screenFrame.width, height: height)),
+            animated: animated,
+            animationDuration: animationDuration,
+            animationTimingFunction: animationTimingFunction
         )
-        let frame = NSRect(origin: origin, size: NSSize(width: width, height: height))
-        setPanelFrameIfNeeded(frame)
     }
 
     private func repositionBesideDock(on screen: NSScreen) {
@@ -615,15 +562,9 @@ final class TaskbarPanelController {
         }
     }
 
-    private var isAccessibilityTrustedWidth: CGFloat {
-        permissionService.isTrusted ? 0 : 380
-    }
-
     private func refresh() {
         if recentAppPopoverState.isPresented { return }
-        if settings.layoutMode == .matrix || isHiddenInDock {
-            setOptionShortcutsVisible(false)
-        }
+        if isHiddenInDock { setOptionShortcutsVisible(false) }
         // Focus notifications can arrive during a drag even while the timer is paused.
         // Do not enumerate windows or resize the panel until the gesture has settled.
         if let pauseUntil = reorderRefreshPauseUntil, pauseUntil > Date() { return }
@@ -680,8 +621,7 @@ final class TaskbarPanelController {
     }
 
     private func setOptionShortcutsVisible(_ visible: Bool) {
-        let shouldShow = visible && settings.layoutMode != .matrix
-            && !isHiddenInDock && permissionService.isTrusted
+        let shouldShow = visible && !isHiddenInDock && permissionService.isTrusted
         let windowIndices = shouldShow ? registeredOptionShortcuts.windows : []
         let favoriteIndices = shouldShow ? registeredOptionShortcuts.favorites : []
         if settings.activeTaskbarShortcutIndices != windowIndices {
@@ -693,7 +633,7 @@ final class TaskbarPanelController {
     }
 
     private func synchronizeHotKeys() {
-        guard settings.layoutMode != .matrix, !isHiddenInDock,
+        guard !isHiddenInDock,
               permissionService.isTrusted else {
             stopRegisteredHotKeys()
             setOptionShortcutsVisible(false)
@@ -732,7 +672,7 @@ final class TaskbarPanelController {
     }
 
     private func openShortcutWindow(_ index: Int) {
-        guard settings.layoutMode != .matrix, !isHiddenInDock,
+        guard !isHiddenInDock,
               registeredOptionShortcuts.windows.contains(index) else { return }
         let ordered = settings.layoutMode == .dockCompanion
             ? fusionShortcutWindows(for: otherWindows)
@@ -743,7 +683,7 @@ final class TaskbarPanelController {
     }
 
     private func openShortcutFavorite(_ index: Int) {
-        guard settings.layoutMode != .matrix, !isHiddenInDock,
+        guard !isHiddenInDock,
               registeredOptionShortcuts.favorites.contains(index),
               index > 0 else { return }
         if settings.layoutMode == .dockCompanion {
@@ -961,41 +901,12 @@ final class TaskbarPanelController {
         }
     }
 
-    private func movePanel(by translation: CGSize) {
-        guard !isHiddenInDock, settings.layoutMode == .matrix, let panel else { return }
-        if panelDragStartOrigin == nil { panelDragStartOrigin = panel.frame.origin }
-        guard let start = panelDragStartOrigin else { return }
-
-        let screen = panel.screen ?? NSScreen.screens.first
-        let screenFrame = screen?.visibleFrame ?? .zero
-        let minimumY = settings.layoutMode == .matrix ? (screen?.frame.minY ?? screenFrame.minY) : screenFrame.minY
-        let proposedX = start.x + translation.width
-        let proposedY = start.y - translation.height
-        let maxX = max(screenFrame.minX, screenFrame.maxX - panel.frame.width)
-        let maxY = max(minimumY, screenFrame.maxY - panel.frame.height)
-        panel.setFrameOrigin(NSPoint(
-            x: min(max(proposedX, screenFrame.minX), maxX),
-            y: settings.layoutMode == .taskbar
-                ? (screen?.frame.minY ?? screenFrame.minY)
-                : min(max(proposedY, minimumY), maxY)
-        ))
-    }
-
-    private func finishPanelDrag() {
-        if panelDragStartOrigin != nil, let panel {
-            customPanelOrigins[settings.layoutMode] = panel.frame.origin
-        }
-        panelDragStartOrigin = nil
-        refresh()
-    }
-
     private func hideInDock() {
         setOptionShortcutsVisible(false)
         stopRegisteredHotKeys()
         isHiddenInDock = true
         synchronizeSystemDockVisibility()
         dockRestoreAvailableAt = Date().addingTimeInterval(0.8)
-        finishPanelDrag()
         settingsWindowController?.hide()
         windowService.clearWindowSpaceReservations(restore: true, windows: windows)
         NSApp.setActivationPolicy(.regular)
@@ -1151,21 +1062,19 @@ final class TaskbarPanelController {
                 width: maxX - minX,
                 height: settings.dockCompanionHeight
             )
-        } else if settings.layoutMode == .taskbar || settings.layoutMode == .dockCompanion {
+        } else {
             reservationPanelFrame = CGRect(
                 x: panel.frame.minX,
                 y: panel.frame.minY,
                 width: panel.frame.width,
                 height: settings.layoutMode == .dockCompanion ? settings.dockCompanionHeight : settings.taskbarHeight
             )
-        } else {
-            reservationPanelFrame = panel.frame
         }
         let context = ReservationContext(
             panelFrame: reservationPanelFrame,
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
-            enabled: !isHiddenInDock && panel.isVisible && settings.layoutMode != .matrix,
+            enabled: !isHiddenInDock && panel.isVisible,
             layoutMode: settings.layoutMode
         )
         let now = Date()

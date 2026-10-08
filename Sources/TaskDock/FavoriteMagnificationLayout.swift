@@ -126,8 +126,8 @@ struct FavoriteMagnificationLayout {
         -4.5 * (scale - 1) / (maximumScale - 1)
     }
 
-    static func headroom(for sizeScale: CGFloat) -> CGFloat {
-        ceil((30 * (maximumScale - 1) + 8 + hoverLabelHeight) * sizeScale)
+    static func headroom(for sizeScale: CGFloat, peakScale: CGFloat = maximumScale) -> CGFloat {
+        ceil((30 * (peakScale - 1) + 8 + hoverLabelHeight) * sizeScale)
     }
 
     static func sideClearance(for sizeScale: CGFloat) -> CGFloat {
