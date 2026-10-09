@@ -1137,7 +1137,7 @@ struct WindowTaskItemView: View {
             value: isHovered
         )
         .onHover { isHovered = $0 }
-        .help("点击显示窗口；再次点击当前焦点窗口会最小化；拖动可调整 App 顺序")
+        .help("点击显示窗口；再次点击当前焦点窗口会收起到任务栏；拖动可调整 App 顺序")
     }
 
     private var fallbackIcon: NSImage {

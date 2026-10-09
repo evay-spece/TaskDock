@@ -25,11 +25,14 @@ final class TaskbarPanelController {
     private let trashStatus = TrashStatusService()
     private let favoriteBadges = FavoriteBadgeStore()
     private let trialManager = TrialManager()
+    private let collapseAnimator = TaskbarCollapseAnimator()
     private let badgePollQueue = DispatchQueue(label: "taskdock.dock-badges", qos: .utility)
     private var panel: NSPanel?
     private var timer: Timer?
     private var windows: [WindowModel] = []
     private var bulkMinimizedWindows: [WindowModel] = []
+    private var taskbarHiddenPIDs: Set<pid_t> = []
+    private var bulkHiddenPIDs: Set<pid_t> = []
     private var recentApplications: [FavoriteApp] = []
     private let recentAppPopoverState = RecentAppPopoverState()
     private var runningApplicationIDs: Set<String> = []
@@ -117,6 +120,11 @@ final class TaskbarPanelController {
     }
 
     func stop() {
+        for pid in taskbarHiddenPIDs {
+            NSRunningApplication(processIdentifier: pid)?.unhide()
+        }
+        taskbarHiddenPIDs = []
+        bulkHiddenPIDs = []
         bulkMinimizedWindows = []
         minimizeHotKeyMonitor?.stop()
         minimizeHotKeyMonitor = nil
@@ -148,7 +156,10 @@ final class TaskbarPanelController {
     var currentLayoutMode: TaskDockLayoutMode { settings.layoutMode }
     var isTaskDockHidden: Bool { isHiddenInDock }
     var canRestoreMinimizedWindows: Bool {
-        !bulkMinimizedWindows.isEmpty &&
+        if !bulkHiddenPIDs.isEmpty {
+            return !hasVisibleWindowOutsideTaskDock()
+        }
+        return !bulkMinimizedWindows.isEmpty &&
             bulkMinimizedWindows.contains { windowService.isMinimized($0) } &&
             !hasVisibleWindowOutsideTaskDock()
     }
@@ -206,7 +217,7 @@ final class TaskbarPanelController {
             runningApplicationIDs: settings.layoutMode == .taskbar ? runningApplicationIDs : [],
             favoriteBadges: favoriteBadges,
             isAccessibilityTrusted: permissionService.isTrusted,
-            canRestoreMinimizedWindows: !bulkMinimizedWindows.isEmpty,
+            canRestoreMinimizedWindows: !bulkMinimizedWindows.isEmpty || !bulkHiddenPIDs.isEmpty,
             onRequestPermission: { [weak self] in self?.requestPermission() },
             onSelect: { [weak self] window in self?.recordTrialOperation(); self?.select(window) },
             onMinimizeAll: { [weak self] in self?.recordTrialOperation(); self?.minimizeAll() },
@@ -576,11 +587,29 @@ final class TaskbarPanelController {
         let refreshedWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,
             showHiddenApps: settings.showHiddenApps,
+            taskbarHiddenPIDs: taskbarHiddenPIDs,
             blacklistedAppKeys: settings.blacklistedAppKeys,
             blockedWindowRules: settings.blockedWindowRules,
             finderTabsAsWindows: settings.finderTabsAsWindows
         )
-        windows = refreshedWindows
+        // Some apps omit AX windows while hidden. Keep their existing task items
+        // until they are restored or the owning process exits.
+        let refreshedIDs = Set(refreshedWindows.map(\.id))
+        let retainedWindows = windows.filter {
+            taskbarHiddenPIDs.contains($0.pid) &&
+                NSRunningApplication(processIdentifier: $0.pid)?.isHidden == true &&
+                !refreshedIDs.contains($0.id)
+        }.map { window in
+            WindowModel(
+                id: window.id, nativeWindowID: window.nativeWindowID, pid: window.pid,
+                bundleIdentifier: window.bundleIdentifier, applicationName: window.applicationName,
+                applicationIcon: window.applicationIcon, rawTitle: window.rawTitle, title: window.title,
+                accessibilityRole: window.accessibilityRole, accessibilitySubrole: window.accessibilitySubrole,
+                isMinimized: true, isFocused: false, isMain: window.isMain,
+                axWindow: window.axWindow, finderTab: window.finderTab
+            )
+        }
+        windows = refreshedWindows + retainedWindows
         synchronizeBulkMinimizeState()
         updateRecentWindowFocus()
         refreshRecentApplications()
@@ -619,7 +648,35 @@ final class TaskbarPanelController {
 
     private func requestPermission() { permissionService.requestAccess(); refresh() }
     private func select(_ window: WindowModel) {
+        if settings.layoutMode == .taskbar {
+            toggleTaskbarWindow(window, animate: true)
+            return
+        }
         _ = windowService.toggle(window)
+        refreshAfterWindowAction()
+    }
+
+    private func toggleTaskbarWindow(_ window: WindowModel, animate: Bool) {
+        guard let app = NSRunningApplication(processIdentifier: window.pid) else { return }
+        if app.isHidden {
+            taskbarHiddenPIDs.remove(window.pid)
+            bulkHiddenPIDs.remove(window.pid)
+            _ = windowService.activate(window)
+        } else if !windowService.isMinimized(window) && windowService.isCurrentlyFocused(window) {
+            let frame = animate ? windowService.frame(of: window) : nil
+            let target = NSEvent.mouseLocation
+            if app.hide() {
+                taskbarHiddenPIDs.insert(window.pid)
+                bulkHiddenPIDs.remove(window.pid)
+                if animate, panel?.frame.contains(target) == true {
+                    collapseAnimator.collapse(window: window, from: frame, toward: target)
+                }
+            }
+        } else {
+            taskbarHiddenPIDs.remove(window.pid)
+            bulkHiddenPIDs.remove(window.pid)
+            _ = windowService.activate(window)
+        }
         refreshAfterWindowAction()
     }
 
@@ -681,8 +738,7 @@ final class TaskbarPanelController {
             ? fusionShortcutWindows(for: otherWindows)
             : settings.orderedWindows(windows)
         guard ordered.indices.contains(index - 1) else { return }
-        _ = windowService.toggle(ordered[index - 1])
-        refreshAfterWindowAction()
+        select(ordered[index - 1])
     }
 
     private func openShortcutFavorite(_ index: Int) {
@@ -692,8 +748,7 @@ final class TaskbarPanelController {
         if settings.layoutMode == .dockCompanion {
             let ordered = fusionShortcutWindows(for: finderWindows)
             guard ordered.indices.contains(index - 1) else { return }
-            _ = windowService.toggle(ordered[index - 1])
-            refreshAfterWindowAction()
+            select(ordered[index - 1])
             return
         }
         guard settings.favoriteApps.indices.contains(index - 1) else { return }
@@ -705,13 +760,16 @@ final class TaskbarPanelController {
             )
         }
         if let focusedWindow {
-            _ = windowService.toggle(focusedWindow)
-            refreshAfterWindowAction()
+            select(focusedWindow)
         } else {
             openFavorite(favorite)
         }
     }
     private func minimizeAll() {
+        if settings.layoutMode == .taskbar {
+            minimizeAllByHidingApps()
+            return
+        }
         synchronizeBulkMinimizeState()
         if !bulkMinimizedWindows.isEmpty {
             windowService.restoreMinimized(bulkMinimizedWindows)
@@ -729,7 +787,40 @@ final class TaskbarPanelController {
         refreshAfterWindowAction()
     }
 
+    private func minimizeAllByHidingApps() {
+        synchronizeBulkMinimizeState()
+        if !bulkHiddenPIDs.isEmpty {
+            for pid in bulkHiddenPIDs {
+                NSRunningApplication(processIdentifier: pid)?.unhide()
+                taskbarHiddenPIDs.remove(pid)
+            }
+            bulkHiddenPIDs = []
+            refreshAfterWindowAction()
+            return
+        }
+        let visiblePIDs = Set(windowService.enumerateWindows(
+            excludingPID: ProcessInfo.processInfo.processIdentifier,
+            showHiddenApps: false,
+            blacklistedAppKeys: [],
+            blockedWindowRules: []
+        ).filter { !$0.isMinimized }.map(\.pid))
+        for pid in visiblePIDs {
+            if NSRunningApplication(processIdentifier: pid)?.hide() == true {
+                bulkHiddenPIDs.insert(pid)
+                taskbarHiddenPIDs.insert(pid)
+            }
+        }
+        refreshAfterWindowAction()
+    }
+
     private func synchronizeBulkMinimizeState() {
+        taskbarHiddenPIDs = taskbarHiddenPIDs.filter {
+            NSRunningApplication(processIdentifier: $0)?.isHidden == true
+        }
+        bulkHiddenPIDs = bulkHiddenPIDs.intersection(taskbarHiddenPIDs)
+        if !bulkHiddenPIDs.isEmpty && hasVisibleWindowOutsideTaskDock() {
+            bulkHiddenPIDs = []
+        }
         guard !bulkMinimizedWindows.isEmpty else { return }
         bulkMinimizedWindows = bulkMinimizedWindows.filter { windowService.isMinimized($0) }
         if hasVisibleWindowOutsideTaskDock() {
@@ -981,7 +1072,7 @@ final class TaskbarPanelController {
         let runningState = runningApplicationIDs.sorted().joined(separator: "\u{1F}")
         let fusionState = settings.layoutMode == .dockCompanion
             ? dockCompanionWindows.map(\.id).joined(separator: "\u{1F}") : ""
-        return "\(isTrusted)|\(settings.layoutMode.rawValue)|\(!bulkMinimizedWindows.isEmpty)|\(windowState)|\(recentState)|\(runningState)|\(fusionState)"
+        return "\(isTrusted)|\(settings.layoutMode.rawValue)|\(!bulkMinimizedWindows.isEmpty || !bulkHiddenPIDs.isEmpty)|\(windowState)|\(recentState)|\(runningState)|\(fusionState)"
     }
 
     private func updateRecentWindowFocus() {

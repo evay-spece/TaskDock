@@ -31,6 +31,7 @@ final class AXWindowService {
     func enumerateWindows(
         excludingPID: pid_t,
         showHiddenApps: Bool,
+        taskbarHiddenPIDs: Set<pid_t> = [],
         blacklistedAppKeys: Set<String>,
         blockedWindowRules: [BlockedWindowRule],
         finderTabsAsWindows: Bool = false
@@ -44,7 +45,7 @@ final class AXWindowService {
                 $0.processIdentifier != excludingPID &&
                 !WindowFilterRules.shouldIgnoreApplication(bundleIdentifier: $0.bundleIdentifier) &&
                 $0.activationPolicy == .regular &&
-                (showHiddenApps || !$0.isHidden)
+                (showHiddenApps || !$0.isHidden || taskbarHiddenPIDs.contains($0.processIdentifier))
             }
             .sorted {
                 ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast)
@@ -118,7 +119,7 @@ final class AXWindowService {
                         title: itemTitle.isEmpty ? applicationName : itemTitle,
                         accessibilityRole: role,
                         accessibilitySubrole: subrole,
-                        isMinimized: minimized,
+                        isMinimized: minimized || (app.isHidden && taskbarHiddenPIDs.contains(pid)),
                         isFocused: focused && selected,
                         isMain: main && selected,
                         axWindow: axWindow,
@@ -194,6 +195,19 @@ final class AXWindowService {
     func isMinimized(_ window: WindowModel) -> Bool {
         guard NSRunningApplication(processIdentifier: window.pid) != nil else { return false }
         return (copyAttribute(window.axWindow, kAXMinimizedAttribute) as? Bool) == true
+    }
+
+    func frame(of window: WindowModel) -> CGRect? {
+        guard let positionValue = copyAttribute(window.axWindow, kAXPositionAttribute),
+              let sizeValue = copyAttribute(window.axWindow, kAXSizeAttribute),
+              CFGetTypeID(positionValue) == AXValueGetTypeID(),
+              CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return nil }
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size),
+              size.width > 0, size.height > 0 else { return nil }
+        return CGRect(origin: position, size: size)
     }
 
     func minimizeAll(_ windows: [WindowModel]) -> [WindowModel] {
