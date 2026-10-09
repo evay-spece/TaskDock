@@ -27,11 +27,14 @@ struct TaskbarView: View {
     let onSelect: (WindowModel) -> Void
     let onMinimizeAll: () -> Void
     let onOpenTrash: () -> Void
+    let onEmptyTrash: () -> Void
+    let onRestoreLatestTrashItem: () -> Void
     let onOpenFolder: (FavoriteFolder) -> Void
     let onShowAppWindows: (WindowModel) -> Void
     let onBlockWindowType: (WindowModel) -> Void
     let onClose: (WindowModel) -> Void
     let onOpenFavorite: (FavoriteApp) -> Void
+    let onPerformWindowAction: (@escaping () -> Void) -> Void
     let onQuitRecentApp: (FavoriteApp) -> Void
     let showsFavorites: Bool
     let showsControls: Bool
@@ -108,8 +111,11 @@ struct TaskbarView: View {
                             showsHoverLabel: settings.layoutMode == .taskbar,
                             sizeScale: taskbarPanelScale,
                             onOpen: onOpenFavorite,
+                            onPerformWindowAction: onPerformWindowAction,
                             onQuit: onQuitRecentApp,
                             onOpenTrash: onOpenTrash,
+                            onEmptyTrash: onEmptyTrash,
+                            onRestoreLatestTrashItem: onRestoreLatestTrashItem,
                             onOpenFolder: onOpenFolder,
                             onRemove: { favorite in
                                 settings.removeFavorite(favorite)
@@ -190,7 +196,8 @@ struct TaskbarView: View {
                     if windows.isEmpty && showsEmptyState {
                         Spacer(minLength: 0)
                     } else if !windows.isEmpty {
-                        let itemWidth = taskbarItemWidth(for: geometry.size.width)
+                        let itemWidth = taskbarItemWidth(for: geometry.size.width
+                            - (settings.layoutMode == .taskbar ? 2 * settings.taskbarSideInset : 0))
                         HStack(spacing: taskbarItemSpacing) {
                             ForEach(appGroups) { group in
                                 HStack(spacing: taskbarItemSpacing) {
@@ -211,12 +218,13 @@ struct TaskbarView: View {
                                             windows: group.windows,
                                             availableWidth: itemWidth,
                                             itemHeight: taskbarItemHeight,
+                                            hitHeight: taskbarBaseHeight,
                                             contentScale: taskbarContentScale,
                                             taskbarFontSize: settings.taskbarItemFontSize,
                                             nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
                                             onSelect: onSelect
                                         )
-                                        .frame(width: itemWidth, height: taskbarItemHeight)
+                                        .frame(width: itemWidth, height: taskbarBaseHeight)
                                         .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidth: itemWidth))
                                     } else {
                                     ForEach(group.windows) { window in
@@ -242,9 +250,13 @@ struct TaskbarView: View {
                                                 onToggleFavorite: { toggleFavorite(window) },
                                                 favoriteActionTitle: favoriteMenuTitle(for: window)
                                             )
+                                            .frame(height: settings.layoutMode == .taskbar
+                                                ? taskbarBaseHeight : taskbarItemHeight)
+                                            .contentShape(Rectangle())
                                         }
                                         .buttonStyle(.plain)
-                                        .frame(width: itemWidth, height: taskbarItemHeight)
+                                        .frame(width: itemWidth, height: settings.layoutMode == .taskbar
+                                            ? taskbarBaseHeight : taskbarItemHeight)
                                         .contentShape(Rectangle())
                                         .simultaneousGesture(taskbarReorderGesture(for: window, itemWidth: itemWidth))
                                         .contextMenu {
@@ -311,24 +323,14 @@ struct TaskbarView: View {
                     .layoutPriority(1)
                     .padding(.horizontal, 8 * taskbarPanelScale)
                 }
-                if showsControls && settings.layoutMode == .taskbar {
-                    TaskbarControlButton(
-                        systemImage: canRestoreMinimizedWindows ? "rectangle.stack" : "minus.rectangle",
-                        help: canRestoreMinimizedWindows ? "恢复刚才最小化的窗口" : "最小化全部窗口",
-                        scale: taskbarContentScale,
-                        isTaskbarMode: true,
-                        action: onMinimizeAll
-                    )
-                    .padding(.trailing, 8 * taskbarPanelScale)
-                }
             }
             .frame(height: taskbarBaseHeight)
+            .padding(.leading, settings.layoutMode == .taskbar
+                ? settings.taskbarSideInset : 0)
+            .padding(.trailing, settings.layoutMode == .taskbar
+                ? settings.taskbarSideInset : 0)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
-        .padding(.leading, settings.layoutMode == .taskbar
-            ? settings.taskbarSideInset : 0)
-        .padding(.trailing, settings.layoutMode == .taskbar
-            ? settings.taskbarSideInset : 0)
         .background(alignment: .bottom) {
             if settings.layoutMode != .dockCompanion || settings.dockCompanionShowsBottomBar {
                 FusionDockTileSurface(
@@ -348,6 +350,17 @@ struct TaskbarView: View {
             radius: 9,
             y: 4
         )
+        .overlay(alignment: .bottomTrailing) {
+            if showsControls && settings.layoutMode == .taskbar {
+                TaskbarEdgeControlButton(
+                    systemImage: canRestoreMinimizedWindows ? "rectangle.stack" : "minus.rectangle",
+                    help: canRestoreMinimizedWindows ? "恢复刚才最小化的窗口" : "最小化全部窗口",
+                    scale: taskbarContentScale,
+                    barHeight: taskbarBaseHeight,
+                    action: onMinimizeAll
+                )
+            }
+        }
         .padding(.horizontal, settings.layoutMode == .taskbar ? 0 : 2)
         .padding(.top, 2)
         .padding(.bottom, settings.layoutMode == .taskbar ? 0 : 2)
@@ -363,7 +376,7 @@ struct TaskbarView: View {
                 controlsAndPadding = (settings.dockCompanionShowsBottomBar ? 48 : 8) * taskbarPanelScale
             }
         } else {
-            controlsAndPadding = (showsControls ? 40 : 16) * taskbarPanelScale
+            controlsAndPadding = 16 * taskbarPanelScale
         }
         let favoriteItemCount = settings.favoriteApps.count
             + (settings.layoutMode == .taskbar && showsControls ? 1 + settings.favoriteFolders.count : 0)
@@ -749,10 +762,32 @@ private struct NativeFusionGlassView: NSViewRepresentable {
     }
 }
 
+private struct TaskbarApplicationIcon: View {
+    let bundleIdentifier: String?
+    let fallbackIcon: NSImage
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if bundleIdentifier == "com.apple.iCal" {
+                TimelineView(.periodic(from: .now, by: 20)) { context in
+                    Image(nsImage: CalendarLiveIcon.image(for: context.date))
+                        .resizable()
+                }
+            } else {
+                Image(nsImage: fallbackIcon)
+                    .resizable()
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 private struct TaskbarCollapsedAppView: View {
     let windows: [WindowModel]
     let availableWidth: CGFloat
     let itemHeight: CGFloat
+    let hitHeight: CGFloat
     let contentScale: CGFloat
     let taskbarFontSize: CGFloat
     let nonSelectedItemTransparency: Double
@@ -764,12 +799,13 @@ private struct TaskbarCollapsedAppView: View {
         let compact = availableWidth < 70 * contentScale
         Button { isShowingWindows.toggle() } label: {
             HStack(spacing: 7 * contentScale) {
-                Image(nsImage: representative.applicationIcon
-                    ?? NSImage(named: NSImage.applicationIconName)
-                    ?? NSImage(size: NSSize(width: 24, height: 24)))
-                    .resizable()
-                    .frame(width: (compact ? 18 : 22) * contentScale,
-                           height: (compact ? 18 : 22) * contentScale)
+                TaskbarApplicationIcon(
+                    bundleIdentifier: representative.bundleIdentifier,
+                    fallbackIcon: representative.applicationIcon
+                        ?? NSImage(named: NSImage.applicationIconName)
+                        ?? NSImage(size: NSSize(width: 24, height: 24)),
+                    size: (compact ? 18 : 22) * contentScale
+                )
                     .overlay(alignment: .topTrailing) {
                         if compact {
                             Text("\(windows.count)")
@@ -811,6 +847,8 @@ private struct TaskbarCollapsedAppView: View {
                         .padding(.bottom, contentScale)
                 }
             }
+            .frame(height: hitHeight)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .opacity(windows.contains(where: \.isFocused) ? 1 : 1 - nonSelectedItemTransparency)
@@ -862,12 +900,13 @@ private struct FusionCollapsedAppView: View {
         let compact = availableWidth < 75 * contentScale
         Button { isShowingWindows.toggle() } label: {
             HStack(spacing: 7 * contentScale) {
-                Image(nsImage: representative.applicationIcon
-                    ?? NSImage(named: NSImage.applicationIconName)
-                    ?? NSImage(size: NSSize(width: 24, height: 24)))
-                    .resizable()
-                    .frame(width: (compact ? 18 : 22) * contentScale,
-                           height: (compact ? 18 : 22) * contentScale)
+                TaskbarApplicationIcon(
+                    bundleIdentifier: representative.bundleIdentifier,
+                    fallbackIcon: representative.applicationIcon
+                        ?? NSImage(named: NSImage.applicationIconName)
+                        ?? NSImage(size: NSSize(width: 24, height: 24)),
+                    size: (compact ? 18 : 22) * contentScale
+                )
                     .overlay(alignment: .topTrailing) {
                         if compact {
                             Text(shortcutLabel ?? "\(windows.count)")
@@ -981,11 +1020,30 @@ struct WindowTaskItemView: View {
     let favoriteActionTitle: String
     @State private var isHovered = false
 
+    private var taskItemTitle: String {
+        guard isTaskbarMode,
+              window.bundleIdentifier == "com.microsoft.edgemac" else { return window.title }
+        let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let appName = "Microsoft Edge"
+        if title.compare(appName, options: .caseInsensitive) == .orderedSame {
+            return "浏览器窗口"
+        }
+        guard let range = title.range(of: " - \(appName)", options: [.backwards, .caseInsensitive]) else {
+            return title
+        }
+        let page = String(title[..<range.lowerBound])
+        let suffix = String(title[range.upperBound...])
+        guard !page.isEmpty, suffix.isEmpty || suffix.hasPrefix(" - ") else { return title }
+        return page + suffix
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: availableWidth < textVisibilityWidth ? 0 : 7 * contentScale) {
-            Image(nsImage: window.applicationIcon ?? fallbackIcon)
-                .resizable()
-                .frame(width: iconSize, height: iconSize)
+            TaskbarApplicationIcon(
+                bundleIdentifier: window.bundleIdentifier,
+                fallbackIcon: window.applicationIcon ?? fallbackIcon,
+                size: iconSize
+            )
                 .overlay(alignment: .topTrailing) {
                     if let shortcutLabel {
                         Text(shortcutLabel)
@@ -999,7 +1057,7 @@ struct WindowTaskItemView: View {
                 }
             if availableWidth >= textVisibilityWidth {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(window.title)
+                    Text(taskItemTitle)
                         .font(.system(
                             size: (isTaskbarMode ? taskbarFontSize : (showApplicationName ? 11.5 : 10.5)) * contentScale,
                             weight: .medium
@@ -1007,7 +1065,8 @@ struct WindowTaskItemView: View {
                         .foregroundStyle(titleColor)
                         .lineLimit(showApplicationName ? 1 : 2)
                         .fixedSize(horizontal: false, vertical: !showApplicationName)
-                    if showApplicationName && availableWidth >= subtitleVisibilityWidth {
+                    if showApplicationName && availableWidth >= subtitleVisibilityWidth
+                        && !(isTaskbarMode && window.bundleIdentifier == "com.microsoft.edgemac") {
                         Text(window.applicationName)
                             .font(.system(
                                 size: (isTaskbarMode ? min(10.5, taskbarFontSize * 9.5 / 12) : 9.5) * contentScale,
@@ -1171,6 +1230,33 @@ private struct TaskbarControlButton: View {
             value: isHovered
         )
         .help(help)
+    }
+}
+
+private struct TaskbarEdgeControlButton: View {
+    let systemImage: String
+    let help: String
+    let scale: CGFloat
+    let barHeight: CGFloat
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12 * scale, weight: .medium))
+                .frame(width: 32 * scale, height: max(28 * scale, barHeight - 8))
+                .background {
+                    FusionDockTileSurface(cornerRadius: 8 * scale, isHighlighted: isHovered)
+                }
+                .frame(width: max(44, 44 * scale), height: barHeight)
+                .background(Color.black.opacity(0.01))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -1386,9 +1472,9 @@ private enum FavoriteShelfItem: Identifiable {
         return false
     }
 
-    var icon: NSImage {
+    func icon(for date: Date) -> NSImage {
         switch self {
-        case .app(let app): return FavoriteApplicationIcon.image(for: app)
+        case .app(let app): return FavoriteApplicationIcon.image(for: app, date: date)
         case .separator: return NSImage()
         case .trash(let isFull):
             return NSImage(named: NSImage.Name(isFull ? "NSTrashFull" : "NSTrashEmpty"))
@@ -1415,8 +1501,11 @@ private struct FavoriteDockView: View {
     let showsHoverLabel: Bool
     let sizeScale: CGFloat
     let onOpen: (FavoriteApp) -> Void
+    let onPerformWindowAction: (@escaping () -> Void) -> Void
     let onQuit: (FavoriteApp) -> Void
     let onOpenTrash: () -> Void
+    let onEmptyTrash: () -> Void
+    let onRestoreLatestTrashItem: () -> Void
     let onOpenFolder: (FavoriteFolder) -> Void
     let onRemove: (FavoriteApp) -> Void
     let onReorder: ([String]) -> Void
@@ -1436,6 +1525,7 @@ private struct FavoriteDockView: View {
     @State private var isSettlingDrag = false
     @State private var isPointerInside = false
     @State private var externalInsertion: FavoriteShelfInsertion?
+    @State private var calendarIconDate = Date()
 
     private var itemStep: CGFloat { 32 * sizeScale }
     private var buttonSize: CGFloat { 30 * sizeScale }
@@ -1509,6 +1599,7 @@ private struct FavoriteDockView: View {
         .background {
             FavoriteDockVisualView(
                 items: items,
+                calendarIconDate: calendarIconDate,
                 runningApplicationIDs: runningApplicationIDs,
                 badgeLabels: badgeLabels,
                 sizeScale: sizeScale,
@@ -1522,10 +1613,11 @@ private struct FavoriteDockView: View {
             )
             .allowsHitTesting(false)
         }
-        .overlay {
+        .overlay(alignment: .bottom) {
             FavoriteShelfInteractionView(
                 shelfInset: hoverSafetyWidth,
                 shelfWidth: hitRegionWidth ?? .greatestFiniteMagnitude,
+                shelfHeight: SettingsStore.defaultTaskbarHeight * sizeScale,
                 previewSize: FavoriteMagnificationLayout.iconSize * peakScale * sizeScale,
                 onLocationChange: { location in
                     guard draggedFavoriteID == nil else { return }
@@ -1557,7 +1649,7 @@ private struct FavoriteDockView: View {
                     guard let center = visualController.view?.iconCenter(for: id) else { return nil }
                     return CGPoint(x: center.x + hoverSafetyWidth, y: center.y)
                 },
-                iconForItem: { id in items.first { $0.id == id }?.icon },
+                iconForItem: { id in items.first { $0.id == id }?.icon(for: calendarIconDate) },
                 canDragItem: { id in items.first { $0.id == id }?.isRemovable ?? false },
                 onClick: { id in
                     guard draggedFavoriteID == nil, let item = items.first(where: { $0.id == id }) else { return }
@@ -1572,6 +1664,9 @@ private struct FavoriteDockView: View {
                     guard draggedFavoriteID == nil,
                           let item = items.first(where: { $0.id == id }) else { return [] }
                     return contextMenuActions(for: item)
+                },
+                onContextMenuVisibilityChange: { isOpen in
+                    visualController.setMagnificationPaused(isOpen)
                 },
                 onDragUpdate: updateDrag,
                 onDragEnd: { outside in
@@ -1617,7 +1712,9 @@ private struct FavoriteDockView: View {
             )
             .frame(width: CGFloat(items.count) * itemStep
                 - CGFloat(items.filter(\.isSeparator).count) * 28 * sizeScale
-                + 2 * hoverSafetyWidth)
+                + 2 * hoverSafetyWidth,
+                height: SettingsStore.defaultTaskbarHeight * sizeScale
+                    + FavoriteMagnificationLayout.headroom(for: sizeScale, peakScale: peakScale))
         }
         .contentShape(Rectangle())
         .onChange(of: hoverFeedbackEnabled) { enabled in
@@ -1627,6 +1724,14 @@ private struct FavoriteDockView: View {
                 visualController.updatePointer(nil)
                 onMagnificationChange(false)
             }
+        }
+        .onReceive(Timer.publish(every: 20, on: .main, in: .common).autoconnect()) { date in
+            if CalendarLiveIcon.dayKey(for: calendarIconDate) != CalendarLiveIcon.dayKey(for: date) {
+                calendarIconDate = date
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            calendarIconDate = Date()
         }
         .onDisappear {
             isPointerInside = false
@@ -1659,7 +1764,7 @@ private struct FavoriteDockView: View {
                     for favorite in sidebarFavorites {
                         if let url = favorite.url {
                             actions.append(action("打开 \(favorite.name)", {
-                                NSWorkspace.shared.open(url)
+                                onPerformWindowAction { NSWorkspace.shared.open(url) }
                             }))
                         } else {
                             actions.append(FavoriteShelfMenuAction(
@@ -1682,14 +1787,14 @@ private struct FavoriteDockView: View {
             if let runningApp {
                 actions.append(action(runningApp.isHidden ? "显示" : "隐藏", {
                     if runningApp.isHidden { onOpen(app) }
-                    else { _ = runningApp.hide() }
+                    else { onPerformWindowAction { _ = runningApp.hide() } }
                 }))
                 actions.append(action("退出", { onQuit(app) }))
             }
             if let url = runningApp?.bundleURL ?? app.bundlePath.map(URL.init(fileURLWithPath:)),
                FileManager.default.fileExists(atPath: url.path) {
                 actions.append(action("在 Finder 中显示", {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    onPerformWindowAction { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                 }))
             }
             actions.append(.separator)
@@ -1699,14 +1804,23 @@ private struct FavoriteDockView: View {
             var actions = [action("打开", { onOpenFolder(folder) })]
             if FileManager.default.fileExists(atPath: folder.path) {
                 actions.append(action("在 Finder 中显示", {
-                    NSWorkspace.shared.activateFileViewerSelecting([folder.url])
+                    onPerformWindowAction { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) }
                 }))
             }
             actions.append(.separator)
             actions.append(action("取消收藏", { onRemoveFolder(folder) }))
             return actions
         case .trash:
-            return [action("打开废纸篓", onOpenTrash)]
+            return [
+                action("打开废纸篓", onOpenTrash),
+                .separator,
+                FavoriteShelfMenuAction(title: "恢复上一次删除文件",
+                    isEnabled: isTrashFull,
+                    perform: onRestoreLatestTrashItem),
+                FavoriteShelfMenuAction(title: "清空废纸篓",
+                    isEnabled: isTrashFull,
+                    perform: onEmptyTrash)
+            ]
         case .separator, .insertionGap:
             return []
         }
@@ -1906,10 +2020,15 @@ private final class FavoriteDockVisualController {
         view?.updatePointer(x)
     }
 
+    func setMagnificationPaused(_ paused: Bool) {
+        view?.setMagnificationPaused(paused)
+    }
+
 }
 
 private struct FavoriteDockVisualView: NSViewRepresentable {
     let items: [FavoriteShelfItem]
+    let calendarIconDate: Date
     let runningApplicationIDs: Set<String>
     let badgeLabels: [String: String]
     let sizeScale: CGFloat
@@ -1926,6 +2045,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         controller.view = view
         view.configure(
             items: items,
+            calendarIconDate: calendarIconDate,
             runningApplicationIDs: runningApplicationIDs,
             badgeLabels: badgeLabels,
             sizeScale: sizeScale,
@@ -1943,6 +2063,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         controller.view = view
         view.configure(
             items: items,
+            calendarIconDate: calendarIconDate,
             runningApplicationIDs: runningApplicationIDs,
             badgeLabels: badgeLabels,
             sizeScale: sizeScale,
@@ -1960,6 +2081,12 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
     }
 
     final class DrawingView: NSView {
+        private static func highResolutionIcon(for item: FavoriteShelfItem, date: Date) -> CGImage? {
+            let image = item.icon(for: date)
+            var proposedRect = NSRect(x: 0, y: 0, width: 128, height: 128)
+            return image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+        }
+
         private struct EntryState {
             let iconPosition: CGPoint
             let iconScale: CGFloat
@@ -1976,6 +2103,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         private var favoriteIDs: [String] = []
         private var favoriteNames: [String] = []
         private var trashIsFull: Bool?
+        private var calendarDayKey: String?
+        private var isMagnificationPaused = false
         private var runningApplicationIDs: Set<String> = []
         private var badgeLabels: [String: String] = [:]
         private var sizeScale: CGFloat = 1
@@ -2135,21 +2264,36 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         }
 
         private func favoriteItemID(at point: CGPoint, utilitiesOnly: Bool) -> String? {
+            var bottomCandidate: (id: String, scale: CGFloat, distance: CGFloat)?
             for index in iconLayers.indices.reversed() {
                 let id = favoriteIDs[index]
-                guard id != "utility:separator" else { continue }
+                guard id != "utility:separator", !id.hasPrefix("drop-gap:"),
+                      id != hiddenDraggedItemID else { continue }
                 if utilitiesOnly,
                    id != "utility:trash" && !id.hasPrefix("utility:folder:") { continue }
                 let icon = iconLayers[index].presentation() ?? iconLayers[index]
                 let halfWidth = max(15 * sizeScale, icon.bounds.width * icon.transform.m11 / 2)
                 let halfHeight = max(15 * sizeScale, icon.bounds.height * icon.transform.m22 / 2)
                 let centerY = icon.position.y + icon.bounds.height * icon.transform.m22 / 2
-                if abs(point.x - icon.position.x) <= halfWidth,
-                   abs(point.y - centerY) <= halfHeight {
+                let horizontalDistance = abs(point.x - icon.position.x)
+                guard horizontalDistance <= halfWidth else { continue }
+                if abs(point.y - centerY) <= halfHeight {
                     return id
                 }
+                // Keep the visible icon's horizontal footprint clickable all
+                // the way down to the screen edge, including while magnified.
+                if point.y >= 0, point.y < centerY - halfHeight,
+                   point.y <= SettingsStore.defaultTaskbarHeight * sizeScale {
+                    let scale = icon.transform.m11
+                    if let previous = bottomCandidate {
+                        guard scale > previous.scale + 0.001
+                            || (abs(scale - previous.scale) <= 0.001
+                                && horizontalDistance < previous.distance) else { continue }
+                    }
+                    bottomCandidate = (id, scale, horizontalDistance)
+                }
             }
-            return nil
+            return bottomCandidate?.id
         }
 
         override func viewDidChangeEffectiveAppearance() {
@@ -2159,6 +2303,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
 
         func configure(
             items: [FavoriteShelfItem],
+            calendarIconDate: Date,
             runningApplicationIDs: Set<String>,
             badgeLabels: [String: String],
             sizeScale: CGFloat,
@@ -2173,6 +2318,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             let names = items.map(\.name)
             let nextTrashIsFull = items.compactMap(\.trashIsFull).first
             let trashChanged = trashIsFull != nextTrashIsFull
+            let nextCalendarDayKey = CalendarLiveIcon.dayKey(for: calendarIconDate)
+            let calendarDayChanged = calendarDayKey != nextCalendarDayKey
             let favoritesChanged = ids != favoriteIDs
             let namesChanged = names != favoriteNames
             let indicatorsChanged = favoritesChanged || self.runningApplicationIDs != runningApplicationIDs
@@ -2199,11 +2346,11 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                         icon.backgroundColor = NSColor(calibratedWhite: 0.82, alpha: 0.55).cgColor
                         icon.cornerRadius = 0.5 * sizeScale
                     } else {
-                        icon.contents = item.icon
-                            .cgImage(forProposedRect: nil, context: nil, hints: nil)
+                        icon.contents = Self.highResolutionIcon(for: item, date: calendarIconDate)
                     }
                     icon.contentsGravity = .resizeAspect
                     icon.magnificationFilter = .linear
+                    icon.minificationFilter = .trilinear
                     icon.anchorPoint = CGPoint(x: 0.5, y: 0)
                     icon.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
                     layer?.addSublayer(icon)
@@ -2236,15 +2383,24 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             }
             if trashChanged,
                let index = items.firstIndex(where: { $0.trashIsFull != nil }) {
-                iconLayers[index].contents = items[index].icon
-                    .cgImage(forProposedRect: nil, context: nil, hints: nil)
+                iconLayers[index].contents = Self.highResolutionIcon(
+                    for: items[index], date: calendarIconDate)
             }
+            if calendarDayChanged {
+                for (index, item) in items.enumerated() {
+                    guard let app = item.app, CalendarLiveIcon.isCalendar(app) else { continue }
+                    iconLayers[index].contents = Self.highResolutionIcon(
+                        for: item, date: calendarIconDate)
+                }
+            }
+            calendarDayKey = nextCalendarDayKey
             trashIsFull = nextTrashIsFull
             favoriteNames = names
             let dragOffsetsChanged = self.dragOffsets != dragOffsets
             let nextSlotShifts = dragSlotShifts.map(CGFloat.init)
             let slotShiftsChanged = nextSlotShifts != slotShiftTargets
             guard indicatorsChanged || badgesChanged || namesChanged || trashChanged
+                    || calendarDayChanged
                     || sizeChanged || dragOffsetsChanged || slotShiftsChanged
                     || self.draggedFavoriteID != draggedFavoriteID
                     || self.isSettlingDrag != isSettlingDrag
@@ -2346,6 +2502,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         }
 
         func updatePointer(_ x: CGFloat?) {
+            guard !isMagnificationPaused else { return }
             guard pointerX != x else { return }
             if pointerX == nil && x != nil {
                 entryStates = zip(iconLayers, indicatorLayers).map { icon, indicator in
@@ -2372,6 +2529,26 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             let animate = x == nil
             pointerX = x
             updateLayers(animated: animate)
+        }
+
+        func setMagnificationPaused(_ paused: Bool) {
+            guard isMagnificationPaused != paused else { return }
+            if paused {
+                stopEntryAnimation()
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                for icon in iconLayers + indicatorLayers + badgeLayers {
+                    let visible = icon.presentation() ?? icon
+                    let position = visible.position
+                    let transform = visible.transform
+                    icon.removeAllAnimations()
+                    icon.position = position
+                    icon.transform = transform
+                }
+                CATransaction.commit()
+            }
+            isMagnificationPaused = paused
+            if !paused { updateLayers(animated: true) }
         }
 
         private func advanceEntryAnimation() {
@@ -2402,6 +2579,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         }
 
         private func updateLayers(animated: Bool, animateReorderIDs: Set<String> = []) {
+            guard !isMagnificationPaused else { return }
             let layout = FavoriteMagnificationLayout(
                 count: iconLayers.count,
                 pointerX: pointerX,
@@ -2675,16 +2853,23 @@ private struct FavoriteApplicationIcon: View {
     private static let iconCache = NSCache<NSString, NSImage>()
 
     var body: some View {
-        Image(nsImage: Self.image(for: favorite))
+        Image(nsImage: Self.image(for: favorite, date: Date()))
             .resizable()
             .renderingMode(.original)
             .interpolation(.high)
             .frame(width: size, height: size)
     }
 
-    fileprivate static func image(for favorite: FavoriteApp) -> NSImage {
-        let cacheKey = "\(favorite.id)|\(favorite.bundlePath ?? "")" as NSString
+    fileprivate static func image(for favorite: FavoriteApp, date: Date) -> NSImage {
+        let calendarKey = CalendarLiveIcon.isCalendar(favorite)
+            ? CalendarLiveIcon.dayKey(for: date) : ""
+        let cacheKey = "\(favorite.id)|\(favorite.bundlePath ?? "")|\(calendarKey)" as NSString
         if let cached = Self.iconCache.object(forKey: cacheKey) { return cached }
+        if CalendarLiveIcon.isCalendar(favorite) {
+            let icon = CalendarLiveIcon.image(for: date)
+            Self.iconCache.setObject(icon, forKey: cacheKey)
+            return icon
+        }
         let workspace = NSWorkspace.shared
         let icon: NSImage
         if let bundleIdentifier = favorite.bundleIdentifier,

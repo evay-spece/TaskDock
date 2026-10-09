@@ -211,6 +211,8 @@ final class TaskbarPanelController {
             onSelect: { [weak self] window in self?.recordTrialOperation(); self?.select(window) },
             onMinimizeAll: { [weak self] in self?.recordTrialOperation(); self?.minimizeAll() },
             onOpenTrash: { [weak self] in self?.recordTrialOperation(); self?.openTrash() },
+            onEmptyTrash: { [weak self] in self?.recordTrialOperation(); self?.emptyTrash() },
+            onRestoreLatestTrashItem: { [weak self] in self?.recordTrialOperation(); self?.restoreLatestTrashItem() },
             onOpenFolder: { [weak self] folder in
                 self?.recordTrialOperation()
                 NSWorkspace.shared.open(folder.url)
@@ -219,6 +221,7 @@ final class TaskbarPanelController {
             onBlockWindowType: { [weak self] window in self?.recordTrialOperation(); self?.blockWindowType(window) },
             onClose: { [weak self] window in self?.recordTrialOperation(); self?.close(window) },
             onOpenFavorite: { [weak self] favorite in self?.recordTrialOperation(); self?.openFavorite(favorite) },
+            onPerformWindowAction: { action in action() },
             onQuitRecentApp: { [weak self] favorite in self?.recordTrialOperation(); self?.quitRecentApp(favorite) },
             showsFavorites: showsFavorites,
             showsControls: showsControls,
@@ -748,6 +751,45 @@ final class TaskbarPanelController {
         let trashURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".Trash", isDirectory: true)
         NSWorkspace.shared.open(trashURL)
+    }
+
+    private func emptyTrash() {
+        guard trashStatus.isFull else { return }
+        let alert = NSAlert()
+        alert.messageText = "清空废纸篓？"
+        alert.informativeText = "清空后，废纸篓中的文件将无法从这里恢复。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "清空废纸篓")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        TrashActions.empty { [weak self] error in
+            if let error { self?.showTrashActionError(error) }
+            self?.trashStatus.refresh(force: true)
+        }
+    }
+
+    private func restoreLatestTrashItem() {
+        TrashActions.restoreLatest { [weak self] error in
+            if let error { self?.showTrashActionError(error) }
+            self?.trashStatus.refresh(force: true)
+        }
+    }
+
+    private func showTrashActionError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "废纸篓操作未完成"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        let needsFullDiskAccess = (error as NSError).domain == "TaskDock.Trash"
+            && (error as NSError).code == 1
+        if needsFullDiskAccess { alert.addButton(withTitle: "打开完全磁盘访问设置") }
+        alert.addButton(withTitle: needsFullDiskAccess ? "稍后" : "好")
+        let result = alert.runModal()
+        if needsFullDiskAccess, result == .alertFirstButtonReturn,
+           let settingsURL = URL(string:
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+            NSWorkspace.shared.open(settingsURL)
+        }
     }
     private func showAppWindows(for window: WindowModel) {
         windowService.showAllWindows(for: window.pid, from: windows)
