@@ -23,6 +23,13 @@ EXECUTABLE_PATH="$(swift build -c "$BUILD_CONFIGURATION" "${BUILD_SDK_ARGS[@]}" 
 [[ -f "$EXECUTABLE_PATH" ]] || { echo "找不到构建产物：$EXECUTABLE_PATH" >&2; exit 1; }
 mkdir -p "$APP_PATH/Contents/MacOS"
 cp "$EXECUTABLE_PATH" "$APP_PATH/Contents/MacOS/TaskDock"
+[[ -f "$PROJECT_ROOT/Resources/TaskDockBetaPublicKey.pem" ]] || {
+  echo "缺少内测激活码公钥" >&2
+  exit 1
+}
+mkdir -p "$APP_PATH/Contents/Resources"
+cp "$PROJECT_ROOT/Resources/TaskDockBetaPublicKey.pem" \
+  "$APP_PATH/Contents/Resources/TaskDockBetaPublicKey.pem"
 if [[ -f "$ICON_SOURCE" ]]; then
   ICON_WORK_DIR="$(mktemp -d)"
   ICONSET_PATH="$ICON_WORK_DIR/TaskDock.iconset"

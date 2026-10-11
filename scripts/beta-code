@@ -1,0 +1,10 @@
+#!/bin/zsh
+set -euo pipefail
+umask 077
+project_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$project_root"
+temporary_directory="$(mktemp -d /tmp/taskdock-beta-code.XXXXXX)"
+trap 'rm -rf "$temporary_directory"' EXIT
+swiftc -parse-as-library -sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
+  scripts/beta-code-issuer.swift -o "$temporary_directory/beta-code-issuer"
+"$temporary_directory/beta-code-issuer" "$@"

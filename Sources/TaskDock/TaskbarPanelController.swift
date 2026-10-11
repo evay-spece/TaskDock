@@ -94,8 +94,7 @@ final class TaskbarPanelController {
             }
         }
         minimizeHotKeyMonitor = GlobalMinimizeHotKeyMonitor { [weak self] in
-            self?.recordTrialOperation()
-            self?.minimizeAll()
+            self?.performTrialAction { self?.minimizeAll() }
         }
         minimizeHotKeyMonitor?.start()
         shortcutMonitor = ModifierDoubleTapMonitor(
@@ -165,7 +164,7 @@ final class TaskbarPanelController {
     }
 
     func minimizeAllWindows() {
-        minimizeAll()
+        performTrialAction { minimizeAll() }
     }
 
     func setLayoutMode(_ mode: TaskDockLayoutMode) {
@@ -219,21 +218,20 @@ final class TaskbarPanelController {
             isAccessibilityTrusted: permissionService.isTrusted,
             canRestoreMinimizedWindows: !bulkMinimizedWindows.isEmpty || !bulkHiddenPIDs.isEmpty,
             onRequestPermission: { [weak self] in self?.requestPermission() },
-            onSelect: { [weak self] window in self?.recordTrialOperation(); self?.select(window) },
-            onMinimizeAll: { [weak self] in self?.recordTrialOperation(); self?.minimizeAll() },
-            onOpenTrash: { [weak self] in self?.recordTrialOperation(); self?.openTrash() },
-            onEmptyTrash: { [weak self] in self?.recordTrialOperation(); self?.emptyTrash() },
-            onRestoreLatestTrashItem: { [weak self] in self?.recordTrialOperation(); self?.restoreLatestTrashItem() },
+            onSelect: { [weak self] window in self?.performTrialAction { self?.select(window) } },
+            onMinimizeAll: { [weak self] in self?.performTrialAction { self?.minimizeAll() } },
+            onOpenTrash: { [weak self] in self?.performTrialAction { self?.openTrash() } },
+            onEmptyTrash: { [weak self] in self?.performTrialAction { self?.emptyTrash() } },
+            onRestoreLatestTrashItem: { [weak self] in self?.performTrialAction { self?.restoreLatestTrashItem() } },
             onOpenFolder: { [weak self] folder in
-                self?.recordTrialOperation()
-                NSWorkspace.shared.open(folder.url)
+                self?.performTrialAction { NSWorkspace.shared.open(folder.url) }
             },
-            onShowAppWindows: { [weak self] window in self?.recordTrialOperation(); self?.showAppWindows(for: window) },
-            onBlockWindowType: { [weak self] window in self?.recordTrialOperation(); self?.blockWindowType(window) },
-            onClose: { [weak self] window in self?.recordTrialOperation(); self?.close(window) },
-            onOpenFavorite: { [weak self] favorite in self?.recordTrialOperation(); self?.openFavorite(favorite) },
-            onPerformWindowAction: { action in action() },
-            onQuitRecentApp: { [weak self] favorite in self?.recordTrialOperation(); self?.quitRecentApp(favorite) },
+            onShowAppWindows: { [weak self] window in self?.performTrialAction { self?.showAppWindows(for: window) } },
+            onBlockWindowType: { [weak self] window in self?.performTrialAction { self?.blockWindowType(window) } },
+            onClose: { [weak self] window in self?.performTrialAction { self?.close(window) } },
+            onOpenFavorite: { [weak self] favorite in self?.performTrialAction { self?.openFavorite(favorite) } },
+            onPerformWindowAction: { [weak self] action in self?.performTrialAction(action) },
+            onQuitRecentApp: { [weak self] favorite in self?.performTrialAction { self?.quitRecentApp(favorite) } },
             showsFavorites: showsFavorites,
             showsControls: showsControls,
             showsEmptyState: showsEmptyState,
@@ -252,18 +250,13 @@ final class TaskbarPanelController {
         )
     }
 
-    private func recordTrialOperation() {
-        guard trialManager.recordOperation() else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self, self.trialManager.isExpired() else { return }
-            let alert = NSAlert()
-            alert.messageText = "TaskDock 试用期已结束"
-            alert.informativeText = "你仍可继续使用。此提醒会在每 10 次任务栏操作后再次出现。"
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "稍后")
-            NSApp.activate(ignoringOtherApps: true)
-            alert.runModal()
+    private func performTrialAction(_ action: () -> Void) {
+        guard LicenseStatus.hasValidPurchase || !trialManager.isExpired() else {
+            BetaActivationUI.prompt(trial: trialManager)
+            return
         }
+        trialManager.recordOperation()
+        action()
     }
 
     private func reposition(
@@ -738,7 +731,7 @@ final class TaskbarPanelController {
             ? fusionShortcutWindows(for: otherWindows)
             : settings.orderedWindows(windows)
         guard ordered.indices.contains(index - 1) else { return }
-        select(ordered[index - 1])
+        performTrialAction { select(ordered[index - 1]) }
     }
 
     private func openShortcutFavorite(_ index: Int) {
@@ -748,7 +741,7 @@ final class TaskbarPanelController {
         if settings.layoutMode == .dockCompanion {
             let ordered = fusionShortcutWindows(for: finderWindows)
             guard ordered.indices.contains(index - 1) else { return }
-            select(ordered[index - 1])
+            performTrialAction { select(ordered[index - 1]) }
             return
         }
         guard settings.favoriteApps.indices.contains(index - 1) else { return }
@@ -759,10 +752,12 @@ final class TaskbarPanelController {
                 favorite.bundleIdentifier == nil && window.applicationName == favorite.applicationName
             )
         }
-        if let focusedWindow {
-            select(focusedWindow)
-        } else {
-            openFavorite(favorite)
+        performTrialAction {
+            if let focusedWindow {
+                select(focusedWindow)
+            } else {
+                openFavorite(favorite)
+            }
         }
     }
     private func minimizeAll() {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 @main
@@ -10,17 +11,52 @@ struct TrialSelfTest {
         let trial = TrialManager(defaults: defaults, now: start)
         let beforeExpiry = start.addingTimeInterval(TrialManager.trialLength - 1)
         precondition(!trial.isExpired(at: beforeExpiry))
-        precondition(!trial.recordOperation(at: beforeExpiry))
+        trial.recordOperation(at: beforeExpiry)
         let expiry = start.addingTimeInterval(TrialManager.trialLength)
         precondition(trial.isExpired(at: expiry))
-        for index in 1...30 {
-            precondition(trial.recordOperation(at: expiry) == (index % 10 == 0),
-                         "reminder boundary \(index)")
+        let signingKey = P256.Signing.PrivateKey()
+        let code = makeCode(signingKey)
+        let extendedExpiry = try! trial.redeem(code, publicKeyPEM: signingKey.publicKey.pemRepresentation, at: expiry)
+        precondition(extendedExpiry == expiry.addingTimeInterval(TrialManager.trialLength))
+        precondition(!trial.isExpired(at: expiry))
+        precondition(trial.remainingDays(at: expiry) == 7)
+        precondition(trial.isExpired(at: extendedExpiry))
+        do {
+            _ = try trial.redeem(code, publicKeyPEM: signingKey.publicKey.pemRepresentation, at: expiry)
+            preconditionFailure("same code must not add another week")
+        } catch BetaCodeError.alreadyUsed {
+        } catch {
+            preconditionFailure("unexpected duplicate-code error: \(error)")
         }
+        let invalidCode = code + "x"
+        do {
+            _ = try trial.redeem(invalidCode, publicKeyPEM: signingKey.publicKey.pemRepresentation, at: expiry)
+            preconditionFailure("tampered code must fail")
+        } catch BetaCodeError.invalidCode {
+        } catch {
+            preconditionFailure("unexpected invalid-code error: \(error)")
+        }
+        trial.recordOperation(at: extendedExpiry)
         precondition(trial.isExpired(at: start), "clock rollback must not renew trial")
         let reloaded = TrialManager(defaults: defaults, now: expiry)
         precondition(reloaded.firstUseDate == start)
-        precondition(!reloaded.recordOperation(at: expiry))
+        precondition(reloaded.expiryDate == extendedExpiry)
+        let secondCode = makeCode(signingKey)
+        precondition(try! reloaded.redeem(secondCode, publicKeyPEM: signingKey.publicKey.pemRepresentation,
+                                         at: expiry.addingTimeInterval(3 * 86400)) ==
+                     extendedExpiry.addingTimeInterval(TrialManager.trialLength))
         print("TRIAL_OK")
+    }
+
+    private static func makeCode(_ key: P256.Signing.PrivateKey) -> String {
+        var payload = Data([1])
+        payload.append(contentsOf: withUnsafeBytes(of: UUID().uuid) { Array($0) })
+        let signature = try! key.signature(for: payload)
+        func encoded(_ data: Data) -> String {
+            data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        return "TD7.\(encoded(payload)).\(encoded(signature.derRepresentation))"
     }
 }

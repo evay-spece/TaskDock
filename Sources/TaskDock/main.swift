@@ -106,6 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             trialItem.image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
             trialItem.isEnabled = false
             statusMenu.addItem(trialItem)
+
+            let activateItem = NSMenuItem(
+                title: "输入内测激活码…", action: #selector(activateBetaCode), keyEquivalent: ""
+            )
+            activateItem.image = NSImage(systemSymbolName: "key", accessibilityDescription: nil)
+            activateItem.target = self
+            statusMenu.addItem(activateItem)
         }
 
         statusMenu.addItem(.separator())
@@ -151,6 +158,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         updateChecker.checkAndInstall()
+    }
+
+    @objc private func activateBetaCode() {
+        if BetaActivationUI.prompt(trial: trialManager) {
+            rebuildStatusMenu()
+        }
     }
 
     @objc private func hideTaskDock() {
