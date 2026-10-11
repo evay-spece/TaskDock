@@ -7,7 +7,7 @@
 
 ## 发码
 
-在项目目录运行 `scripts/beta-code issue`，复制输出的整串 `TD7.` 激活码发给用户。每运行一次生成一个新码；无需预先建立码池。
+主力机桌面上的“发放TaskDock内测码.command”可以直接双击。它每次生成一个新码并复制到剪贴板，在小红书聊天框按 Command + V 发给用户即可。也可以在项目目录运行 `scripts/beta-code issue`，手动复制输出的整串 `TD7.` 激活码；无需预先建立码池。
 
 发码私钥保存在主力机 `~/Library/Application Support/TaskDock/BetaCodes/issuer-private-key.pem`。它不在项目或 App 中，权限为仅当前用户可读。请单独备份；丢失后无法再生成与已发布 App 匹配的新码。项目 `Resources/TaskDockBetaPublicKey.pem` 是可公开的验码公钥，需要随 App 一起发布。
 
