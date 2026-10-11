@@ -24,6 +24,12 @@ struct TrialManager {
         defaults.object(forKey: firstUseKey) as? Date ?? Date()
     }
 
+    func remainingDays(at now: Date = Date()) -> Int {
+        let latestSeen = defaults.object(forKey: latestSeenKey) as? Date ?? now
+        let elapsed = max(now, latestSeen).timeIntervalSince(firstUseDate)
+        return max(0, Int(ceil((Self.trialLength - elapsed) / (24 * 60 * 60))))
+    }
+
     func isExpired(at now: Date = Date()) -> Bool {
         let latestSeen = defaults.object(forKey: latestSeenKey) as? Date ?? now
         return max(now, latestSeen).timeIntervalSince(firstUseDate) >= Self.trialLength

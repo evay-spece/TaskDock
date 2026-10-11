@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let statusMenu = NSMenu()
     private let updateChecker = UpdateChecker.shared
+    private let trialManager = TrialManager()
     private var updateWindowController: UpdateProgressWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -95,6 +96,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
         updateItem.target = self
         statusMenu.addItem(updateItem)
+
+        if !LicenseStatus.hasValidPurchase {
+            let days = trialManager.remainingDays()
+            let trialItem = NSMenuItem(
+                title: days > 0 ? "试用剩余 \(days) 天" : "试用已结束",
+                action: nil, keyEquivalent: ""
+            )
+            trialItem.image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
+            trialItem.isEnabled = false
+            statusMenu.addItem(trialItem)
+        }
 
         statusMenu.addItem(.separator())
 
