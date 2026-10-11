@@ -46,8 +46,15 @@ struct TrialManager {
     }
 
     @discardableResult
-    func redeem(_ code: String, publicKeyPEM: String, at now: Date = Date()) throws -> Date {
-        let identifier = try BetaCode.identifier(in: code, publicKeyPEM: publicKeyPEM)
+    func redeem(
+        _ code: String,
+        publicKeyPEM: String,
+        shortCodeHashes: Set<String> = [],
+        at now: Date = Date()
+    ) throws -> Date {
+        let identifier = try BetaCode.identifier(
+            in: code, publicKeyPEM: publicKeyPEM, shortCodeHashes: shortCodeHashes
+        )
         var redeemed = Set(defaults.stringArray(forKey: redeemedCodeIDsKey) ?? [])
         guard redeemed.insert(identifier).inserted else { throw BetaCodeError.alreadyUsed }
         let latestSeen = defaults.object(forKey: latestSeenKey) as? Date ?? now

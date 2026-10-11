@@ -10,7 +10,7 @@ if ! code="$(./scripts/beta-code issue)"; then
   exit 1
 fi
 
-if [[ "$code" != TD7.* ]]; then
+if ! [[ "$code" =~ '^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$' ]]; then
   print '发码失败：生成的内容不是 TaskDock 内测码。'
   [[ "${TASKDOCK_ISSUER_NO_WAIT:-}" == 1 ]] || read -r '?按回车关闭窗口…'
   exit 1
@@ -21,7 +21,7 @@ if [[ "${TASKDOCK_ISSUER_NO_CLIPBOARD:-}" != 1 ]]; then
 fi
 
 print ''
-print '✅ 已生成一枚新的 TaskDock 7 天内测码，并复制到剪贴板。'
+print '✅ 已生成一枚新的 12 位 TaskDock 内测码，并复制到剪贴板。'
 print '在小红书聊天框按 Command + V，即可发给用户。'
 print ''
 print -- "$code"

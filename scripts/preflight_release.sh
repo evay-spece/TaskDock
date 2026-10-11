@@ -26,6 +26,9 @@ cp "$BIN" "$APP/Contents/MacOS/TaskDock"
 BETA_PUBLIC_KEY="$PROJECT_ROOT/Resources/TaskDockBetaPublicKey.pem"
 [[ -f "$BETA_PUBLIC_KEY" ]] || { echo "Missing beta activation public key" >&2; exit 1; }
 cp "$BETA_PUBLIC_KEY" "$APP/Contents/Resources/TaskDockBetaPublicKey.pem"
+BETA_CODE_HASHES="$PROJECT_ROOT/Resources/TaskDockBetaCodeHashes.txt"
+[[ -f "$BETA_CODE_HASHES" ]] || { echo "Missing beta code hash pool" >&2; exit 1; }
+cp "$BETA_CODE_HASHES" "$APP/Contents/Resources/TaskDockBetaCodeHashes.txt"
 ICON_SOURCE="$PROJECT_ROOT/Resources/TaskDockIcon.png"
 if [[ -f "$ICON_SOURCE" ]]; then
   ICONSET="$WORK/TaskDock.iconset"
@@ -57,6 +60,7 @@ ditto -x -k "$ASSET" "$WORK/extracted"
 EXTRACTED="$WORK/extracted/TaskDock.app"
 codesign --verify --deep --strict "$EXTRACTED"
 cmp "$BETA_PUBLIC_KEY" "$EXTRACTED/Contents/Resources/TaskDockBetaPublicKey.pem"
+cmp "$BETA_CODE_HASHES" "$EXTRACTED/Contents/Resources/TaskDockBetaCodeHashes.txt"
 file "$EXTRACTED/Contents/MacOS/TaskDock" | grep -q 'arm64'
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXTRACTED/Contents/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXTRACTED/Contents/Info.plist")" == "$BUILD" ]]

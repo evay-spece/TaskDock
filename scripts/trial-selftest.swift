@@ -45,6 +45,29 @@ struct TrialSelfTest {
         precondition(try! reloaded.redeem(secondCode, publicKeyPEM: signingKey.publicKey.pemRepresentation,
                                          at: expiry.addingTimeInterval(3 * 86400)) ==
                      extendedExpiry.addingTimeInterval(TrialManager.trialLength))
+        let shortCode = "ABCD-EFGH-JKLM"
+        let shortDigest = SHA256.hash(data: Data("ABCDEFGHJKLM".utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        let shortHashes: Set<String> = [shortDigest]
+        let thirdExpiry = try! reloaded.redeem(shortCode, publicKeyPEM: signingKey.publicKey.pemRepresentation,
+                                               shortCodeHashes: shortHashes, at: expiry)
+        precondition(thirdExpiry == extendedExpiry.addingTimeInterval(2 * TrialManager.trialLength))
+        do {
+            _ = try reloaded.redeem(shortCode, publicKeyPEM: signingKey.publicKey.pemRepresentation,
+                                    shortCodeHashes: shortHashes, at: expiry)
+            preconditionFailure("same short code must not add another week")
+        } catch BetaCodeError.alreadyUsed {
+        } catch {
+            preconditionFailure("unexpected duplicate short-code error: \(error)")
+        }
+        do {
+            _ = try reloaded.redeem("ABCD-EFGH-JKLN", publicKeyPEM: signingKey.publicKey.pemRepresentation,
+                                    shortCodeHashes: shortHashes, at: expiry)
+            preconditionFailure("unknown short code must fail")
+        } catch BetaCodeError.invalidCode {
+        } catch {
+            preconditionFailure("unexpected unknown short-code error: \(error)")
+        }
         print("TRIAL_OK")
     }
 

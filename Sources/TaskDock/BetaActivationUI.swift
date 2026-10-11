@@ -18,10 +18,18 @@ enum BetaActivationUI {
 
         do {
             guard let path = Bundle.main.path(forResource: BetaCode.publicKeyResource, ofType: "pem"),
-                  let pem = try? String(contentsOfFile: path, encoding: .utf8) else {
+                  let pem = try? String(contentsOfFile: path, encoding: .utf8),
+                  let hashesPath = Bundle.main.path(
+                    forResource: BetaCode.shortCodeHashesResource, ofType: "txt"
+                  ),
+                  let hashesText = try? String(contentsOfFile: hashesPath, encoding: .utf8) else {
                 throw BetaCodeError.unavailable
             }
-            let expiry = try trial.redeem(field.stringValue, publicKeyPEM: pem)
+            let expiry = try trial.redeem(
+                field.stringValue,
+                publicKeyPEM: pem,
+                shortCodeHashes: BetaCode.shortCodeHashes(from: hashesText)
+            )
             let confirmation = NSAlert()
             confirmation.messageText = "已增加 7 天试用"
             confirmation.informativeText = "可使用至 \(DateFormatter.localizedString(from: expiry, dateStyle: .long, timeStyle: .short))。"

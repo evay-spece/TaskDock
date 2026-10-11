@@ -7,10 +7,10 @@
 
 ## 发码
 
-主力机桌面上的“发放TaskDock内测码.command”可以直接双击。它每次生成一个新码并复制到剪贴板，在小红书聊天框按 Command + V 发给用户即可。也可以在项目目录运行 `scripts/beta-code issue`，手动复制输出的整串 `TD7.` 激活码；无需预先建立码池。
+主力机桌面上的“发放TaskDock内测码.command”可以直接双击。它每次从预生成的 1000 个码中发出一个 12 位字母数字码（形如 `XXXX-XXXX-XXXX`），并复制到剪贴板；在小红书聊天框按 Command + V 发给用户即可。也可以在项目目录运行 `scripts/beta-code issue`。旧版较长的 `TD7.` 签名码仍可兑换。
 
-发码私钥保存在主力机 `~/Library/Application Support/TaskDock/BetaCodes/issuer-private-key.pem`。它不在项目或 App 中，权限为仅当前用户可读。请单独备份；丢失后无法再生成与已发布 App 匹配的新码。项目 `Resources/TaskDockBetaPublicKey.pem` 是可公开的验码公钥，需要随 App 一起发布。
+短码原码和发码进度保存在主力机 `~/Library/Application Support/TaskDock/BetaCodes/`，不在项目或 App 中，权限为仅当前用户可读。请单独备份此文件夹；丢失后可能重复发码或无法继续发码。App 只包含短码的 SHA-256 摘要，不包含原码。
 
 ## 重新生成密钥
 
-首次配置使用 `scripts/beta-code init`。已有私钥时命令会拒绝覆盖，因为覆盖会使旧版 App 无法验证新码。要轮换密钥，需要发新版 App，不能只替换主力机的发码文件。
+首次配置短码池使用 `scripts/beta-code pool-init`。已有池时命令会拒绝覆盖。需要增加新码时，必须更新 App 内的摘要池并发布新版本；不能只在主力机生成新码。旧版长码的发码私钥仍单独保存在同一文件夹；如需补发旧长码，可运行 `scripts/beta-code issue-long`。

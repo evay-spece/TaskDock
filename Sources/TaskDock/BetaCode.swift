@@ -17,10 +17,31 @@ enum BetaCodeError: LocalizedError {
 
 enum BetaCode {
     static let publicKeyResource = "TaskDockBetaPublicKey"
+    static let shortCodeHashesResource = "TaskDockBetaCodeHashes"
+    private static let alphabet = Set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 
-    /// Each signed code carries a random identifier; no device information is collected.
-    static func identifier(in rawCode: String, publicKeyPEM: String) throws -> String {
+    static func shortCodeHashes(from text: String) -> Set<String> {
+        Set(text.split(whereSeparator: \.isNewline).map(String.init))
+    }
+
+    /// Short codes are checked against the preloaded hash pool. Earlier signed codes remain valid.
+    static func identifier(
+        in rawCode: String,
+        publicKeyPEM: String,
+        shortCodeHashes: Set<String> = []
+    ) throws -> String {
         let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !code.contains(".") {
+            let normalized = code.uppercased().filter { $0 != "-" && !$0.isWhitespace }
+            guard normalized.count == 12,
+                  normalized.allSatisfy({ alphabet.contains($0) }) else {
+                throw BetaCodeError.invalidCode
+            }
+            let digest = SHA256.hash(data: Data(normalized.utf8))
+                .map { String(format: "%02x", $0) }.joined()
+            guard shortCodeHashes.contains(digest) else { throw BetaCodeError.invalidCode }
+            return "short:\(digest)"
+        }
         let pieces = code.split(separator: ".", omittingEmptySubsequences: false)
         guard pieces.count == 3, pieces[0] == "TD7",
               let payload = decodeURLBase64(String(pieces[1])), payload.count == 17,
