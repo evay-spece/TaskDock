@@ -6,11 +6,21 @@ enum WindowSpaceReservationGeometry {
     static let panelBottomTolerance: CGFloat = 32
     static let panelClearance: CGFloat = 2
 
+    // 「轻抬」只改变窗口底边，顶部和左右边保持不动。
+    static func liftFrame(from start: CGRect, to end: CGRect, progress: CGFloat) -> CGRect {
+        let clamped = min(max(progress, 0), 1)
+        let eased = 1 - pow(1 - clamped, 3)
+        return CGRect(x: start.minX, y: start.minY,
+                      width: start.width + (end.width - start.width) * eased,
+                      height: start.height + (end.height - start.height) * eased)
+    }
+
     static func adjustedFrame(
         for windowFrame: CGRect,
         screenFrame: CGRect,
         visibleFrame: CGRect,
-        panelFrame: CGRect
+        panelFrame: CGRect,
+        clearance: CGFloat = panelClearance
     ) -> CGRect? {
         guard panelFrame.minY <= visibleFrame.minY + panelBottomTolerance else { return nil }
         guard windowFrame.width >= visibleFrame.width * 0.35 else { return nil }
@@ -29,7 +39,7 @@ enum WindowSpaceReservationGeometry {
         let rightAligned = abs(windowFrame.maxX - visibleFrame.maxX) <= edgeTolerance
         guard leftAligned || rightAligned else { return nil }
 
-        let reservedTopCocoa = panelFrame.maxY + panelClearance
+        let reservedTopCocoa = panelFrame.maxY + clearance
         let adjustedBottomAX = screenFrame.maxY - reservedTopCocoa
         let adjustedHeight = adjustedBottomAX - windowFrame.minY
         guard adjustedHeight >= minimumWindowHeight,

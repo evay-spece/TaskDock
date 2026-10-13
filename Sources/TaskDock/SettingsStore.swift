@@ -64,7 +64,6 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var transparencyByMode: [TaskDockLayoutMode: Double] { didSet { save() } }
     @Published private(set) var hiddenAppsByMode: [TaskDockLayoutMode: Bool] { didSet { save() } }
     @Published private(set) var finderTabsByMode: [TaskDockLayoutMode: Bool] { didSet { save() } }
-    @Published var showApplicationName: Bool { didSet { save() } }
     @Published var taskItemHighlightStyle: TaskItemHighlightStyle { didSet { save() } }
     @Published var layoutMode: TaskDockLayoutMode { didSet { save() } }
     var showHiddenApps: Bool { showsHiddenApps(in: layoutMode) }
@@ -104,7 +103,6 @@ final class SettingsStore: ObservableObject {
     private let defaults = UserDefaults.standard
     private let blacklistKey = "taskdock.blacklistedAppKeys"
     private let blockedWindowRulesKey = "taskdock.blockedWindowRules"
-    private let showApplicationNameKey = "taskdock.showApplicationName"
     private let taskItemHighlightStyleKey = "taskdock.taskItemHighlightStyle"
     private let layoutModeKey = "taskdock.layoutMode"
     // Keep the existing preference key so prior slider adjustments are preserved.
@@ -152,7 +150,6 @@ final class SettingsStore: ObservableObject {
         finderTabsByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
             (mode, loadedPreferences[mode]!.finderTabsAsWindows)
         })
-        showApplicationName = defaults.object(forKey: showApplicationNameKey) as? Bool ?? true
         taskItemHighlightStyle = TaskItemHighlightStyle(
             rawValue: defaults.string(forKey: taskItemHighlightStyleKey) ?? "white"
         ) ?? .white
@@ -488,7 +485,6 @@ final class SettingsStore: ObservableObject {
         if let data = try? JSONEncoder().encode(blockedWindowRules) {
             defaults.set(data, forKey: blockedWindowRulesKey)
         }
-        defaults.set(showApplicationName, forKey: showApplicationNameKey)
         defaults.set(taskItemHighlightStyle.rawValue, forKey: taskItemHighlightStyleKey)
         for mode in TaskDockLayoutMode.allCases {
             ModePreferenceStorage.save(ModePreferenceSnapshot(

@@ -17,7 +17,6 @@ enum ReleaseDefaults101 {
             "taskdock.taskbarFavoriteFlowWidth": 516.0,
             "taskdock.favoriteMagnificationEnabled": true,
             "taskdock.taskbarCollapseSameAppWindows": false,
-            "taskdock.showApplicationName": false,
             "taskdock.taskItemHighlightStyle": "systemAccent",
             "taskdock.toggleModifier": "option",
             "taskdock.dockCompanionLeftAppKeys": ["com.apple.finder"],

@@ -127,7 +127,6 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 720, minHeight: 660)
-        .preferredColorScheme(.dark)
     }
 
     private var generalTab: some View {
@@ -143,7 +142,7 @@ struct SettingsView: View {
                 .onChange(of: settings.layoutMode) { _ in onChanged() }
             }
 
-            settingsSection(title: "任务项外观", description: "设置窗口卡片的高亮和文字显示。") {
+            settingsSection(title: "任务项外观", description: "设置窗口卡片的高亮颜色。") {
                 Picker("任务项高亮颜色", selection: $settings.taskItemHighlightStyle) {
                     ForEach(TaskItemHighlightStyle.allCases) { style in
                         Text(style.label).tag(style)
@@ -152,9 +151,6 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 .fixedSize(horizontal: true, vertical: false)
                 .onChange(of: settings.taskItemHighlightStyle) { _ in onVisualChanged() }
-
-                Toggle("显示 App 名称", isOn: $settings.showApplicationName)
-                    .onChange(of: settings.showApplicationName) { _ in onVisualChanged() }
             }
 
             settingsSection(title: "隐藏/显示快捷键", description: "连续按两次选定的修饰键。") {
@@ -176,24 +172,20 @@ struct SettingsView: View {
                 if apps.isEmpty {
                     emptyState("当前没有可配置的 App")
                 } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(apps.enumerated()), id: \.element.key) { index, app in
-                            Toggle(isOn: Binding(
+                    VStack(spacing: 8) {
+                        ForEach(apps, id: \.key) { app in
+                            settingsToggle(
+                                title: app.name,
+                                description: "不在 TaskDock 中显示此 App 的窗口。",
+                                icon: app.icon ?? fallbackIcon,
+                                isOn: Binding(
                                 get: { settings.blacklistedAppKeys.contains(app.key) },
                                 set: { _ in
                                     settings.toggleBlacklist(for: app.key)
                                     onChanged()
                                 }
-                            )) {
-                                HStack(spacing: 9) {
-                                    Image(nsImage: app.icon ?? fallbackIcon)
-                                        .resizable()
-                                        .frame(width: 22, height: 22)
-                                    Text(app.name).lineLimit(1)
-                                }
-                            }
-                            .padding(.vertical, 7)
-                            if index < apps.count - 1 { Divider() }
+                                )
+                            )
                         }
                     }
                 }
@@ -316,11 +308,12 @@ struct SettingsView: View {
             }
 
             settingsSection(title: "任务项与动画", description: "只影响任务栏模式。") {
-                Toggle("同一 App 有 3 个及以上窗口时折叠", isOn: $settings.taskbarCollapseSameAppWindows)
+                settingsToggle(
+                    title: "同一 App 有 3 个及以上窗口时折叠",
+                    description: "点击折叠的任务项可选择具体窗口；1–2 个窗口仍分别显示。",
+                    isOn: $settings.taskbarCollapseSameAppWindows
+                )
                     .onChange(of: settings.taskbarCollapseSameAppWindows) { _ in onLayoutChanged() }
-                Text("点击折叠的任务项，可从列表选择具体窗口；1–2 个窗口仍分别显示。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             settingsSection(title: "收藏 App", description: "收藏固定在任务栏左侧；也可从任务项右键菜单添加。") {
@@ -332,11 +325,12 @@ struct SettingsView: View {
                     }
                     Spacer()
                 }
-                Toggle("收藏图标悬停反馈", isOn: $settings.favoriteMagnificationEnabled)
+                settingsToggle(
+                    title: "收藏图标悬停反馈",
+                    description: "鼠标移到收藏图标上时弹性放大；关闭后保持固定大小。",
+                    isOn: $settings.favoriteMagnificationEnabled
+                )
                     .onChange(of: settings.favoriteMagnificationEnabled) { _ in onVisualChanged() }
-                Text("鼠标移到收藏图标上时，图标会弹性放大；关闭后保持固定大小。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 HStack {
                     Label("图标放大倍率", systemImage: "arrow.up.left.and.arrow.down.right")
                     Spacer()
@@ -476,17 +470,18 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Divider()
-                Toggle("显示最近使用的窗口", isOn: $settings.dockCompanionShowsRecentWindows)
+                settingsToggle(
+                    title: "显示最近使用的窗口",
+                    description: "临时补充 5 分钟内使用过、未达显示门槛的最多 2 个窗口；手动隐藏的 App 不会出现。",
+                    isOn: $settings.dockCompanionShowsRecentWindows
+                )
                     .onChange(of: settings.dockCompanionShowsRecentWindows) { _ in onChanged() }
-                Text("临时补充 5 分钟内使用过、尚未达到显示门槛的最多 2 个窗口；手动隐藏的 App 不会出现。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Divider()
-                Toggle("显示底栏", isOn: $settings.dockCompanionShowsBottomBar)
+                settingsToggle(
+                    title: "显示底栏",
+                    description: "关闭后隐藏底栏背景和功能按钮，只显示任务项；任务项高度与 Dock 一致。",
+                    isOn: $settings.dockCompanionShowsBottomBar
+                )
                     .onChange(of: settings.dockCompanionShowsBottomBar) { _ in onChanged() }
-                Text("关闭后隐藏底栏背景和功能按钮，只显示任务项；任务项高度会与 Dock 一致。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             settingsSection(title: "Dock 联动", description: "融合栏跟随 Dock 的基础尺寸，不跟随鼠标悬停时的临时放大。") {
@@ -504,12 +499,13 @@ struct SettingsView: View {
                 Label("融合模式不显示收藏栏", systemImage: "star.slash")
             }
 
-            settingsSection(title: "Dock 覆盖实验", description: "将 Finder 任务项叠在 Dock 左端，其他任务项叠在右端。默认关闭，可随时切回原融合布局。") {
-                Toggle("叠加到 Dock 图标区（实验）", isOn: $settings.dockCompanionOverlayEnabled)
+            settingsSection(title: "Dock 覆盖实验") {
+                settingsToggle(
+                    title: "叠加到 Dock 图标区（实验）",
+                    description: "Finder 叠在 Dock 左端，其他任务项叠在右端；关闭后恢复原融合布局。",
+                    isOn: $settings.dockCompanionOverlayEnabled
+                )
                     .onChange(of: settings.dockCompanionOverlayEnabled) { _ in onChanged() }
-                Label("实验模式会覆盖 Dock 两端的图标位置；关闭即可恢复原融合布局。", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
             }
         }
     }
@@ -527,9 +523,15 @@ struct SettingsView: View {
         if dockCompanionApps.isEmpty {
             emptyState("当前没有可配置的 App")
         } else {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(dockCompanionApps.enumerated()), id: \.element.key) { index, app in
-                    Toggle(isOn: Binding(
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(dockCompanionApps, id: \.key) { app in
+                    settingsToggle(
+                        title: app.name,
+                        description: side == .left
+                            ? "在原生 Dock 左侧显示此 App 的窗口。"
+                            : "在原生 Dock 右侧显示此 App 的窗口。",
+                        icon: app.icon ?? fallbackIcon,
+                        isOn: Binding(
                         get: {
                             switch side {
                             case .left:
@@ -558,18 +560,8 @@ struct SettingsView: View {
                             }
                             onChanged()
                         }
-                    )) {
-                        HStack(spacing: 9) {
-                            Image(nsImage: app.icon ?? fallbackIcon)
-                                .resizable()
-                                .frame(width: 22, height: 22)
-                            Text(app.name).lineLimit(1)
-                        }
-                    }
-                    .toggleStyle(.checkbox)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 7)
-                    if index < dockCompanionApps.count - 1 { Divider() }
+                        )
+                    )
                 }
             }
         }
@@ -630,19 +622,59 @@ struct SettingsView: View {
             }
 
             settingsSection(title: "窗口显示", description: "仅影响当前模式的窗口清单。") {
-                Toggle("显示隐藏 App 的窗口", isOn: Binding(
-                    get: { settings.showsHiddenApps(in: mode) },
-                    set: { settings.setShowsHiddenApps($0, in: mode); onChanged() }
-                ))
-                Toggle("Finder 标签按窗口显示", isOn: Binding(
-                    get: { settings.showsFinderTabsAsWindows(in: mode) },
-                    set: { settings.setShowsFinderTabsAsWindows($0, in: mode); onChanged() }
-                ))
-                Text("开启后，Finder 每个标签单独显示为任务项；关闭时仍按原生窗口显示。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                settingsToggle(
+                    title: "显示隐藏 App 的窗口",
+                    description: "将被 macOS 隐藏的 App 窗口也列入当前模式。",
+                    isOn: Binding(
+                        get: { settings.showsHiddenApps(in: mode) },
+                        set: { settings.setShowsHiddenApps($0, in: mode); onChanged() }
+                    )
+                )
+                settingsToggle(
+                    title: "Finder 标签按窗口显示",
+                    description: "开启后每个 Finder 标签单独显示；关闭时按原生窗口显示。",
+                    isOn: Binding(
+                        get: { settings.showsFinderTabsAsWindows(in: mode) },
+                        set: { settings.setShowsFinderTabsAsWindows($0, in: mode); onChanged() }
+                    )
+                )
             }
         }
+    }
+
+    private func settingsToggle(
+        title: String,
+        description: String,
+        icon: NSImage? = nil,
+        isOn: Binding<Bool>
+    ) -> some View {
+        HStack(spacing: 12) {
+            if let icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 24, height: 24)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Toggle(title, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(Color(red: 0, green: 0.75, blue: 0.56))
+                .accessibilityLabel(title)
+                .accessibilityHint(description)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func settingsSection<Content: View>(

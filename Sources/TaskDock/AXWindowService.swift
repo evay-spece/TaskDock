@@ -22,6 +22,8 @@ final class AXWindowService {
     private var knownFinderDocumentWindows: [AXUIElement] = []
     private var hasEnumeratedFinderWindows = false
     private var reservedWindowFrames: [String: ReservedWindowFrame] = [:]
+    private var activeWindowLifts: [String: UUID] = [:]
+    private var liftSuppressedFrames: [String: CGRect] = [:]
     private var activationRequestID = UUID()
     private var recentActivation: (windowID: String, date: Date)?
     private let ignoredWindowTitles: [String: Set<String>] = [
@@ -259,6 +261,7 @@ final class AXWindowService {
         panelFrame: CGRect,
         screenFrame: CGRect,
         visibleFrame: CGRect,
+        clearance: CGFloat = WindowSpaceReservationGeometry.panelClearance,
         enabled: Bool
     ) {
         guard enabled else {
@@ -268,23 +271,39 @@ final class AXWindowService {
 
         let activeWindowIDs = Set(windows.map(\.id))
         for (id, reservation) in reservedWindowFrames where !activeWindowIDs.contains(id) {
+            activeWindowLifts.removeValue(forKey: id)
             if let currentFrame = windowFrame(reservation.window),
                WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, reservation.applied) {
                 _ = setWindowFrame(reservation.window, frame: reservation.original)
             }
             reservedWindowFrames.removeValue(forKey: id)
         }
+        liftSuppressedFrames = liftSuppressedFrames.filter { activeWindowIDs.contains($0.key) }
 
         for window in windows where !window.isMinimized {
             if (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) == true {
                 continue
             }
             guard let currentFrame = windowFrame(window.axWindow) else { continue }
+            if activeWindowLifts[window.id] != nil { continue }
+            if let suppressedFrame = liftSuppressedFrames[window.id] {
+                if WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, suppressedFrame) {
+                    continue
+                }
+                liftSuppressedFrames.removeValue(forKey: window.id)
+            }
 
             var reservation = reservedWindowFrames[window.id]
             if let existing = reservation {
                 let stillManaged = WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, existing.applied)
                 let systemRestoredOriginal = WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, existing.original)
+                if systemRestoredOriginal && !stillManaged {
+                    // Some apps immediately restore their own tiled size. Do not fight
+                    // them every refresh: that makes the window visibly bounce.
+                    liftSuppressedFrames[window.id] = currentFrame
+                    reservedWindowFrames.removeValue(forKey: window.id)
+                    continue
+                }
                 if !stillManaged && !systemRestoredOriginal {
                     reservedWindowFrames.removeValue(forKey: window.id)
                     reservation = nil
@@ -296,7 +315,8 @@ final class AXWindowService {
                 for: baseline,
                 screenFrame: screenFrame,
                 visibleFrame: visibleFrame,
-                panelFrame: panelFrame
+                panelFrame: panelFrame,
+                clearance: clearance
             ) else {
                 if let existing = reservation,
                    WindowSpaceReservationGeometry.approximatelyEqual(currentFrame, existing.applied) {
@@ -314,17 +334,58 @@ final class AXWindowService {
                 )
                 continue
             }
-            if setWindowFrame(window.axWindow, frame: adjusted) {
-                reservedWindowFrames[window.id] = ReservedWindowFrame(
-                    window: window.axWindow,
-                    original: baseline,
-                    applied: adjusted
-                )
-            }
+            beginWindowLift(id: window.id, window: window.axWindow,
+                            original: baseline, start: currentFrame, target: adjusted)
+        }
+    }
+
+    private func beginWindowLift(id: String, window: AXUIElement,
+                                 original: CGRect, start: CGRect, target: CGRect) {
+        let token = UUID()
+        activeWindowLifts[id] = token
+        reservedWindowFrames[id] = ReservedWindowFrame(window: window, original: original, applied: start)
+        advanceWindowLift(id: id, token: token, start: start, target: target, step: 1)
+    }
+
+    private func advanceWindowLift(id: String, token: UUID,
+                                   start: CGRect, target: CGRect, step: Int) {
+        guard activeWindowLifts[id] == token,
+              var reservation = reservedWindowFrames[id],
+              let current = windowFrame(reservation.window) else {
+            activeWindowLifts.removeValue(forKey: id)
+            return
+        }
+        guard WindowSpaceReservationGeometry.approximatelyEqual(current, reservation.applied, tolerance: 6) else {
+            // The user or the app moved the window during the animation.
+            activeWindowLifts.removeValue(forKey: id)
+            liftSuppressedFrames[id] = current
+            reservedWindowFrames.removeValue(forKey: id)
+            return
+        }
+        let steps = 6
+        let next = WindowSpaceReservationGeometry.liftFrame(
+            from: start, to: target, progress: CGFloat(step) / CGFloat(steps)
+        )
+        guard setWindowFrame(reservation.window, frame: next) else {
+            activeWindowLifts.removeValue(forKey: id)
+            reservedWindowFrames.removeValue(forKey: id)
+            liftSuppressedFrames[id] = current
+            return
+        }
+        reservation.applied = windowFrame(reservation.window) ?? next
+        reservedWindowFrames[id] = reservation
+        if step == steps {
+            activeWindowLifts.removeValue(forKey: id)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+            self?.advanceWindowLift(id: id, token: token, start: start, target: target, step: step + 1)
         }
     }
 
     func clearWindowSpaceReservations(restore: Bool, windows _: [WindowModel]) {
+        activeWindowLifts.removeAll()
+        liftSuppressedFrames.removeAll()
         if restore {
             for reservation in reservedWindowFrames.values {
                 guard let currentFrame = windowFrame(reservation.window),

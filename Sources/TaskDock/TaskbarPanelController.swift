@@ -61,6 +61,8 @@ final class TaskbarPanelController {
     private var lastBadgePollAt = Date.distantPast
     private var badgePollInFlight = false
     private var appFocusObservers: [pid_t: AppFocusObserver] = [:]
+    private var nextFocusObserverAttemptAt: [pid_t: Date] = [:]
+    private var lastFocusObserverSyncAt = Date.distantPast
     private var appliedLayoutMode: TaskDockLayoutMode?
     private var stableDockGeometry: DockGeometrySnapshot?
     private var pendingDockGeometry: DockGeometrySnapshot?
@@ -115,7 +117,7 @@ final class TaskbarPanelController {
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didHideApplicationNotification, object: nil)
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didUnhideApplicationNotification, object: nil)
-        syncAppFocusObservers()
+        syncAppFocusObservers(force: true)
     }
 
     func stop() {
@@ -136,6 +138,8 @@ final class TaskbarPanelController {
         settings.activeFavoriteShortcutIndices = []
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         removeAllAppFocusObservers()
+        nextFocusObserverAttemptAt.removeAll()
+        lastFocusObserverSyncAt = .distantPast
         windowService.clearWindowSpaceReservations(restore: true, windows: windows)
         panel?.orderOut(nil)
         dockFinderPanel?.orderOut(nil)
@@ -194,7 +198,7 @@ final class TaskbarPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.appearance = settings.layoutMode == .taskbar ? nil : NSAppearance(named: .darkAqua)
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovable = false
@@ -269,6 +273,9 @@ final class TaskbarPanelController {
 
         if appliedLayoutMode != settings.layoutMode {
             appliedLayoutMode = settings.layoutMode
+            let appearance = settings.layoutMode == .taskbar ? nil : NSAppearance(named: .darkAqua)
+            panel?.appearance = appearance
+            dockFinderPanel?.appearance = appearance
             if settings.layoutMode == .dockCompanion {
                 stableDockGeometry = nil
                 pendingDockGeometry = nil
@@ -1195,7 +1202,7 @@ final class TaskbarPanelController {
                 x: panel.frame.minX,
                 y: panel.frame.minY,
                 width: panel.frame.width,
-                height: settings.layoutMode == .dockCompanion ? settings.dockCompanionHeight : settings.taskbarHeight
+                height: settings.layoutMode == .dockCompanion ? settings.dockCompanionHeight : settings.taskbarHeight + 4
             )
         }
         let context = ReservationContext(
@@ -1225,13 +1232,18 @@ final class TaskbarPanelController {
             panelFrame: reservationPanelFrame,
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
+            clearance: settings.layoutMode == .taskbar ? 6 : 2,
             enabled: true
         )
     }
 
-    private func syncAppFocusObservers() {
+    private func syncAppFocusObservers(force: Bool = false) {
+        let now = Date()
+        guard force || now.timeIntervalSince(lastFocusObserverSyncAt) >= 5 else { return }
+        lastFocusObserverSyncAt = now
         guard permissionService.isTrusted else {
             removeAllAppFocusObservers()
+            nextFocusObserverAttemptAt.removeAll()
             return
         }
 
@@ -1243,8 +1255,13 @@ final class TaskbarPanelController {
         for pid in appFocusObservers.keys where !currentPIDs.contains(pid) {
             removeAppFocusObserver(for: pid)
         }
+        nextFocusObserverAttemptAt = nextFocusObserverAttemptAt.filter { currentPIDs.contains($0.key) }
 
         for pid in currentPIDs where appFocusObservers[pid] == nil {
+            guard nextFocusObserverAttemptAt[pid].map({ $0 <= now }) ?? true else { continue }
+            // An app can briefly reject AXObserver registration while launching.
+            // Retry later without blocking every 0.7-second taskbar refresh.
+            nextFocusObserverAttemptAt[pid] = now.addingTimeInterval(10)
             var observer: AXObserver?
             guard AXObserverCreate(pid, Self.focusObserverCallback, &observer) == .success,
                   let observer else { continue }
@@ -1265,6 +1282,7 @@ final class TaskbarPanelController {
             guard registered else { continue }
             CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
             appFocusObservers[pid] = AppFocusObserver(observer: observer, application: application)
+            nextFocusObserverAttemptAt.removeValue(forKey: pid)
         }
     }
 
@@ -1280,6 +1298,10 @@ final class TaskbarPanelController {
     }
 
     @objc private func workspaceChanged(_ notification: Notification) {
+        if notification.name == NSWorkspace.didLaunchApplicationNotification
+            || notification.name == NSWorkspace.didTerminateApplicationNotification {
+            syncAppFocusObservers(force: true)
+        }
         if notification.name == NSWorkspace.didLaunchApplicationNotification
             || notification.name == NSWorkspace.didActivateApplicationNotification,
            let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,

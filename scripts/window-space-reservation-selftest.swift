@@ -14,6 +14,22 @@ struct WindowSpaceReservationSelfTest {
         )
         precondition(abs((adjusted?.maxY ?? 0) - 856) < 0.001)
         precondition(abs((adjusted?.minY ?? 0) - maximized.minY) < 0.001)
+        let liftedPanel = CGRect(x: 320, y: 4, width: 800, height: 42)
+        let lifted = WindowSpaceReservationGeometry.adjustedFrame(
+            for: maximized, screenFrame: screen, visibleFrame: visible,
+            panelFrame: liftedPanel, clearance: 6
+        )
+        precondition(abs((lifted?.maxY ?? 0) - 848) < 0.001)
+        var lastHeight = maximized.height
+        for step in 1...6 {
+            let frame = WindowSpaceReservationGeometry.liftFrame(
+                from: maximized, to: lifted!, progress: CGFloat(step) / 6
+            )
+            precondition(frame.minY == maximized.minY && frame.width == maximized.width)
+            precondition(frame.height <= lastHeight)
+            lastHeight = frame.height
+        }
+        precondition(abs(lastHeight - lifted!.height) < 0.001)
 
         let left = CGRect(x: 0, y: 25, width: 720, height: 875)
         let right = CGRect(x: 720, y: 25, width: 720, height: 875)
