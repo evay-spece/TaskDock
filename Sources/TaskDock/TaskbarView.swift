@@ -22,6 +22,7 @@ struct TaskbarView: View {
     let recentAppPopoverState: RecentAppPopoverState
     let runningApplicationIDs: Set<String>
     @ObservedObject var favoriteBadges: FavoriteBadgeStore
+    @ObservedObject var windowProgress: WindowProgressStore
     let isAccessibilityTrusted: Bool
     let canRestoreMinimizedWindows: Bool
     let onRequestPermission: () -> Void
@@ -234,6 +235,7 @@ struct TaskbarView: View {
                                             contentScale: taskbarContentScale,
                                             taskbarFontSize: settings.taskbarItemFontSize,
                                             nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
+                                            progress: group.windows.compactMap { windowProgress.values[$0.nativeWindowID] }.max(),
                                             onSelect: onSelect
                                         )
                                         .frame(width: itemWidth, height: taskbarBaseHeight)
@@ -254,6 +256,7 @@ struct TaskbarView: View {
                                                 itemHeight: taskbarItemHeight,
                                                 contentScale: taskbarContentScale,
                                                 taskbarFontSize: settings.taskbarItemFontSize,
+                                                progress: windowProgress.values[window.nativeWindowID],
                                                 visualLift: taskbarVisualLift,
                                                 reducesMotion: reducesTaskbarMotion,
                                                 onShowAppWindows: { onShowAppWindows(window) },
@@ -857,6 +860,69 @@ private struct TaskbarApplicationIcon: View {
     }
 }
 
+private struct TaskItemProgressBar: View {
+    let value: Double
+    let scale: CGFloat
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.black.opacity(0.36))
+                Capsule()
+                    .fill(Color(red: 0.36, green: 0.96, blue: 0.36))
+                    .frame(width: geometry.size.width * CGFloat(value))
+                    .shadow(color: .green.opacity(0.45), radius: 2)
+            }
+            .clipShape(Capsule())
+        }
+        .frame(height: 2.5 * scale)
+        .padding(.horizontal, 1.5 * scale)
+        .padding(.bottom, 0.5 * scale)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .animation(.linear(duration: 0.18), value: value)
+    }
+}
+
+private struct TaskItemProgressFill: View {
+    let value: Double
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        GeometryReader { geometry in
+            Rectangle()
+                .fill(LinearGradient(
+                    colors: [Color(red: 0.20, green: 0.54, blue: 0.25).opacity(0.78),
+                             Color(red: 0.27, green: 0.68, blue: 0.30).opacity(0.78)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ))
+                .frame(width: geometry.size.width * CGFloat(min(max(value, 0), 1)))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .animation(.linear(duration: 0.18), value: value)
+    }
+}
+
+private struct TaskItemProgressLabel: View {
+    let value: Double
+    let scale: CGFloat
+
+    var body: some View {
+        Text("\(Int((value * 100).rounded()))%")
+            .font(.system(size: 11 * scale, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.6), radius: 1, y: 1)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityLabel("进度 \(Int((value * 100).rounded()))%")
+    }
+}
+
 private struct TaskbarCollapsedAppView: View {
     let windows: [WindowModel]
     let availableWidth: CGFloat
@@ -866,6 +932,7 @@ private struct TaskbarCollapsedAppView: View {
     let contentScale: CGFloat
     let taskbarFontSize: CGFloat
     let nonSelectedItemTransparency: Double
+    let progress: Double?
     let onSelect: (WindowModel) -> Void
     @State private var isShowingWindows = false
 
@@ -894,29 +961,35 @@ private struct TaskbarCollapsedAppView: View {
                 if !compact {
                     Text(representative.applicationName)
                         .font(.system(size: taskbarFontSize * contentScale, weight: .medium))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(progress == nil ? Color.primary : Color.white)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("\(windows.count)")
                         .font(.system(size: 10 * contentScale, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(progress == nil ? Color.primary : Color.white)
                         .padding(.horizontal, 5 * contentScale)
                         .padding(.vertical, 2 * contentScale)
                         .background(Color.primary.opacity(0.09), in: Capsule())
+                    if let progress, availableWidth >= 125 * contentScale {
+                        TaskItemProgressLabel(value: progress, scale: contentScale)
+                    }
                 }
             }
             .padding(.horizontal, (compact ? 2 : 7) * contentScale)
             .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight)
             .background {
-                RoundedRectangle(cornerRadius: 7 * contentScale)
-                    .fill(Color.primary.opacity(0.08))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 7 * contentScale)
-                            .stroke(Color.primary.opacity(0.18), lineWidth: 0.7)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7 * contentScale)
+                        .fill(Color.primary.opacity(0.08))
+                    if let progress {
+                        TaskItemProgressFill(value: progress, cornerRadius: 7 * contentScale)
                     }
+                    RoundedRectangle(cornerRadius: 7 * contentScale)
+                        .stroke(Color.primary.opacity(0.18), lineWidth: 0.7)
+                }
             }
             .overlay(alignment: .bottomLeading) {
-                if windows.contains(where: \.isFocused) {
+                if progress == nil && windows.contains(where: \.isFocused) {
                     Capsule().fill(Color.accentColor)
                         .frame(width: (compact ? 18 : 22) * contentScale,
                                height: 3 * contentScale)
@@ -924,13 +997,17 @@ private struct TaskbarCollapsedAppView: View {
                         .padding(.bottom, contentScale)
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let progress { TaskItemProgressBar(value: progress, scale: contentScale) }
+            }
             .offset(y: -visualLift)
             .frame(height: hitHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .opacity(windows.contains(where: \.isFocused) ? 1 : 1 - nonSelectedItemTransparency)
-        .help("\(representative.applicationName)：\(windows.count) 个窗口，点击选择")
+        .help("\(representative.applicationName)：\(windows.count) 个窗口，点击选择"
+              + (progress.map { "；进度 \(Int($0 * 100))%" } ?? ""))
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口，点击选择")
         .popover(isPresented: $isShowingWindows, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 6) {
@@ -1089,6 +1166,7 @@ struct WindowTaskItemView: View {
     var itemHeight: CGFloat = 31
     var contentScale: CGFloat = 1
     var taskbarFontSize: CGFloat = SettingsStore.defaultTaskbarItemFontSize
+    var progress: Double? = nil
     var visualLift: CGFloat = 0
     var reducesMotion: Bool = false
     let onShowAppWindows: () -> Void
@@ -1156,6 +1234,9 @@ struct WindowTaskItemView: View {
                     .foregroundStyle(subtitleColor)
                     .help("此窗口已最小化")
             }
+            if isTaskbarMode, let progress, availableWidth >= 105 * contentScale {
+                TaskItemProgressLabel(value: progress, scale: contentScale)
+            }
         }
         .padding(.horizontal, availableWidth < textVisibilityWidth ? 3 * contentScale : 8 * contentScale)
         .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight, alignment: availableWidth < textVisibilityWidth ? .center : .leading)
@@ -1169,6 +1250,9 @@ struct WindowTaskItemView: View {
                 } else if isTaskbarMode {
                     RoundedRectangle(cornerRadius: 7 * contentScale)
                         .fill(taskbarGlassItemBackground)
+                    if let progress {
+                        TaskItemProgressFill(value: progress, cornerRadius: 7 * contentScale)
+                    }
                     RoundedRectangle(cornerRadius: 7 * contentScale)
                         .stroke(Color.white.opacity(isHovered || window.isFocused ? 0.28 : 0.14), lineWidth: 0.7)
                 } else {
@@ -1184,7 +1268,7 @@ struct WindowTaskItemView: View {
                 ? 1 - nonSelectedItemTransparency * 0.4 : 1)
         }
         .overlay(alignment: isTaskbarMode ? .bottomLeading : .bottom) {
-            if window.isFocused {
+            if progress == nil && window.isFocused {
                 if isDockCompanion {
                     Circle()
                         .fill(Color.primary.opacity(0.76))
@@ -1201,6 +1285,11 @@ struct WindowTaskItemView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if isTaskbarMode, let progress {
+                TaskItemProgressBar(value: progress, scale: contentScale)
+            }
+        }
         .scaleEffect(isHovered && !reducesMotion ? 1.012 : 1.0)
         .opacity(window.isFocused || isTaskbarMode ? 1 : 1 - nonSelectedItemTransparency)
         .shadow(color: isHovered ? Color.black.opacity(0.28) : .clear, radius: 4, y: 1)
@@ -1212,7 +1301,8 @@ struct WindowTaskItemView: View {
         )
         .offset(y: -visualLift)
         .onHover { isHovered = $0 }
-        .help("点击显示窗口；再次点击当前焦点窗口会收起到任务栏；拖动可调整 App 顺序")
+        .help("点击显示窗口；再次点击当前焦点窗口会收起到任务栏；拖动可调整 App 顺序"
+              + (progress.map { "；进度 \(Int($0 * 100))%" } ?? ""))
     }
 
     private var fallbackIcon: NSImage {

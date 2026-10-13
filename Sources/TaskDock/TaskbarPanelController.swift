@@ -24,11 +24,17 @@ final class TaskbarPanelController {
     private let systemDockVisibility = SystemDockVisibilityController()
     private let trashStatus = TrashStatusService()
     private let favoriteBadges = FavoriteBadgeStore()
+    private let windowProgress = WindowProgressStore()
+    private let progressScanner = WindowProgressScanner()
     private let trialManager = TrialManager()
     private let collapseAnimator = TaskbarCollapseAnimator()
     private let badgePollQueue = DispatchQueue(label: "taskdock.dock-badges", qos: .utility)
+    private let progressPollQueue = DispatchQueue(label: "taskdock.window-progress", qos: .utility)
     private var panel: NSPanel?
     private var timer: Timer?
+    private var progressTimer: Timer?
+    private var progressPollInFlight = false
+    private var progressPollGeneration = 0
     private var windows: [WindowModel] = []
     private var bulkMinimizedWindows: [WindowModel] = []
     private var taskbarHiddenPIDs: Set<pid_t> = []
@@ -111,6 +117,10 @@ final class TaskbarPanelController {
         timer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.automaticRefresh() }
         }
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pollWindowProgress() }
+        }
+        pollWindowProgress()
         let workspaceNotifications = NSWorkspace.shared.notificationCenter
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
@@ -132,6 +142,13 @@ final class TaskbarPanelController {
         systemDockVisibility.restore()
         pendingLayoutRefreshToken = nil
         timer?.invalidate()
+        progressTimer?.invalidate()
+        progressTimer = nil
+        progressPollGeneration += 1
+        progressPollInFlight = false
+        windowProgress.update([:])
+        let scanner = progressScanner
+        progressPollQueue.async { scanner.clear() }
         shortcutMonitor?.stop()
         stopRegisteredHotKeys()
         settings.activeTaskbarShortcutIndices = []
@@ -219,6 +236,7 @@ final class TaskbarPanelController {
             recentAppPopoverState: recentAppPopoverState,
             runningApplicationIDs: settings.layoutMode == .taskbar ? runningApplicationIDs : [],
             favoriteBadges: favoriteBadges,
+            windowProgress: windowProgress,
             isAccessibilityTrusted: permissionService.isTrusted,
             canRestoreMinimizedWindows: !bulkMinimizedWindows.isEmpty || !bulkHiddenPIDs.isEmpty,
             onRequestPermission: { [weak self] in self?.requestPermission() },
@@ -1168,6 +1186,40 @@ final class TaskbarPanelController {
                 self.badgePollInFlight = false
                 guard self.settings.layoutMode == .taskbar, !self.isHiddenInDock else { return }
                 self.favoriteBadges.update(badges)
+            }
+        }
+    }
+
+    private func pollWindowProgress() {
+        guard settings.layoutMode == .taskbar, !isHiddenInDock,
+              permissionService.isTrusted, !progressPollInFlight else {
+            if settings.layoutMode != .taskbar || isHiddenInDock { windowProgress.update([:]) }
+            return
+        }
+        var seen = Set<String>()
+        let candidates = windows.compactMap { window -> WindowProgressCandidate? in
+            guard seen.insert(window.nativeWindowID).inserted else { return nil }
+            return WindowProgressCandidate(
+                id: window.nativeWindowID, pid: window.pid,
+                isFocused: window.isFocused, window: window.axWindow
+            )
+        }
+        guard !candidates.isEmpty else {
+            windowProgress.update([:])
+            return
+        }
+        progressPollInFlight = true
+        let generation = progressPollGeneration
+        let scanner = progressScanner
+        progressPollQueue.async { [weak self] in
+            let progress = scanner.scan(candidates)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.progressPollGeneration == generation else { return }
+                self.progressPollInFlight = false
+                guard self.settings.layoutMode == .taskbar, !self.isHiddenInDock else { return }
+                let currentIDs = Set(self.windows.map(\.nativeWindowID))
+                self.windowProgress.update(progress.filter { currentIDs.contains($0.key) })
             }
         }
     }
