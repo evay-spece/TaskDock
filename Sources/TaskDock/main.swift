@@ -6,16 +6,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let statusMenu = NSMenu()
     private let updateChecker = UpdateChecker.shared
-    private let trialManager = TrialManager()
+    private let license = LicenseService()
+    private var licenseWindowController: TaskDockLicenseWindowController?
     private var updateWindowController: UpdateProgressWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        configureApplicationMenu()
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            UpdateSupport.archiveLegacyBackups()
+        }
         ReleaseDefaults101.applyIfNeeded()
-        panelController = TaskbarPanelController()
+        license.start()
+        panelController = TaskbarPanelController(license: license, onOpenLicense: { [weak self] in
+            self?.openLicense()
+        })
         panelController?.show()
         configureStatusItem()
         updateChecker.check()
+        if ProcessInfo.processInfo.arguments.contains("--show-settings") {
+            panelController?.presentSettings()
+        }
+        if ProcessInfo.processInfo.arguments.contains("--show-license") {
+            openLicense()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -44,6 +59,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = statusMenu
         statusItem = item
         rebuildStatusMenu()
+    }
+
+    private func configureApplicationMenu() {
+        // Accessory apps still need an Edit menu for AppKit to route Command-V,
+        // Command-C and Command-A to the focused field editor or NSTextView.
+        let menu = NSMenu()
+        let applicationItem = NSMenuItem(title: "TaskDock", action: nil, keyEquivalent: "")
+        let applicationMenu = NSMenu(title: "TaskDock")
+        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        applicationMenu.addItem(settingsItem)
+        applicationMenu.addItem(.separator())
+        let quitItem = NSMenuItem(title: "退出 TaskDock", action: #selector(quitTaskDock), keyEquivalent: "q")
+        quitItem.target = self
+        applicationMenu.addItem(quitItem)
+        applicationItem.submenu = applicationMenu
+        menu.addItem(applicationItem)
+
+        let editItem = NSMenuItem(title: "编辑", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "编辑")
+        editMenu.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "重做", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        menu.addItem(editItem)
+        NSApp.mainMenu = menu
     }
 
     private func rebuildStatusMenu() {
@@ -97,23 +143,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateItem.target = self
         statusMenu.addItem(updateItem)
 
-        if !LicenseStatus.hasValidPurchase {
-            let days = trialManager.remainingDays()
+        if !license.activatedLicenseCode.isEmpty || LicenseStatus.hasValidPurchase || !license.isUnlocked {
+            let days = license.remainingDays
             let trialItem = NSMenuItem(
-                title: days > 0 ? "试用剩余 \(days) 天" : "试用已结束",
+                title: (license.activatedLicenseCode.isEmpty && !LicenseStatus.hasValidPurchase) ?
+                    (days > 0 ? "试用剩余 \(days) 天" : "试用已结束") : "已购买授权",
                 action: nil, keyEquivalent: ""
             )
             trialItem.image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
             trialItem.isEnabled = false
             statusMenu.addItem(trialItem)
 
-            let activateItem = NSMenuItem(
-                title: "输入内测激活码…", action: #selector(activateBetaCode), keyEquivalent: ""
-            )
-            activateItem.image = NSImage(systemSymbolName: "key", accessibilityDescription: nil)
-            activateItem.target = self
-            statusMenu.addItem(activateItem)
         }
+
+        let purchaseItem = NSMenuItem(title: "购买与激活…", action: #selector(openLicense), keyEquivalent: "")
+        purchaseItem.image = NSImage(systemSymbolName: "key", accessibilityDescription: nil)
+        purchaseItem.target = self
+        statusMenu.addItem(purchaseItem)
 
         statusMenu.addItem(.separator())
 
@@ -160,10 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateChecker.checkAndInstall()
     }
 
-    @objc private func activateBetaCode() {
-        if BetaActivationUI.prompt(trial: trialManager) {
-            rebuildStatusMenu()
+    @objc private func openLicense() {
+        if licenseWindowController == nil {
+            licenseWindowController = TaskDockLicenseWindowController(license: license)
         }
+        licenseWindowController?.present()
     }
 
     @objc private func hideTaskDock() {

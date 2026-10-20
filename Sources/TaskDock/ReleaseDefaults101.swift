@@ -14,7 +14,6 @@ enum ReleaseDefaults101 {
             "taskdock.taskbarHeight": 48.0,
             "taskdock.taskbarLeadingInset": 72.0,
             "taskdock.taskbarItemFontSize": 10.0,
-            "taskdock.taskbarFavoriteFlowWidth": 516.0,
             "taskdock.favoriteMagnificationEnabled": true,
             "taskdock.taskbarCollapseSameAppWindows": false,
             "taskdock.taskItemHighlightStyle": "systemAccent",

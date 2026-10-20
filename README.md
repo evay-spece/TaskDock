@@ -4,6 +4,18 @@ macOS 原生窗口切换工具：可在任务栏与 Dock 融合栏之间切换�
 
 [下载最新版本](https://github.com/evay-spece/TaskDock/releases/latest)
 
+## 最新版本 1.5.2（Build 48）
+
+- 离线授权：7 天完整试用、¥59 一次购买授权；人工核款、人工邮件发码。
+- “打开申请邮件”只打开草稿，需要买家补充付款信息后主动发送；也可复制申请信息到网页邮箱发送。
+- 到期时恢复原系统 Dock 偏好并隐藏 TaskDock 操作面板；状态栏仍可打开设置、购买与激活及退出。
+- 使用 Apple Development 签名，未办理 Developer ID 与 Apple 公证，安装可能被 macOS 拦截。
+- 任务项提供固定长度与按标题自适应长度，优化收藏重排、悬停与拖动反馈。
+- 最大化及左右半屏默认动画收起窗口底边；普通窗口仅处理小幅重叠，明显出屏时跳过。
+- 补强最小化窗口保留、单窗口原生最小化及右下角屏幕边缘点击热区。
+- 本地收费流程回归：`zsh scripts/sale-readiness-selftest.sh`。测试使用临时钥匙串、临时时钟及内存临时密钥，不修改生产公钥。
+- 发布打包：`zsh scripts/preflight_release.sh`。可用 `TASKDOCK_OUTPUT_DIRECTORY` 指定输出位置；解包后自动核验授权资源与签名。
+
 ## 安装
 
 1. 从 Releases 下载并解压 `TaskDock`。

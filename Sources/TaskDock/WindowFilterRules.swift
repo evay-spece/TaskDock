@@ -7,6 +7,7 @@ enum WindowFilterRules {
         "com.apple.systempreferences",
         "com.liguangming.Shadowrocket",
         "com.microsoft.Excel",
+        "com.microsoft.Word",
         "com.tencent.xinWeChat",
         "com.apple.iCal",
         "com.apple.Notes"
@@ -57,9 +58,13 @@ enum WindowFilterRules {
         title: String,
         subrole: String?,
         isMinimized: Bool,
-        isModal: Bool
+        isModal: Bool,
+        wasKnownDocument: Bool = false
     ) -> Bool {
-        bundleIdentifier.map { appsWithMinimizedDialogWindows.contains($0) } == true &&
+        if wasKnownDocument && isMinimized && !isModal && !shouldIgnoreWindow(subrole: subrole) {
+            return true
+        }
+        return bundleIdentifier.map { appsWithMinimizedDialogWindows.contains($0) } == true &&
             isMinimized && !isModal &&
             (!title.isEmpty || bundleIdentifier == "com.apple.systempreferences") &&
             subrole == "AXDialog"

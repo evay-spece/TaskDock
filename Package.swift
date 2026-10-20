@@ -7,6 +7,6 @@ let package = Package(
     products: [.executable(name: "TaskDock", targets: ["TaskDock"])],
     targets: [
         .target(name: "TaskDockPreferences", path: "Sources/TaskDockPreferences"),
-        .executableTarget(name: "TaskDock", dependencies: ["TaskDockPreferences"], path: "Sources/TaskDock")
+        .executableTarget(name: "TaskDock", dependencies: ["TaskDockPreferences"], path: "Sources/TaskDock", resources: [.copy("Resources")])
     ]
 )

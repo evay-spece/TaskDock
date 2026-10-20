@@ -4,13 +4,17 @@ set -euo pipefail
 PROJECT_ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PROJECT_ROOT/AppBundle/TaskDock.app/Contents/Info.plist")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PROJECT_ROOT/AppBundle/TaskDock.app/Contents/Info.plist")"
-ASSET="$PROJECT_ROOT/dist/TaskDock-$VERSION-macOS-arm64.zip"
+OUTPUT_DIRECTORY="${TASKDOCK_OUTPUT_DIRECTORY:-$PROJECT_ROOT/dist}"
+ASSET="$OUTPUT_DIRECTORY/TaskDock-$VERSION-macOS-arm64.zip"
 [[ "$BUILD" == <-> ]] || { echo "Build number must be an integer" >&2; exit 1; }
 [[ ! -e "$ASSET" ]] || { echo "Refusing to replace existing asset: $ASSET" >&2; exit 1; }
 
-SDK="${TASKDOCK_BUILD_SDK:-/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk}"
+SDK="${TASKDOCK_BUILD_SDK:-}"
 SWIFT_ARGS=(-c release --arch arm64)
-[[ -d "$SDK" ]] && SWIFT_ARGS+=(--sdk "$SDK")
+if [[ -n "$SDK" ]]; then
+  [[ -d "$SDK" ]] || { echo "SDK does not exist: $SDK" >&2; exit 1; }
+  SWIFT_ARGS+=(--sdk "$SDK")
+fi
 cd "$PROJECT_ROOT"
 swift build "${SWIFT_ARGS[@]}"
 BIN="$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)/TaskDock"
@@ -20,9 +24,11 @@ file "$BIN" | grep -q 'arm64' || { echo "Release executable is not arm64" >&2; e
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 APP="$WORK/TaskDock.app"
-ditto "$PROJECT_ROOT/AppBundle/TaskDock.app" "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$PROJECT_ROOT/AppBundle/TaskDock.app/Contents/Info.plist" "$APP/Contents/Info.plist"
 cp "$BIN" "$APP/Contents/MacOS/TaskDock"
+source "$PROJECT_ROOT/scripts/license-resources.sh"
+taskdock_copy_license_resources "$PROJECT_ROOT" "$APP"
 BETA_PUBLIC_KEY="$PROJECT_ROOT/Resources/TaskDockBetaPublicKey.pem"
 [[ -f "$BETA_PUBLIC_KEY" ]] || { echo "Missing beta activation public key" >&2; exit 1; }
 cp "$BETA_PUBLIC_KEY" "$APP/Contents/Resources/TaskDockBetaPublicKey.pem"
@@ -52,7 +58,7 @@ codesign --verify --deep --strict "$APP"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" == "$BUILD" ]]
 
-mkdir -p "$PROJECT_ROOT/dist"
+mkdir -p "$OUTPUT_DIRECTORY"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ASSET"
 unzip -tq "$ASSET" >/dev/null
 mkdir "$WORK/extracted"
@@ -61,6 +67,7 @@ EXTRACTED="$WORK/extracted/TaskDock.app"
 codesign --verify --deep --strict "$EXTRACTED"
 cmp "$BETA_PUBLIC_KEY" "$EXTRACTED/Contents/Resources/TaskDockBetaPublicKey.pem"
 cmp "$BETA_CODE_HASHES" "$EXTRACTED/Contents/Resources/TaskDockBetaCodeHashes.txt"
+taskdock_verify_license_resources "$PROJECT_ROOT" "$EXTRACTED"
 file "$EXTRACTED/Contents/MacOS/TaskDock" | grep -q 'arm64'
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXTRACTED/Contents/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXTRACTED/Contents/Info.plist")" == "$BUILD" ]]

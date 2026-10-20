@@ -78,6 +78,7 @@ final class SettingsStore: ObservableObject {
     @Published var taskbarSideInset: CGFloat {
         didSet { defaults.set(Double(taskbarSideInset), forKey: taskbarSideInsetKey) }
     }
+    @Published var taskbarItemWidthMode: TaskbarItemWidthMode { didSet { save() } }
     @Published var taskbarItemFontSize: CGFloat { didSet { save() } }
     @Published var favoriteMagnificationEnabled: Bool { didSet { save() } }
     @Published var favoriteMagnificationScale: CGFloat { didSet { save() } }
@@ -93,10 +94,14 @@ final class SettingsStore: ObservableObject {
     @Published var dockCompanionOverlayEnabled: Bool { didSet { save() } }
     @Published var toggleModifier: TaskbarToggleModifier { didSet { save() } }
     @Published private(set) var appOrder: [String] { didSet { save() } }
-    @Published private(set) var favoriteApps: [FavoriteApp] { didSet { save() } }
+    @Published private(set) var favoriteApps: [FavoriteApp] { didSet { save(); favoritesDidChange() } }
     @Published private(set) var recentApps: [FavoriteApp] { didSet { save() } }
-    @Published private(set) var favoriteFolders: [FavoriteFolder] { didSet { save() } }
-    private(set) var taskbarFavoriteFlowWidth: CGFloat = 0
+    @Published private(set) var favoriteFolders: [FavoriteFolder] { didSet { save(); favoritesDidChange() } }
+    @Published private(set) var dockFavoritesSyncEnabled: Bool
+    @Published private(set) var dockTransientApps: [FavoriteApp] = []
+    @Published var dockFavoritesSyncError: String?
+    var onFavoritesChanged: (() -> Void)?
+    private var importingDockFavorites = false
     private var taskbarArrivalOrder = TaskbarArrivalOrder()
     private var taskbarWindowOrderIDs: [String] = []
 
@@ -108,6 +113,7 @@ final class SettingsStore: ObservableObject {
     // Keep the existing preference key so prior slider adjustments are preserved.
     private let taskbarSideInsetKey = "taskdock.taskbarLeadingInset"
     private let taskbarHeightKey = "taskdock.taskbarHeight"
+    private let taskbarItemWidthModeKey = "taskdock.taskbarItemWidthMode"
     private let taskbarItemFontSizeKey = "taskdock.taskbarItemFontSize"
     private let favoriteMagnificationEnabledKey = "taskdock.favoriteMagnificationEnabled"
     private let favoriteMagnificationScaleKey = "taskdock.favoriteMagnificationScale"
@@ -126,7 +132,9 @@ final class SettingsStore: ObservableObject {
     private let favoriteAppsKey = "taskdock.favoriteApps"
     private let recentAppsKey = "taskdock.recentApps"
     private let favoriteFoldersKey = "taskdock.favoriteFolders"
-    private let taskbarFavoriteFlowWidthKey = "taskdock.taskbarFavoriteFlowWidth"
+    private let dockFavoritesSyncKey = "taskdock.dockFavoritesSyncEnabled"
+    private let independentFavoriteAppsKey = "taskdock.independentFavoriteApps"
+    private let independentFavoriteFoldersKey = "taskdock.independentFavoriteFolders"
 
     init() {
         blacklistedAppKeys = Set(defaults.stringArray(forKey: blacklistKey) ?? [])
@@ -165,6 +173,8 @@ final class SettingsStore: ObservableObject {
         taskbarSideInset = savedLeadingInset.isFinite
             ? min(max(CGFloat(savedLeadingInset), Self.taskbarSideInsetRange.lowerBound), Self.taskbarSideInsetRange.upperBound)
             : Self.defaultTaskbarSideInset
+        taskbarItemWidthMode = TaskbarItemWidthMode(rawValue:
+            defaults.string(forKey: taskbarItemWidthModeKey) ?? "fixed") ?? .fixed
         let savedFontSize = defaults.object(forKey: taskbarItemFontSizeKey) as? Double ?? Double(Self.defaultTaskbarItemFontSize)
         taskbarItemFontSize = Self.taskbarItemFontSizes.min {
             abs($0 - CGFloat(savedFontSize)) < abs($1 - CGFloat(savedFontSize))
@@ -219,13 +229,8 @@ final class SettingsStore: ObservableObject {
                 ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent("Downloads", isDirectory: true)
             favoriteFolders = [FavoriteFolder(path: downloads.standardizedFileURL.path)]
         }
-        let initialFavoriteWidth = TaskbarFavoriteLaneLayout.contentWidth(
-            appCount: favoriteApps.count, folderCount: favoriteFolders.count)
-        let savedFavoriteWidth = defaults.object(forKey: taskbarFavoriteFlowWidthKey) as? Double
-        taskbarFavoriteFlowWidth = savedFavoriteWidth.map { CGFloat($0) }.flatMap {
-            $0.isFinite && $0 > 0 ? $0 : nil
-        } ?? initialFavoriteWidth
-        defaults.set(Double(taskbarFavoriteFlowWidth), forKey: taskbarFavoriteFlowWidthKey)
+        dockFavoritesSyncEnabled = defaults.bool(forKey: dockFavoritesSyncKey)
+        dockFavoritesSyncError = nil
         defaults.set(appOrder, forKey: appOrderKey)
     }
 
@@ -275,6 +280,47 @@ final class SettingsStore: ObservableObject {
 
     func isFavorite(_ appKey: String) -> Bool {
         favoriteApps.contains { $0.id == appKey }
+    }
+
+    func setDockFavoritesSyncEnabled(_ enabled: Bool) {
+        guard enabled != dockFavoritesSyncEnabled else { return }
+        dockFavoritesSyncError = nil
+        if enabled {
+            defaults.set(try? JSONEncoder().encode(favoriteApps), forKey: independentFavoriteAppsKey)
+            defaults.set(try? JSONEncoder().encode(favoriteFolders), forKey: independentFavoriteFoldersKey)
+        }
+        dockFavoritesSyncEnabled = enabled
+        if !enabled { dockTransientApps = [] }
+        defaults.set(enabled, forKey: dockFavoritesSyncKey)
+        if !enabled {
+            importingDockFavorites = true
+            if let data = defaults.data(forKey: independentFavoriteAppsKey),
+               let apps = try? JSONDecoder().decode([FavoriteApp].self, from: data) { favoriteApps = apps }
+            if let data = defaults.data(forKey: independentFavoriteFoldersKey),
+               let folders = try? JSONDecoder().decode([FavoriteFolder].self, from: data) { favoriteFolders = folders }
+            importingDockFavorites = false
+        }
+    }
+
+    func replaceFavoritesFromDock(apps: [FavoriteApp], folders: [FavoriteFolder]) {
+        importingDockFavorites = true
+        if favoriteApps != apps { favoriteApps = apps }
+        if favoriteFolders != folders { favoriteFolders = folders }
+        importingDockFavorites = false
+    }
+
+    func replaceDockTransientApps(_ apps: [FavoriteApp]) {
+        if dockTransientApps != apps { dockTransientApps = apps }
+    }
+
+    var displayedFavoriteApps: [FavoriteApp] {
+        guard dockFavoritesSyncEnabled else { return favoriteApps }
+        let pinned = Set(favoriteApps.map(\.id))
+        return favoriteApps + dockTransientApps.filter { !pinned.contains($0.id) }
+    }
+
+    private func favoritesDidChange() {
+        if !importingDockFavorites && dockFavoritesSyncEnabled { onFavoritesChanged?() }
     }
 
     func toggleFavorite(for window: WindowModel) {
@@ -495,6 +541,7 @@ final class SettingsStore: ObservableObject {
         }
         defaults.set(layoutMode.rawValue, forKey: layoutModeKey)
         defaults.set(Double(taskbarHeight), forKey: taskbarHeightKey)
+        defaults.set(taskbarItemWidthMode.rawValue, forKey: taskbarItemWidthModeKey)
         defaults.set(Double(taskbarItemFontSize), forKey: taskbarItemFontSizeKey)
         defaults.set(favoriteMagnificationEnabled, forKey: favoriteMagnificationEnabledKey)
         defaults.set(Double(favoriteMagnificationScale), forKey: favoriteMagnificationScaleKey)

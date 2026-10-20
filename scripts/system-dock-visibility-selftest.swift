@@ -8,6 +8,7 @@ struct SystemDockVisibilitySelfTest {
         testVisibleAtLaunchAndControllerRestart()
         testOriginallyUnsetPreferences()
         testTemporaryTaskbarHideAndReturn()
+        testExpiredAccessAndReactivation()
         print("DOCK_VISIBILITY_OK")
     }
 
@@ -117,6 +118,30 @@ struct SystemDockVisibilitySelfTest {
         precondition(task.dictionary(forKey: "taskdock.originalSystemDockPreferences") == nil)
 
         controller.synchronize(hidden: true) // Taskbar comes back.
+        precondition(dock.double(forKey: "autohide-delay") == 1000)
+        controller.restore()
+        precondition(dock.double(forKey: "autohide-delay") == 0.25)
+        precondition(restarts == 4)
+    }
+
+    private static func testExpiredAccessAndReactivation() {
+        let (domain, dock, task, cleanup) = testDefaults()
+        defer { cleanup() }
+        dock.set(true, forKey: "autohide")
+        dock.set(0.25, forKey: "autohide-delay")
+        var restarts = 0
+        let controller = SystemDockVisibilityController(
+            domain: domain, dockDefaults: dock, snapshotDefaults: task,
+            restartDock: { restarts += 1 })
+        controller.synchronize(hidden: true, accessAllowed: true)
+        precondition(dock.double(forKey: "autohide-delay") == 1000)
+        controller.synchronize(hidden: true, accessAllowed: false)
+        precondition(dock.bool(forKey: "autohide"))
+        precondition(dock.double(forKey: "autohide-delay") == 0.25)
+        precondition(task.dictionary(forKey: "taskdock.originalSystemDockPreferences") == nil)
+        controller.synchronize(hidden: false, accessAllowed: false)
+        precondition(restarts == 2, "Locked modes must not overwrite the restored preferences")
+        controller.synchronize(hidden: true, accessAllowed: true)
         precondition(dock.double(forKey: "autohide-delay") == 1000)
         controller.restore()
         precondition(dock.double(forKey: "autohide-delay") == 0.25)

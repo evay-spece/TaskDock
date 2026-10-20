@@ -7,6 +7,38 @@ struct PreparedUpdate {
 }
 
 enum UpdateSupport {
+    static func archiveLegacyBackups(in directory: URL? = nil) {
+        let directory = directory ?? backupDirectory
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil
+        ) else { return }
+        for app in entries where app.lastPathComponent.hasPrefix("TaskDock-before-online-update-")
+            && app.pathExtension == "app" {
+            try? archiveBackup(app)
+        }
+    }
+
+    private static var backupDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/TaskDock/Backups", isDirectory: true)
+    }
+
+    private static func archiveBackup(_ app: URL) throws {
+        let archive = app.appendingPathExtension("zip")
+        if FileManager.default.fileExists(atPath: archive.path) {
+            try run("/usr/bin/unzip", arguments: ["-tq", archive.path])
+            try FileManager.default.removeItem(at: app)
+            return
+        }
+        let temporary = archive.deletingLastPathComponent()
+            .appendingPathComponent(".\(archive.lastPathComponent).\(UUID().uuidString).tmp")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        try run("/usr/bin/ditto", arguments: ["-c", "-k", "--sequesterRsrc", "--keepParent", app.path, temporary.path])
+        try run("/usr/bin/unzip", arguments: ["-tq", temporary.path])
+        try FileManager.default.moveItem(at: temporary, to: archive)
+        try FileManager.default.removeItem(at: app)
+    }
+
     static func isNewer(_ candidate: String, than current: String) -> Bool {
         let candidateParts = versionParts(candidate)
         let currentParts = versionParts(current)
@@ -79,11 +111,9 @@ enum UpdateSupport {
             throw UpdateFailure.installLocationNotWritable
         }
 
-        let backup = parent.appendingPathComponent("TaskDock-update-backup-\(UUID().uuidString).app")
-        let backupDirectory = backupDirectory ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/TaskDock/Backups", isDirectory: true)
+        let backupDirectory = backupDirectory ?? Self.backupDirectory
         try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
-        let retainedBackup = backupDirectory
+        let backup = backupDirectory
             .appendingPathComponent("TaskDock-before-online-update-\(UUID().uuidString).app")
         let script = #"""
         current_app="$1"
@@ -92,7 +122,6 @@ enum UpdateSupport {
         staging_root="$4"
         backup_app="$5"
         should_relaunch="$6"
-        retained_backup="$7"
 
         for _ in {1..200}; do
           if ! /bin/kill -0 "$old_pid" 2>/dev/null; then break; fi
@@ -102,7 +131,14 @@ enum UpdateSupport {
 
         /bin/mv "$current_app" "$backup_app" || exit 11
         if /bin/mv "$new_app" "$current_app" && { [[ "$should_relaunch" != "1" ]] || /usr/bin/open -n "$current_app"; }; then
-          /bin/mv "$backup_app" "$retained_backup" || exit 13
+          archive_tmp="$backup_app.zip.tmp"
+          if /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$backup_app" "$archive_tmp" &&
+             /usr/bin/unzip -tq "$archive_tmp" >/dev/null &&
+             /bin/mv "$archive_tmp" "$backup_app.zip"; then
+            /bin/rm -rf "$backup_app"
+          else
+            /bin/rm -f "$archive_tmp"
+          fi
           /bin/rm -rf "$staging_root"
           exit 0
         fi
@@ -122,8 +158,7 @@ enum UpdateSupport {
             String(currentProcessID),
             prepared.stagingRoot.path,
             backup.path,
-            relaunch ? "1" : "0",
-            retainedBackup.path
+            relaunch ? "1" : "0"
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

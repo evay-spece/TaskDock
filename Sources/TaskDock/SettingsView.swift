@@ -6,14 +6,18 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case taskbar
     case dockCompanion
+    case feedback
+    case about
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .general: return "通用"
-        case .taskbar: return "任务栏模式"
+        case .taskbar: return "任务栏"
         case .dockCompanion: return "融合模式"
+        case .feedback: return "用户反馈"
+        case .about: return "关于"
         }
     }
 
@@ -22,18 +26,26 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .general: return "gearshape"
         case .taskbar: return "rectangle.bottomthird.inset.filled"
         case .dockCompanion: return "dock.rectangle"
+        case .feedback: return "bubble.left.and.bubble.right"
+        case .about: return "info.circle"
         }
     }
 }
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var license: LicenseService
     @ObservedObject private var updateChecker = UpdateChecker.shared
     @State private var selectedTab: SettingsTab = .general
+    @AppStorage("feedbackDraftTitle") private var feedbackTitle = ""
+    @AppStorage("feedbackDraftDetails") private var feedbackDetails = ""
+    @State private var feedbackOpenFailed = false
+    @State private var feedbackCopied = false
     let windows: [WindowModel]
     let onChanged: () -> Void
     let onVisualChanged: () -> Void
     let onLayoutChanged: () -> Void
+    let onOpenLicense: () -> Void
 
     private var apps: [(key: String, name: String, icon: NSImage?)] {
         let grouped = Dictionary(grouping: windows, by: { $0.appKey })
@@ -76,93 +88,197 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach(SettingsTab.allCases) { tab in
                     Button {
                         selectedTab = tab
                     } label: {
-                        VStack(spacing: 5) {
+                        HStack(spacing: 12) {
                             Image(systemName: tab.systemImage)
-                                .font(.system(size: 25, weight: .regular))
-                                .frame(height: 29)
-                            HStack(spacing: 3) {
-                                Text(tab.label)
-                                    .font(.system(size: 12, weight: .medium))
-                                if tab == .dockCompanion {
-                                    Text("实验")
-                                        .font(.system(size: 9, weight: .semibold))
-                                        .foregroundStyle(.orange)
-                                }
-                            }
-                            .lineLimit(1)
+                                .font(.system(size: 17, weight: .medium))
+                                .frame(width: 23)
+                            Text(tab.label)
+                                .font(.system(size: 14, weight: selectedTab == tab ? .semibold : .medium))
+                            Spacer(minLength: 0)
                         }
-                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
-                        .frame(width: 106, height: 70)
-                        .background {
-                            if selectedTab == tab {
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.primary.opacity(0.07))
-                            }
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.primary)
+                        .padding(.horizontal, 15)
+                        .frame(height: 45)
+                        .background(
+                            selectedTab == tab ? Color.accentColor.opacity(0.15) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 11)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 11))
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 14)
+            .padding(.top, 65)
+            .padding(.bottom, 16)
+            .frame(width: 208)
+            .background(Color(nsColor: .textBackgroundColor))
 
-            Divider()
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(width: 1)
 
             Group {
                 switch selectedTab {
                 case .general: generalTab
                 case .taskbar: taskbarTab
                 case .dockCompanion: dockCompanionTab
+                case .feedback: feedbackTab
+                case .about: aboutTab
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(minWidth: 720, minHeight: 660)
+        .frame(minWidth: 850, minHeight: 620)
+    }
+
+    private var feedbackTab: some View {
+        tabScrollView {
+            settingsSection(title: "提建议或报告问题", description: "通过腾讯问卷反馈建议或问题，也可以先在这里整理草稿。") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if feedbackURL == nil {
+                        Label("反馈表单暂未开放", systemImage: "info.circle")
+                            .foregroundStyle(.secondary)
+                        Text("目前尚未配置腾讯问卷，暂时无法提交。你可以先保存草稿或复制内容。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("点击下方按钮在浏览器打开腾讯问卷，在问卷中填写并确认提交。这里的草稿不会自动上传，请按需复制粘贴。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("反馈草稿（可选）")
+                    TextField("标题（最多 120 字）", text: $feedbackTitle)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: feedbackTitle) { value in
+                            feedbackTitle = String(value.prefix(120))
+                            feedbackCopied = false
+                        }
+                    Text("详细内容")
+                    TextEditor(text: $feedbackDetails)
+                        .font(.body)
+                        .frame(minHeight: 150)
+                        .padding(4)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.15)))
+                        .accessibilityLabel("反馈详细内容")
+                        .onChange(of: feedbackDetails) { value in
+                            feedbackDetails = String(value.prefix(2000))
+                            feedbackCopied = false
+                        }
+                    Text("\(feedbackDetails.count)/2000 字")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("请勿填写密码、激活码或其他隐私信息。复制内容包含下方版本信息，方便定位问题。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(feedbackEnvironment)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                    Text("草稿会保存在本机，关闭设置后可继续编辑。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("打开腾讯问卷…") {
+                            guard let url = feedbackURL else { return }
+                            feedbackOpenFailed = !NSWorkspace.shared.open(url)
+                        }
+                        .disabled(feedbackURL == nil)
+                        Button(feedbackCopied ? "已复制" : "复制反馈内容") {
+                            let pasteboard = NSPasteboard.general
+                            pasteboard.clearContents()
+                            feedbackCopied = pasteboard.setString(FeedbackDraft.copyText(title: feedbackTitle, details: feedbackDetails, environment: feedbackEnvironment), forType: .string)
+                        }
+                    }
+                    if feedbackOpenFailed {
+                        Text("未能打开浏览器，请重试。当前填写的内容已保留。")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+        }
+    }
+
+    private var feedbackURL: URL? {
+        FeedbackDraft.configuredFormURL
+    }
+
+    private var feedbackEnvironment: String {
+        FeedbackDraft.environment(
+            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知",
+            build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "未知",
+            systemVersion: ProcessInfo.processInfo.operatingSystemVersionString
+        )
     }
 
     private var generalTab: some View {
         tabScrollView {
-            settingsSection(title: "显示模式", description: "选择 TaskDock 当前使用的模式；窗口显示在各模式中分别设置。") {
-                Picker("显示模式", selection: $settings.layoutMode) {
-                    ForEach(TaskDockLayoutMode.allCases) { mode in
-                        Label(mode.label, systemImage: mode.systemImage).tag(mode)
-                    }
+            settingsSection(title: "购买与激活", description: "7 天完整试用，¥59 一次购买授权；人工核款后通过邮件发码。") {
+                HStack {
+                    Text((license.activatedLicenseCode.isEmpty && !LicenseStatus.hasValidPurchase) ?
+                        (license.isUnlocked ? "试用剩余 \(license.remainingDays) 天" : "试用已结束") : "已购买授权")
+                    Spacer()
+                    Button("购买与激活…", action: onOpenLicense)
                 }
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
-                .onChange(of: settings.layoutMode) { _ in onChanged() }
+            }
+            settingsSection(title: "显示模式", description: "选择 TaskDock 当前使用的模式；窗口显示在各模式中分别设置。") {
+                HStack {
+                    Text("显示模式")
+                    Spacer()
+                    Picker("显示模式", selection: $settings.layoutMode) {
+                        ForEach(TaskDockLayoutMode.allCases) { mode in
+                            Label(mode.label, systemImage: mode.systemImage).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: settings.layoutMode) { _ in onChanged() }
+                }
             }
 
             settingsSection(title: "任务项外观", description: "设置窗口卡片的高亮颜色。") {
-                Picker("任务项高亮颜色", selection: $settings.taskItemHighlightStyle) {
-                    ForEach(TaskItemHighlightStyle.allCases) { style in
-                        Text(style.label).tag(style)
+                HStack {
+                    Text("任务项高亮颜色")
+                    Spacer()
+                    Picker("任务项高亮颜色", selection: $settings.taskItemHighlightStyle) {
+                        ForEach(TaskItemHighlightStyle.allCases) { style in
+                            Text(style.label).tag(style)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: settings.taskItemHighlightStyle) { _ in onVisualChanged() }
                 }
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
-                .onChange(of: settings.taskItemHighlightStyle) { _ in onVisualChanged() }
             }
 
             settingsSection(title: "隐藏/显示快捷键", description: "连续按两次选定的修饰键。") {
-                Picker("隐藏/显示 TaskDock 快捷键", selection: $settings.toggleModifier) {
-                    ForEach(TaskbarToggleModifier.allCases) { modifier in
-                        Text(modifier.label).tag(modifier)
+                HStack {
+                    Text("快捷键")
+                    Spacer()
+                    Picker("隐藏/显示 TaskDock 快捷键", selection: $settings.toggleModifier) {
+                        ForEach(TaskbarToggleModifier.allCases) { modifier in
+                            Text(modifier.label).tag(modifier)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: settings.toggleModifier) { _ in onChanged() }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
-                .onChange(of: settings.toggleModifier) { _ in onChanged() }
             }
 
             settingsSection(
@@ -229,13 +345,41 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection(title: "软件更新", description: "当前版本 \(updateChecker.currentVersion)") {
-                HStack {
+        }
+    }
+
+    private var aboutTab: some View {
+        tabScrollView {
+            settingsSection(title: "TaskDock", description: "版本 \(updateChecker.currentVersion)") {
+                HStack(spacing: 16) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 64, height: 64)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("TaskDock")
+                            .font(.title2.weight(.bold))
+                        Text("让窗口切换更顺手")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+
+            settingsSection(title: "软件更新") {
+                HStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("检查更新")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("当前版本 \(updateChecker.currentVersion)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
                     Button("检查更新") { updateChecker.check() }
                         .disabled(isChecking)
-                    Spacer()
-                    updateStatusView
                 }
+                updateStatusView
             }
         }
     }
@@ -251,7 +395,7 @@ struct SettingsView: View {
 
             modeVisualSettings(for: .taskbar)
 
-            settingsSection(title: "位置与尺寸", description: "调整任务栏内容两侧留白和高度。") {
+            settingsSection(title: "位置与尺寸", description: "调整任务栏留白、高度和收藏图标放大倍率。") {
                 HStack {
                     Label("任务栏两侧留白", systemImage: "arrow.left.and.right")
                     Spacer()
@@ -279,20 +423,36 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
+                    Label("图标放大倍率", systemImage: "arrow.up.left.and.arrow.down.right")
+                    Spacer()
+                    Text(String(format: "%.1f×", Double(settings.favoriteMagnificationScale)))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $settings.favoriteMagnificationScale, in: 1.2...2.4, step: 0.1)
+                    .accessibilityLabel("图标放大倍率")
+                    .disabled(!settings.favoriteMagnificationEnabled)
+                    .onChange(of: settings.favoriteMagnificationScale) { _ in onLayoutChanged() }
+                HStack {
                     Label("任务项文字大小", systemImage: "textformat.size")
                     Spacer()
                     Text("\(Int(settings.taskbarItemFontSize.rounded())) pt")
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                Picker("任务项文字大小", selection: $settings.taskbarItemFontSize) {
-                    ForEach(SettingsStore.taskbarItemFontSizes, id: \.self) { size in
-                        Text("\(Int(size))").tag(size)
+                HStack {
+                    Text("字号")
+                    Spacer()
+                    Picker("任务项文字大小", selection: $settings.taskbarItemFontSize) {
+                        ForEach(SettingsStore.taskbarItemFontSizes, id: \.self) { size in
+                            Text("\(Int(size))").tag(size)
+                        }
                     }
-                }
+                    .labelsHidden()
                     .pickerStyle(.menu)
                     .fixedSize(horizontal: true, vertical: false)
                     .onChange(of: settings.taskbarItemFontSize) { _ in onVisualChanged() }
+                }
                 Text("仅调整任务栏任务项文字，共 5 档；默认 12 pt。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -308,12 +468,44 @@ struct SettingsView: View {
             }
 
             settingsSection(title: "任务项与动画", description: "只影响任务栏模式。") {
+                HStack {
+                    Text("任务项长度")
+                    Spacer()
+                    Picker("任务项长度", selection: $settings.taskbarItemWidthMode) {
+                        ForEach(TaskbarItemWidthMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: settings.taskbarItemWidthMode) { _ in onLayoutChanged() }
+                }
+                Text("固定长度：所有任务项等宽。自适应长度：按标题长短分配，最长不超过原固定长度。空间不足时可横向滚动。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider()
                 settingsToggle(
                     title: "同一 App 有 3 个及以上窗口时折叠",
                     description: "点击折叠的任务项可选择具体窗口；1–2 个窗口仍分别显示。",
                     isOn: $settings.taskbarCollapseSameAppWindows
                 )
                     .onChange(of: settings.taskbarCollapseSameAppWindows) { _ in onLayoutChanged() }
+            }
+
+            settingsSection(title: "收藏栏来源", description: "选择 TaskDock 独立收藏，或与系统 Dock 的固定项目保持同步。") {
+                settingsToggle(
+                    title: "收藏栏同步系统 Dock",
+                    description: "同步系统 Dock 的固定 App、文件夹及当前显示的临时 App；固定项目在任一边调整都会同步。Finder 始终保留。",
+                    isOn: Binding(
+                        get: { settings.dockFavoritesSyncEnabled },
+                        set: { settings.setDockFavoritesSyncEnabled($0); onChanged() }
+                    )
+                )
+                if let error = settings.dockFavoritesSyncError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
 
             settingsSection(title: "收藏 App", description: "收藏固定在任务栏左侧；也可从任务项右键菜单添加。") {
@@ -331,17 +523,6 @@ struct SettingsView: View {
                     isOn: $settings.favoriteMagnificationEnabled
                 )
                     .onChange(of: settings.favoriteMagnificationEnabled) { _ in onVisualChanged() }
-                HStack {
-                    Label("图标放大倍率", systemImage: "arrow.up.left.and.arrow.down.right")
-                    Spacer()
-                    Text(String(format: "%.1f×", Double(settings.favoriteMagnificationScale)))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: $settings.favoriteMagnificationScale, in: 1.2...2.4, step: 0.1)
-                    .accessibilityLabel("图标放大倍率")
-                    .disabled(!settings.favoriteMagnificationEnabled)
-                    .onChange(of: settings.favoriteMagnificationScale) { _ in onLayoutChanged() }
                 Text("运行中的 App 图标下方显示灰白色指示灯，无论是否有窗口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -363,6 +544,8 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .disabled(settings.dockFavoritesSyncEnabled
+                                    && favorite.bundleIdentifier == "com.apple.finder")
                             }
                             .padding(.vertical, 7)
                             if index < settings.favoriteApps.count - 1 { Divider() }
@@ -443,29 +626,39 @@ struct SettingsView: View {
             }
 
             settingsSection(title: "窗口与栏位", description: "设置融合栏显示条件和底栏外观。Finder 不受窗口数量门槛限制。") {
-                Picker("至少需要的窗口数", selection: Binding(
-                    get: { settings.dockCompanionMinimumWindowCount },
-                    set: { settings.dockCompanionMinimumWindowCount = min(max($0, 1), 20) }
-                )) {
-                    ForEach(1...20, id: \.self) { count in
-                        Text("\(count) 个").tag(count)
+                HStack {
+                    Text("至少需要的窗口数")
+                    Spacer()
+                    Picker("至少需要的窗口数", selection: Binding(
+                        get: { settings.dockCompanionMinimumWindowCount },
+                        set: { settings.dockCompanionMinimumWindowCount = min(max($0, 1), 20) }
+                    )) {
+                        ForEach(1...20, id: \.self) { count in
+                            Text("\(count) 个").tag(count)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: settings.dockCompanionMinimumWindowCount) { _ in onChanged() }
                 }
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
-                .onChange(of: settings.dockCompanionMinimumWindowCount) { _ in onChanged() }
                 Divider()
-                Picker("App 窗口折叠门槛", selection: Binding(
-                    get: { settings.dockCompanionCollapseThreshold },
-                    set: { settings.dockCompanionCollapseThreshold = min(max($0, 2), 20) }
-                )) {
-                    ForEach(2...20, id: \.self) { count in
-                        Text("\(count) 个").tag(count)
+                HStack {
+                    Text("App 窗口折叠门槛")
+                    Spacer()
+                    Picker("App 窗口折叠门槛", selection: Binding(
+                        get: { settings.dockCompanionCollapseThreshold },
+                        set: { settings.dockCompanionCollapseThreshold = min(max($0, 2), 20) }
+                    )) {
+                        ForEach(2...20, id: \.self) { count in
+                            Text("\(count) 个").tag(count)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: settings.dockCompanionCollapseThreshold) { _ in onChanged() }
                 }
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
-                .onChange(of: settings.dockCompanionCollapseThreshold) { _ in onChanged() }
                 Text("达到门槛后只占一个位置；点击 App 入口可选择具体窗口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -597,11 +790,15 @@ struct SettingsView: View {
 
     private func tabScrollView<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(selectedTab.label)
+                    .font(.system(size: 24, weight: .bold))
+                    .padding(.bottom, 10)
                 content()
             }
-            .padding(.horizontal, 42)
-            .padding(.vertical, 20)
+            .padding(.horizontal, 30)
+            .padding(.top, 54)
+            .padding(.bottom, 30)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -609,16 +806,21 @@ struct SettingsView: View {
     private func modeVisualSettings(for mode: TaskDockLayoutMode) -> some View {
         Group {
             settingsSection(title: "任务项透明度", description: "仅影响当前模式的任务项。") {
-                Picker("非选中项透明度", selection: Binding(
-                    get: { Int((settings.transparency(in: mode) * 100).rounded()) },
-                    set: { settings.setTransparency(Double($0) / 100, in: mode); onVisualChanged() }
-                )) {
-                    ForEach(Array(stride(from: 0, through: 70, by: 5)), id: \.self) { percent in
-                        Text("\(percent)%").tag(percent)
+                HStack {
+                    Text("非选中项透明度")
+                    Spacer()
+                    Picker("非选中项透明度", selection: Binding(
+                        get: { Int((settings.transparency(in: mode) * 100).rounded()) },
+                        set: { settings.setTransparency(Double($0) / 100, in: mode); onVisualChanged() }
+                    )) {
+                        ForEach(Array(stride(from: 0, through: 70, by: 5)), id: \.self) { percent in
+                            Text("\(percent)%").tag(percent)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
-                .pickerStyle(.menu)
-                .fixedSize(horizontal: true, vertical: false)
             }
 
             settingsSection(title: "窗口显示", description: "仅影响当前模式的窗口清单。") {
@@ -667,14 +869,12 @@ struct SettingsView: View {
             Toggle(title, isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .tint(Color(red: 0, green: 0.75, blue: 0.56))
+                .tint(.accentColor)
                 .accessibilityLabel(title)
                 .accessibilityHint(description)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.vertical, 10)
     }
 
     private func settingsSection<Content: View>(
@@ -683,17 +883,28 @@ struct SettingsView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.headline)
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.leading, 4)
             if let description {
                 Text(description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
             }
-            content()
-            Divider()
-                .padding(.top, 12)
+            VStack(alignment: .leading, spacing: 12) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 17))
+            .overlay {
+                RoundedRectangle(cornerRadius: 17)
+                    .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+            }
         }
-        .padding(.vertical, 14)
+        .padding(.bottom, 15)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

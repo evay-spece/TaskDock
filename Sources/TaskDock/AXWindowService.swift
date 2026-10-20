@@ -8,6 +8,7 @@ final class AXWindowService {
         let window: AXUIElement
         let original: CGRect
         var applied: CGRect
+        var lastAdjustmentAt = Date()
     }
 
     private struct ScreenWindow {
@@ -21,6 +22,38 @@ final class AXWindowService {
     private var nextWindowOrder = 0
     private var knownFinderDocumentWindows: [AXUIElement] = []
     private var hasEnumeratedFinderWindows = false
+    private var windowEvidence: [String: MinimizedWindowEvidence] = [:]
+
+    private func evidenceKey(_ window: AXUIElement) -> String? {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(window, &pid) == .success else { return nil }
+        return "\(pid)-\(CFHash(window))"
+    }
+
+    func observeWindowLifecycle(_ element: AXUIElement, notification: String) {
+        guard let key = evidenceKey(element) else { return }
+        var evidence = windowEvidence[key] ?? MinimizedWindowEvidence()
+        switch notification {
+        case kAXWindowMiniaturizedNotification: evidence.observeMiniaturized()
+        case kAXWindowDeminiaturizedNotification: evidence.observeRestored()
+        case kAXUIElementDestroyedNotification: evidence.observeDestroyed()
+        default: return
+        }
+        windowEvidence[key] = evidence
+    }
+
+    private func hasMinimizedEvidence(_ window: AXUIElement) -> Bool {
+        guard let key = evidenceKey(window) else { return false }
+        var evidence = windowEvidence[key] ?? MinimizedWindowEvidence()
+        let value = copyAttribute(window, kAXMinimizedAttribute) as? Bool
+        let result = evidence.resolve(liveValue: value,
+            isLiveWindow: (copyAttribute(window, kAXRoleAttribute) as? String) == kAXWindowRole)
+        windowEvidence[key] = evidence
+        return result
+    }
+    private var pointerAvoidedFrames: [String: ReservedWindowFrame] = [:]
+    private var pointerSuppressedFrames: [String: CGRect] = [:]
+    private var activePointerRetractions: [String: UUID] = [:]
     private var reservedWindowFrames: [String: ReservedWindowFrame] = [:]
     private var activeWindowLifts: [String: UUID] = [:]
     private var liftSuppressedFrames: [String: CGRect] = [:]
@@ -52,6 +85,10 @@ final class AXWindowService {
             .sorted {
                 ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast)
             }
+        let runningPIDs = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
+        windowEvidence = windowEvidence.filter { key, _ in
+            key.split(separator: "-").first.flatMap { Int32($0) }.map { runningPIDs.contains($0) } ?? false
+        }
         let topmostWindow = frontmostPID.flatMap { topmostScreenWindow(for: $0) }
 
         for app in runningApps {
@@ -86,7 +123,7 @@ final class AXWindowService {
                 let subrole = copyAttribute(axWindow, kAXSubroleAttribute) as? String
 
                 let main = (copyAttribute(axWindow, kAXMainAttribute) as? Bool) ?? false
-                let minimized = (copyAttribute(axWindow, kAXMinimizedAttribute) as? Bool) ?? false
+                let minimized = hasMinimizedEvidence(axWindow)
                 let matchesFocusedWindow = focusedWindow.map { CFEqual($0, axWindow) } ?? false
                 let matchesMainWindow = mainWindow.map { CFEqual($0, axWindow) } ?? false
                 let matchesTopmostWindow = topmostAXWindow.map { CFEqual($0, axWindow) } ?? false
@@ -146,19 +183,20 @@ final class AXWindowService {
         let axApp = AXUIElementCreateApplication(window.pid)
         let displayableWindows = (copyAttribute(axApp, kAXWindowsAttribute) as? [AXUIElement] ?? [])
             .filter { shouldIncludeWindow($0, bundleIdentifier: window.bundleIdentifier) }
+        let currentWindow = currentAXWindow(for: window, among: displayableWindows) ?? window.axWindow
         let needsWindowPromotion = window.finderTab != nil ||
             displayableWindows.count != 1 ||
-            !CFEqual(displayableWindows[0], window.axWindow)
-        let wasMinimized = (copyAttribute(window.axWindow, kAXMinimizedAttribute) as? Bool) ?? window.isMinimized
+            !CFEqual(displayableWindows[0], currentWindow)
+        let wasMinimized = (copyAttribute(currentWindow, kAXMinimizedAttribute) as? Bool) ?? window.isMinimized
         let restored = wasMinimized
-            ? setAttribute(window.axWindow, kAXMinimizedAttribute, value: false as CFBoolean) : false
+            ? setAttribute(currentWindow, kAXMinimizedAttribute, value: false as CFBoolean) : false
         let alreadyFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
         let activatedThroughWorkspace = alreadyFrontmost || app.activate(options: [.activateIgnoringOtherApps])
         let activatedThroughAccessibility = activatedThroughWorkspace
             ? false : setAttribute(axApp, kAXFrontmostAttribute, value: true as CFBoolean)
         // A single document window needs only app activation. AXMain/AXFocused/AXRaise
         // after that can make apps such as ChatGPT briefly redraw the same window.
-        let promoted = needsWindowPromotion ? promote(window.axWindow) : false
+        let promoted = needsWindowPromotion ? promote(currentWindow) : false
         let selectedTab = selectFinderTab(window.finderTab)
 
         // Some apps acknowledge activation before switching their selected window.
@@ -170,7 +208,7 @@ final class AXWindowService {
             guard needsWindowPromotion,
                   NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid,
                   !self.isCurrentlyFocused(window) else { return }
-            _ = self.promote(window.axWindow)
+            _ = self.promote(currentWindow)
             _ = self.selectFinderTab(window.finderTab)
         }
 
@@ -196,7 +234,32 @@ final class AXWindowService {
 
     func isMinimized(_ window: WindowModel) -> Bool {
         guard NSRunningApplication(processIdentifier: window.pid) != nil else { return false }
-        return (copyAttribute(window.axWindow, kAXMinimizedAttribute) as? Bool) == true
+        let axApp = AXUIElementCreateApplication(window.pid)
+        let candidates = copyAttribute(axApp, kAXWindowsAttribute) as? [AXUIElement] ?? []
+        let currentWindow = currentAXWindow(for: window, among: candidates) ?? window.axWindow
+        return hasMinimizedEvidence(currentWindow)
+    }
+
+    func minimize(_ window: WindowModel) -> Bool {
+        guard NSRunningApplication(processIdentifier: window.pid)?.isHidden == false else { return false }
+        let axApp = AXUIElementCreateApplication(window.pid)
+        let displayableWindows = (copyAttribute(axApp, kAXWindowsAttribute) as? [AXUIElement] ?? [])
+            .filter { shouldIncludeWindow($0, bundleIdentifier: window.bundleIdentifier) }
+        guard let currentWindow = currentAXWindow(for: window, among: displayableWindows) else { return false }
+        return setAttribute(currentWindow, kAXMinimizedAttribute, value: true as CFBoolean)
+    }
+
+    func hasOnscreenWindow(for pid: pid_t) -> Bool {
+        topmostScreenWindow(for: pid) != nil
+    }
+
+    private func currentAXWindow(for window: WindowModel, among candidates: [AXUIElement]) -> AXUIElement? {
+        if let exact = candidates.first(where: { CFEqual($0, window.axWindow) }) { return exact }
+        guard !window.rawTitle.isEmpty else { return nil }
+        let titleMatches = candidates.filter {
+            (copyAttribute($0, kAXTitleAttribute) as? String) == window.rawTitle
+        }
+        return titleMatches.count == 1 ? titleMatches[0] : nil
     }
 
     func frame(of window: WindowModel) -> CGRect? {
@@ -222,7 +285,10 @@ final class AXWindowService {
 
     func restoreMinimized(_ windows: [WindowModel]) {
         for window in windows where isMinimized(window) {
-            _ = setAttribute(window.axWindow, kAXMinimizedAttribute, value: false as CFBoolean)
+            let axApp = AXUIElementCreateApplication(window.pid)
+            let candidates = copyAttribute(axApp, kAXWindowsAttribute) as? [AXUIElement] ?? []
+            let currentWindow = currentAXWindow(for: window, among: candidates) ?? window.axWindow
+            _ = setAttribute(currentWindow, kAXMinimizedAttribute, value: false as CFBoolean)
         }
     }
 
@@ -281,6 +347,10 @@ final class AXWindowService {
         liftSuppressedFrames = liftSuppressedFrames.filter { activeWindowIDs.contains($0.key) }
 
         for window in windows where !window.isMinimized {
+            if let pointerFrame = pointerAvoidedFrames[window.nativeWindowID],
+               WindowSpaceReservationGeometry.approximatelyEqual(windowFrame(window.axWindow) ?? .zero, pointerFrame.applied) {
+                continue
+            }
             if (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) == true {
                 continue
             }
@@ -339,6 +409,115 @@ final class AXWindowService {
         }
     }
 
+    func moveWindowsAboveTaskbar(_ windows: [WindowModel], panelFrame: CGRect,
+                                screenFrame: CGRect, visibleFrame: CGRect, desktopTop: CGFloat,
+                                includeOrdinaryWindows: Bool) {
+        guard let entries = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else { return }
+        let activeIDs = Set(windows.map(\.nativeWindowID))
+        pointerAvoidedFrames = pointerAvoidedFrames.filter { activeIDs.contains($0.key) }
+        pointerSuppressedFrames = pointerSuppressedFrames.filter { activeIDs.contains($0.key) }
+        activePointerRetractions = activePointerRetractions.filter { activeIDs.contains($0.key) }
+        var seen = Set<CFHashCode>()
+        for window in windows where !window.isMinimized {
+            guard seen.insert(CFHash(window.axWindow)).inserted,
+                  (window.accessibilitySubrole == kAXStandardWindowSubrole || (window.accessibilitySubrole ?? "").isEmpty),
+                  NSRunningApplication(processIdentifier: window.pid)?.isHidden == false,
+                  (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) != true,
+                  !reservedWindowFrames.values.contains(where: { CFEqual($0.window, window.axWindow) }),
+                  let current = windowFrame(window.axWindow) else { continue }
+            if activePointerRetractions[window.nativeWindowID] != nil { continue }
+            if let prior = pointerAvoidedFrames[window.nativeWindowID],
+               !WindowSpaceReservationGeometry.approximatelyEqual(current, prior.applied) {
+                pointerAvoidedFrames.removeValue(forKey: window.nativeWindowID)
+                if WindowSpaceReservationGeometry.approximatelyEqual(current, prior.original) {
+                    let defaultLayout = PointerWindowAvoidanceGeometry.isDefaultAvoidanceWindow(
+                        current, screen: screenFrame, visibleScreen: visibleFrame, desktopTop: desktopTop)
+                    // An immediate rebound is an app rejecting our adjustment. A later
+                    // maximize/tile action must be eligible for its default animation again.
+                    if !defaultLayout || Date().timeIntervalSince(prior.lastAdjustmentAt) < 1.5 {
+                        pointerSuppressedFrames[window.nativeWindowID] = current
+                    }
+                }
+            }
+            if let suppressed = pointerSuppressedFrames[window.nativeWindowID] {
+                if WindowSpaceReservationGeometry.approximatelyEqual(current, suppressed) { continue }
+                pointerSuppressedFrames.removeValue(forKey: window.nativeWindowID)
+            }
+            guard includeOrdinaryWindows || PointerWindowAvoidanceGeometry.isDefaultAvoidanceWindow(
+                current, screen: screenFrame, visibleScreen: visibleFrame, desktopTop: desktopTop) else { continue }
+            guard let target = PointerWindowAvoidanceGeometry.retractedFrame(window: current,
+                screen: screenFrame, panel: panelFrame, desktopTop: desktopTop) else { continue }
+            // AX is already bound to this window. An on-screen PID/frame
+            // match is sufficient; the title matcher uses a stricter 2pt tolerance
+            // and can reject valid windows whose CG/AX bounds differ slightly.
+            let isOnScreen = entries.contains { entry in
+                guard (entry[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                      (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == window.pid,
+                      (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
+                      let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
+                      let frame = CGRect(dictionaryRepresentation: bounds) else { return false }
+                return WindowSpaceReservationGeometry.approximatelyEqual(frame, current, tolerance: 6)
+            }
+            guard isOnScreen else { continue }
+            var sizeSettable: DarwinBoolean = false
+            guard AXUIElementIsAttributeSettable(window.axWindow, kAXSizeAttribute as CFString,
+                &sizeSettable) == .success, sizeSettable.boolValue else { continue }
+            let id = window.nativeWindowID
+            let token = UUID()
+            let original = pointerAvoidedFrames[id]?.original ?? current
+            pointerAvoidedFrames[id] = ReservedWindowFrame(window: window.axWindow,
+                original: original, applied: current)
+            activePointerRetractions[id] = token
+            advancePointerRetraction(id: id, token: token, start: current, target: target, step: 1)
+        }
+    }
+
+    private func advancePointerRetraction(id: String, token: UUID,
+                                           start: CGRect, target: CGRect, step: Int) {
+        guard activePointerRetractions[id] == token else { return }
+        guard var reservation = pointerAvoidedFrames[id],
+              let current = windowFrame(reservation.window) else {
+            activePointerRetractions.removeValue(forKey: id)
+            return
+        }
+        guard NSEvent.pressedMouseButtons == 0,
+              WindowSpaceReservationGeometry.approximatelyEqual(current, reservation.applied, tolerance: 2) else {
+            activePointerRetractions.removeValue(forKey: id)
+            pointerSuppressedFrames[id] = current
+            return
+        }
+        let steps = 8
+        let next = PointerWindowAvoidanceGeometry.animationFrame(
+            from: start, to: target, progress: CGFloat(step) / CGFloat(steps))
+        var size = next.size
+        guard let value = AXValueCreate(.cgSize, &size),
+              setAttribute(reservation.window, kAXSizeAttribute, value: value),
+              let applied = windowFrame(reservation.window) else {
+            activePointerRetractions.removeValue(forKey: id)
+            pointerSuppressedFrames[id] = windowFrame(reservation.window) ?? current
+            return
+        }
+        reservation.applied = applied
+        reservation.lastAdjustmentAt = Date()
+        pointerAvoidedFrames[id] = reservation
+        guard WindowSpaceReservationGeometry.approximatelyEqual(applied, next, tolerance: 2) else {
+            // App minimum sizes or automatic layout may reject the resize.
+            // Retain the restoration record but never repeatedly fight that frame.
+            activePointerRetractions.removeValue(forKey: id)
+            pointerSuppressedFrames[id] = applied
+            return
+        }
+        if step == steps {
+            activePointerRetractions.removeValue(forKey: id)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+            self?.advancePointerRetraction(id: id, token: token, start: start, target: target, step: step + 1)
+        }
+    }
+
     private func beginWindowLift(id: String, window: AXUIElement,
                                  original: CGRect, start: CGRect, target: CGRect) {
         let token = UUID()
@@ -394,6 +573,20 @@ final class AXWindowService {
             }
         }
         reservedWindowFrames.removeAll()
+        clearPointerWindowAvoidance(restore: restore)
+    }
+
+    func clearPointerWindowAvoidance(restore: Bool) {
+        activePointerRetractions.removeAll()
+        if restore {
+            for prior in pointerAvoidedFrames.values {
+                guard let current = windowFrame(prior.window),
+                      WindowSpaceReservationGeometry.approximatelyEqual(current, prior.applied) else { continue }
+                _ = setWindowFrame(prior.window, frame: prior.original)
+            }
+        }
+        pointerAvoidedFrames.removeAll()
+        pointerSuppressedFrames.removeAll()
     }
 
     func showAllWindows(for pid: pid_t, from windows: [WindowModel]) {
@@ -598,7 +791,14 @@ final class AXWindowService {
         // Finder can change a normal window's accessibility subrole to AXDialog
         // after it is minimized. Keep that minimized document window visible in
         // TaskDock without weakening dialog filtering for Finder's live popups.
-        let isMinimized = (copyAttribute(window, kAXMinimizedAttribute) as? Bool) ?? false
+        let isMinimized = hasMinimizedEvidence(window)
+        let key = evidenceKey(window)
+        if let key, windowEvidence[key]?.destroyed == true { return false }
+        if subrole == kAXStandardWindowSubrole,
+           (copyAttribute(window, kAXModalAttribute) as? Bool) != true, let key {
+            windowEvidence[key, default: MinimizedWindowEvidence()].knownDocument = true
+        }
+        let wasKnownDocument = key.flatMap { windowEvidence[$0]?.knownDocument } ?? false
         if bundleIdentifier == "com.apple.finder",
            WindowFilterRules.shouldIgnoreFinderWindow(
                title: title,
@@ -633,7 +833,8 @@ final class AXWindowService {
             title: title,
             subrole: subrole,
             isMinimized: isMinimized,
-            isModal: isModal
+            isModal: isModal,
+            wasKnownDocument: wasKnownDocument
         ) {
             return true
         }

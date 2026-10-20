@@ -3,6 +3,7 @@ set -euo pipefail
 REPOSITORY="${1:?repository required}"
 TAG="${2:?tag required}"
 EXPECTED_SHA="${3:?expected SHA-256 required}"
+EXPECTED_BUILD="${4:-}"
 VERSION="${TAG#v}"
 ASSET="TaskDock-$VERSION-macOS-arm64.zip"
 WORK="$(mktemp -d)"
@@ -19,6 +20,9 @@ APP="$WORK/extracted/TaskDock.app"
 [[ -d "$APP" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" == <-> ]]
+if [[ -n "$EXPECTED_BUILD" ]]; then
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" == "$EXPECTED_BUILD" ]]
+fi
 file "$APP/Contents/MacOS/TaskDock" | grep -q 'arm64'
 codesign --verify --deep --strict "$APP"
 echo "PUBLIC_RELEASE_VERIFIED $REPOSITORY $TAG $ASSET $ACTUAL_SHA"

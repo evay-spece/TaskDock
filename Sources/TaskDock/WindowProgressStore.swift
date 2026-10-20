@@ -4,6 +4,7 @@ import ApplicationServices
 struct WindowProgressCandidate {
     let id: String
     let pid: pid_t
+    let bundleIdentifier: String?
     let isFocused: Bool
     let window: AXUIElement
 }
@@ -32,8 +33,12 @@ final class WindowProgressScanner: @unchecked Sendable {
         let grouped = Dictionary(grouping: candidates, by: \.pid)
         retainedByPID = retainedByPID.filter { grouped[$0.key] != nil }
         for (pid, targets) in grouped {
-            let deadline = Date().addingTimeInterval(0.45)
             let targetIDs = Set(targets.map(\.id))
+            if let download = BrowserDownloadProgress.read(bundleIdentifier: targets[0].bundleIdentifier) {
+                let target = targets.first(where: \.isFocused) ?? targets[0]
+                result[target.id] = download
+            }
+            let deadline = Date().addingTimeInterval(0.45)
             var retained = (retainedByPID[pid] ?? []).filter { targetIDs.contains($0.targetID) }
             retained.removeAll { item in
                 guard Date() < deadline else { return false }

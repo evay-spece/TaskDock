@@ -22,17 +22,20 @@ struct FavoriteMagnificationSelfTest {
         }
         precondition(FavoriteMagnificationLayout.sideClearance(for: 1) == 108)
         precondition(FavoriteMagnificationLayout.idleSideClearance(for: 1) == 31)
-        let favoriteLaneLimit = TaskbarFavoriteLaneLayout.contentWidth(
-            appCount: 15, folderCount: 1)
-        precondition(favoriteLaneLimit == 548)
-        precondition(TaskbarFavoriteLaneLayout.flowWidth(
-            contentWidth: TaskbarFavoriteLaneLayout.contentWidth(
-                appCount: 16, folderCount: 1), limit: favoriteLaneLimit) == favoriteLaneLimit,
-            "Adding a favorite must not push recent apps or task items")
-        precondition(TaskbarFavoriteLaneLayout.flowWidth(
-            contentWidth: TaskbarFavoriteLaneLayout.contentWidth(
-                appCount: 14, folderCount: 1), limit: favoriteLaneLimit) == 516,
-            "Removing a favorite may pull the right-hand items left")
+        // Reproduce the installed layout: 13 apps, three folders and Trash
+        // exceed the former saved 516-point lane. Following lanes must move.
+        let laneBefore = TaskbarFavoriteLaneLayout.contentWidth(appCount: 13, folderCount: 3)
+        let laneAfter = TaskbarFavoriteLaneLayout.contentWidth(appCount: 14, folderCount: 3)
+        precondition(laneBefore == 548 && laneAfter == 580)
+        precondition(laneAfter - laneBefore == FavoriteMagnificationLayout.itemStep,
+            "A new favorite must move recent apps and tasks by one complete slot")
+        precondition(TaskbarFavoriteLaneLayout.contentWidth(appCount: 12, folderCount: 3)
+            == laneBefore - FavoriteMagnificationLayout.itemStep)
+        precondition(TaskbarFavoriteLaneLayout.contentWidth(appCount: 0, folderCount: 0,
+            showsTrash: false) == 0)
+        precondition(TaskbarFavoriteLaneLayout.contentWidth(appCount: 0, folderCount: 1) == 64)
+        precondition(TaskbarFavoriteLaneLayout.contentWidth(appCount: 1, folderCount: 0,
+            showsTrash: false) == 32)
         let safety = FavoriteMagnificationLayout.sideClearance(for: 1)
         let rightEdgePointer = FavoriteMagnificationLayout.clampedPointerX(
             trackingX: 9 * 32 + 2 * safety,

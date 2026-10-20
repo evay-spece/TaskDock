@@ -22,7 +22,11 @@ final class SystemDockVisibilityController {
         restartDockAction = restartDock ?? Self.restartSystemDock
     }
 
-    func synchronize(hidden: Bool) {
+    func synchronize(hidden: Bool, accessAllowed: Bool = true) {
+        guard accessAllowed else {
+            restore()
+            return
+        }
         guard let dockDefaults, appliedHidden != hidden else { return }
         let preferences = dockDefaults.persistentDomain(forName: domain) ?? [:]
         let autohideMatches = (preferences["autohide"] as? Bool) == hidden

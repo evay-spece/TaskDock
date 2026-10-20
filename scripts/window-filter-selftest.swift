@@ -63,6 +63,10 @@ struct WindowFilterSelfTest {
             bundleIdentifier: "com.microsoft.Excel", title: "工作簿1", subrole: "AXDialog",
             isMinimized: true, isModal: false
         ))
+        precondition(WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+            bundleIdentifier: "com.microsoft.Word", title: "文稿1", subrole: "AXDialog",
+            isMinimized: true, isModal: false
+        ))
         for identifier in ["com.apple.Terminal", "com.apple.Safari", "com.liguangming.Shadowrocket", "com.tencent.xinWeChat", "com.apple.iCal", "com.apple.Notes"] {
             precondition(WindowFilterRules.shouldKeepMinimizedDocumentWindow(
                 bundleIdentifier: identifier, title: "文档", subrole: "AXDialog",
@@ -97,6 +101,21 @@ struct WindowFilterSelfTest {
             bundleIdentifier: "com.apple.Preview", title: "图片", subrole: "AXDialog",
             isMinimized: true, isModal: false
         ))
+
+        for subrole in ["AXDialog", "AXUnknown", "AXStandardWindow", ""] {
+            precondition(WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+                bundleIdentifier: "test.third-party", title: "", subrole: subrole,
+                isMinimized: true, isModal: false, wasKnownDocument: true))
+            precondition(!WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+                bundleIdentifier: "test.third-party", title: "", subrole: subrole,
+                isMinimized: false, isModal: false, wasKnownDocument: true))
+        }
+        precondition(!WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+            bundleIdentifier: "test.third-party", title: "", subrole: "AXDialog",
+            isMinimized: true, isModal: true, wasKnownDocument: true))
+        precondition(!WindowFilterRules.shouldKeepMinimizedDocumentWindow(
+            bundleIdentifier: "test.third-party", title: "", subrole: "AXDialog",
+            isMinimized: true, isModal: false, wasKnownDocument: false))
 
         guard CommandLine.arguments.contains("--live") else {
             print("WINDOW_FILTER_OK static")

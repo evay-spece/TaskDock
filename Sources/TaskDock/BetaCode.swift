@@ -32,7 +32,7 @@ enum BetaCode {
     ) throws -> String {
         let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
         if !code.contains(".") {
-            let normalized = code.uppercased().filter { $0 != "-" && !$0.isWhitespace }
+            let normalized = code.uppercased().filter { !"-‐‑‒–—−".contains($0) && !$0.isWhitespace }
             guard normalized.count == 12,
                   normalized.allSatisfy({ alphabet.contains($0) }) else {
                 throw BetaCodeError.invalidCode

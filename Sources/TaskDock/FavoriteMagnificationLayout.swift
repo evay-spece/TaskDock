@@ -31,10 +31,6 @@ enum TaskbarFavoriteLaneLayout {
         let itemCount = appCount + folderCount + (showsTrash ? 1 : 0) + separatorCount
         return CGFloat(itemCount * 32 - separatorCount * 28)
     }
-
-    static func flowWidth(contentWidth: CGFloat, limit: CGFloat) -> CGFloat {
-        min(max(0, contentWidth), max(0, limit))
-    }
 }
 
 struct FavoriteVisualGeometry {

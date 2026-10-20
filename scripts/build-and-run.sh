@@ -36,6 +36,8 @@ cp "$PROJECT_ROOT/Resources/TaskDockBetaPublicKey.pem" \
   "$APP_PATH/Contents/Resources/TaskDockBetaPublicKey.pem"
 cp "$PROJECT_ROOT/Resources/TaskDockBetaCodeHashes.txt" \
   "$APP_PATH/Contents/Resources/TaskDockBetaCodeHashes.txt"
+source "$PROJECT_ROOT/scripts/license-resources.sh"
+taskdock_copy_license_resources "$PROJECT_ROOT" "$APP_PATH"
 if [[ -f "$ICON_SOURCE" ]]; then
   ICON_WORK_DIR="$(mktemp -d)"
   ICONSET_PATH="$ICON_WORK_DIR/TaskDock.iconset"
@@ -55,7 +57,15 @@ if [[ -f "$ICON_SOURCE" ]]; then
 fi
 codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"
 xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
-killall -9 TaskDock 2>/dev/null || true
+swift -e 'import AppKit; for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier == "com.taskdock.app" { app.terminate() }'
+for attempt in {1..30}; do
+  if ! pgrep -x TaskDock >/dev/null; then break; fi
+  sleep 0.2
+done
+if pgrep -x TaskDock >/dev/null; then
+  echo "TaskDock 未正常退出；请先退出旧实例，以便恢复系统 Dock 状态。" >&2
+  exit 1
+fi
 open -n "$APP_PATH"
 
 echo "TaskDock 已更新并启动：$APP_PATH"

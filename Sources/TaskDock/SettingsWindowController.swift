@@ -7,31 +7,38 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let onChanged: () -> Void
     private let onVisualChanged: () -> Void
     private let onLayoutChanged: () -> Void
+    private let license: LicenseService
+    private let onOpenLicense: () -> Void
     private var hostingView: NSHostingView<AnyView>!
 
     init(
         settings: SettingsStore,
         windows: [WindowModel],
+        license: LicenseService,
+        onOpenLicense: @escaping () -> Void,
         onChanged: @escaping () -> Void,
         onVisualChanged: @escaping () -> Void,
         onLayoutChanged: @escaping () -> Void
     ) {
         self.settings = settings
+        self.license = license
+        self.onOpenLicense = onOpenLicense
         self.onChanged = onChanged
         self.onVisualChanged = onVisualChanged
         self.onLayoutChanged = onLayoutChanged
 
         let rootView = AnyView(
             SettingsView(
-                settings: settings, windows: windows,
+                settings: settings, license: license, windows: windows,
                 onChanged: onChanged,
                 onVisualChanged: onVisualChanged,
-                onLayoutChanged: onLayoutChanged
+                onLayoutChanged: onLayoutChanged,
+                onOpenLicense: onOpenLicense
             )
         )
         let hostingView = NSHostingView(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 940, height: 710),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -55,10 +62,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func update(windows: [WindowModel]) {
         hostingView.rootView = AnyView(
             SettingsView(
-                settings: settings, windows: windows,
+                settings: settings, license: license, windows: windows,
                 onChanged: onChanged,
                 onVisualChanged: onVisualChanged,
-                onLayoutChanged: onLayoutChanged
+                onLayoutChanged: onLayoutChanged,
+                onOpenLicense: onOpenLicense
             )
         )
     }

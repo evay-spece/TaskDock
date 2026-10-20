@@ -62,11 +62,35 @@ struct UpdateSupportSelfTest {
                 .object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         } while installedVersion != expectedVersion && Date() < deadline
         precondition(installedVersion == expectedVersion)
-        let backups = try FileManager.default.contentsOfDirectory(
-            at: testRoot.appendingPathComponent("backups", isDirectory: true),
-            includingPropertiesForKeys: nil
-        )
-        precondition(backups.count == 1)
+        let backupDirectory = testRoot.appendingPathComponent("backups", isDirectory: true)
+        let archiveDeadline = Date().addingTimeInterval(5)
+        var backups: [URL] = []
+        repeat {
+            backups = try FileManager.default.contentsOfDirectory(
+                at: backupDirectory, includingPropertiesForKeys: nil
+            )
+            if backups.count == 1, backups[0].pathExtension == "zip" { break }
+            Thread.sleep(forTimeInterval: 0.05)
+        } while Date() < archiveDeadline
+        precondition(backups.count == 1 && backups[0].pathExtension == "zip")
+        try verifyArchive(backups[0])
+
+        let legacyApp = backupDirectory.appendingPathComponent("TaskDock-before-online-update-legacy.app")
+        let legacyArchive = legacyApp.appendingPathExtension("zip")
+        try FileManager.default.copyItem(at: currentApp, to: legacyApp)
+        UpdateSupport.archiveLegacyBackups(in: backupDirectory)
+        precondition(!FileManager.default.fileExists(atPath: legacyApp.path))
+        precondition(FileManager.default.fileExists(atPath: legacyArchive.path))
+        try verifyArchive(legacyArchive)
         print("UPDATE_SUPPORT_OK")
+    }
+
+    private static func verifyArchive(_ archive: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-tq", archive.path]
+        try process.run()
+        process.waitUntilExit()
+        precondition(process.terminationStatus == 0)
     }
 }
