@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import TaskDockBrowserProtocol
 
 struct WindowProgressCandidate {
     let id: String
@@ -33,10 +34,15 @@ final class WindowProgressScanner: @unchecked Sendable {
         let grouped = Dictionary(grouping: candidates, by: \.pid)
         retainedByPID = retainedByPID.filter { grouped[$0.key] != nil }
         for (pid, targets) in grouped {
+            // Browser extension downloads are separate task items, never window overlays.
+            if targets[0].bundleIdentifier == "com.google.Chrome" || targets[0].bundleIdentifier == "com.microsoft.edgemac" { continue }
             let targetIDs = Set(targets.map(\.id))
             if let download = BrowserDownloadProgress.read(bundleIdentifier: targets[0].bundleIdentifier) {
                 let target = targets.first(where: \.isFocused) ?? targets[0]
                 result[target.id] = download
+                // A direct browser download snapshot is authoritative; don't mix
+                // it with an unrelated page's accessibility progress indicator.
+                if targets[0].bundleIdentifier == "com.google.Chrome" || targets[0].bundleIdentifier == "com.microsoft.edgemac" { continue }
             }
             let deadline = Date().addingTimeInterval(0.45)
             var retained = (retainedByPID[pid] ?? []).filter { targetIDs.contains($0.targetID) }
@@ -121,6 +127,18 @@ enum WindowProgressValue {
 @MainActor
 final class WindowProgressStore: ObservableObject {
     @Published private(set) var values: [String: Double] = [:]
+    @Published private(set) var downloads: [BrowserDownloadTask] = []
+    private var dismissedDownloadIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "dismissedCompletedDownloads") ?? [])
+    func updateDownloads(_ next: [BrowserDownloadTask]) {
+        let visible = next.filter { !$0.download.isComplete || !dismissedDownloadIDs.contains($0.id) }
+        if downloads != visible { downloads = visible }
+    }
+    func dismissDownload(_ task: BrowserDownloadTask) {
+        guard task.download.isComplete else { return }
+        dismissedDownloadIDs.insert(task.id)
+        UserDefaults.standard.set(Array(dismissedDownloadIDs).sorted(), forKey: "dismissedCompletedDownloads")
+        downloads.removeAll { $0.id == task.id }
+    }
 
     func update(_ next: [String: Double]) {
         guard values != next else { return }

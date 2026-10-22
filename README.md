@@ -80,6 +80,21 @@ swiftc Sources/TaskDockPreferences/ModePreferenceStorage.swift scripts/mode-pref
 /tmp/taskdock-mode-preference-selftest
 ```
 
+## Finder 右键功能
+
+右键功能及其设置入口默认关闭、隐藏。获得设置入口后，可在“右键功能”页开启功能、勾选和排序新建类型，并添加自定义扩展名。隐藏设置入口不会关闭已经启用的功能。Finder 右键的“新建文件”子菜单支持 Excel、Word、TXT、CSV、Markdown 和 RTF；Excel、Word 使用空白文档模板，自定义类型创建空白文件。
+
+选中文件后右键“剪切”或按 ⌘X，在目标文件夹按 ⌘V 或右键“粘贴并移动”。移动成功后源文件消失，同名冲突不会覆盖。快捷键仅在 Finder 文件浏览区域生效，重命名和搜索输入框保留文字编辑快捷键。首次使用可在设置中点“授权并测试 ⌘X”。
+
+应用内嵌 `com.taskdock.app.finder` 扩展，开发构建和打包脚本会编译、签名并复制模板。原独立版的文件类型设置会在首次启动时迁移到 TaskDock。
+
+文件操作自测：
+
+```bash
+swiftc Sources/TaskDock/FileTypeSettings.swift Sources/TaskDock/FileCreator.swift Sources/TaskDock/ClipboardCutter.swift scripts/finder-file-actions-selftest.swift -o /tmp/taskdock-finder-file-actions-selftest
+/tmp/taskdock-finder-file-actions-selftest
+```
+
 ## 当前限制
 
 - 当前仅定位主屏幕。

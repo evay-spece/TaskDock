@@ -27,6 +27,8 @@ APP="$WORK/TaskDock.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$PROJECT_ROOT/AppBundle/TaskDock.app/Contents/Info.plist" "$APP/Contents/Info.plist"
 cp "$BIN" "$APP/Contents/MacOS/TaskDock"
+source "$PROJECT_ROOT/scripts/browser-bridge-resources.sh"
+taskdock_copy_browser_bridge "$PROJECT_ROOT" "$APP" "$(dirname "$BIN")"
 source "$PROJECT_ROOT/scripts/license-resources.sh"
 taskdock_copy_license_resources "$PROJECT_ROOT" "$APP"
 BETA_PUBLIC_KEY="$PROJECT_ROOT/Resources/TaskDockBetaPublicKey.pem"
@@ -53,6 +55,9 @@ fi
 
 IDENTITY="${TASKDOCK_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/Apple Development/ { print $2; exit }')}"
 [[ -n "$IDENTITY" ]] || IDENTITY='-'
+taskdock_sign_browser_bridge "$APP" "$IDENTITY"
+source "$PROJECT_ROOT/scripts/finder-extension-resources.sh"
+taskdock_copy_finder_extension "$PROJECT_ROOT" "$APP" "$IDENTITY"
 codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
 codesign --verify --deep --strict "$APP"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" == "$VERSION" ]]
@@ -68,6 +73,8 @@ codesign --verify --deep --strict "$EXTRACTED"
 cmp "$BETA_PUBLIC_KEY" "$EXTRACTED/Contents/Resources/TaskDockBetaPublicKey.pem"
 cmp "$BETA_CODE_HASHES" "$EXTRACTED/Contents/Resources/TaskDockBetaCodeHashes.txt"
 taskdock_verify_license_resources "$PROJECT_ROOT" "$EXTRACTED"
+taskdock_verify_browser_bridge "$PROJECT_ROOT" "$EXTRACTED"
+taskdock_verify_finder_extension "$PROJECT_ROOT" "$EXTRACTED"
 file "$EXTRACTED/Contents/MacOS/TaskDock" | grep -q 'arm64'
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXTRACTED/Contents/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXTRACTED/Contents/Info.plist")" == "$BUILD" ]]

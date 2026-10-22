@@ -23,6 +23,8 @@ EXECUTABLE_PATH="$(swift build -c "$BUILD_CONFIGURATION" "${BUILD_SDK_ARGS[@]}" 
 [[ -f "$EXECUTABLE_PATH" ]] || { echo "找不到构建产物：$EXECUTABLE_PATH" >&2; exit 1; }
 mkdir -p "$APP_PATH/Contents/MacOS"
 cp "$EXECUTABLE_PATH" "$APP_PATH/Contents/MacOS/TaskDock"
+source "$PROJECT_ROOT/scripts/browser-bridge-resources.sh"
+taskdock_copy_browser_bridge "$PROJECT_ROOT" "$APP_PATH" "$(dirname "$EXECUTABLE_PATH")"
 [[ -f "$PROJECT_ROOT/Resources/TaskDockBetaPublicKey.pem" ]] || {
   echo "缺少内测激活码公钥" >&2
   exit 1
@@ -55,6 +57,9 @@ if [[ -f "$ICON_SOURCE" ]]; then
   iconutil -c icns "$ICONSET_PATH" -o "$APP_PATH/Contents/Resources/TaskDock.icns"
   rm -rf "$ICON_WORK_DIR"
 fi
+taskdock_sign_browser_bridge "$APP_PATH" "$SIGNING_IDENTITY"
+source "$PROJECT_ROOT/scripts/finder-extension-resources.sh"
+taskdock_copy_finder_extension "$PROJECT_ROOT" "$APP_PATH" "$SIGNING_IDENTITY"
 codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_PATH"
 xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 swift -e 'import AppKit; for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier == "com.taskdock.app" { app.terminate() }'

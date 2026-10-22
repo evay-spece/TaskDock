@@ -78,6 +78,9 @@ final class SettingsStore: ObservableObject {
     @Published var taskbarSideInset: CGFloat {
         didSet { defaults.set(Double(taskbarSideInset), forKey: taskbarSideInsetKey) }
     }
+    @Published var taskbarBackgroundTransparency: Double {
+        didSet { defaults.set(taskbarBackgroundTransparency, forKey: taskbarBackgroundTransparencyKey) }
+    }
     @Published var taskbarItemWidthMode: TaskbarItemWidthMode { didSet { save() } }
     @Published var taskbarItemFontSize: CGFloat { didSet { save() } }
     @Published var favoriteMagnificationEnabled: Bool { didSet { save() } }
@@ -113,6 +116,7 @@ final class SettingsStore: ObservableObject {
     // Keep the existing preference key so prior slider adjustments are preserved.
     private let taskbarSideInsetKey = "taskdock.taskbarLeadingInset"
     private let taskbarHeightKey = "taskdock.taskbarHeight"
+    private let taskbarBackgroundTransparencyKey = "taskdock.taskbarBackgroundTransparency"
     private let taskbarItemWidthModeKey = "taskdock.taskbarItemWidthMode"
     private let taskbarItemFontSizeKey = "taskdock.taskbarItemFontSize"
     private let favoriteMagnificationEnabledKey = "taskdock.favoriteMagnificationEnabled"
@@ -173,6 +177,9 @@ final class SettingsStore: ObservableObject {
         taskbarSideInset = savedLeadingInset.isFinite
             ? min(max(CGFloat(savedLeadingInset), Self.taskbarSideInsetRange.lowerBound), Self.taskbarSideInsetRange.upperBound)
             : Self.defaultTaskbarSideInset
+        let savedBackgroundTransparency = defaults.object(forKey: taskbarBackgroundTransparencyKey) as? Double ?? 0
+        taskbarBackgroundTransparency = savedBackgroundTransparency.isFinite
+            ? min(max(savedBackgroundTransparency, 0), 1) : 0
         taskbarItemWidthMode = TaskbarItemWidthMode(rawValue:
             defaults.string(forKey: taskbarItemWidthModeKey) ?? "fixed") ?? .fixed
         let savedFontSize = defaults.object(forKey: taskbarItemFontSizeKey) as? Double ?? Double(Self.defaultTaskbarItemFontSize)

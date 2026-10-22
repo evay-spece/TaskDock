@@ -9,9 +9,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let license = LicenseService()
     private var licenseWindowController: TaskDockLicenseWindowController?
     private var updateWindowController: UpdateProgressWindowController?
+    private let finderFileHotkeys = FinderCutHotkey()
+    private var pendingFileURL: URL?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(openFileURL(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL)
+        )
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        FileTypeSettings.migrateLegacyIfNeeded()
+        finderFileHotkeys.start()
+        NotificationCenter.default.addObserver(self, selector: #selector(testFinderCut),
+                                               name: .taskDockTestFinderCut, object: nil)
         configureApplicationMenu()
         Task.detached(priority: .utility) {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -31,6 +44,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if ProcessInfo.processInfo.arguments.contains("--show-license") {
             openLicense()
         }
+        if let pendingFileURL {
+            self.pendingFileURL = nil
+            handleFileURL(pendingFileURL)
+        }
+    }
+
+    @objc private func openFileURL(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        guard let raw = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: raw), url.scheme == "taskdockfile" else { return }
+        guard panelController != nil else { pendingFileURL = url; return }
+        handleFileURL(url)
+    }
+
+    private func handleFileURL(_ url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        if components.host == "settings" {
+            guard FileTypeSettings.isEntryVisible else { return }
+            panelController?.presentSettings()
+            NotificationCenter.default.post(name: .taskDockOpenFileSettings, object: nil)
+            return
+        }
+        guard FileTypeSettings.isEnabled,
+              let folderPath = components.queryItems?.first(where: { $0.name == "folder" })?.value else { return }
+        let folder = URL(fileURLWithPath: folderPath, isDirectory: true)
+        do {
+            let result: [URL]
+            switch components.host {
+            case "create":
+                guard let id = components.queryItems?.first(where: { $0.name == "kind" })?.value,
+                      let entry = FileTypeSettings.load().first(where: { $0.id == id && $0.enabled }) else { return }
+                result = [try FileCreator.create(entry, in: folder)]
+            case "move":
+                result = try ClipboardCutter.move(to: folder)
+            default:
+                return
+            }
+            NSWorkspace.shared.activateFileViewerSelecting(result)
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = components.host == "move" ? "无法粘贴并移动" : "无法新建文件"
+            alert.informativeText = error.localizedDescription
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+    }
+
+    @objc private func testFinderCut() {
+        guard FileTypeSettings.isEnabled else { return }
+        let status = finderFileHotkeys.testFinderSelection()
+        let alert = NSAlert()
+        alert.messageText = status.hasPrefix("items ") ? "剪切快捷键已就绪" : "剪切快捷键需要检查"
+        alert.informativeText = status.hasPrefix("items ")
+            ? "Finder 选中的文件已标记为剪切。到目标文件夹按 ⌘V，或右键选择“粘贴并移动”。"
+            : "请先在 Finder 选中测试文件，并允许 TaskDock 控制 Finder。诊断：\(status)"
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -95,10 +165,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildStatusMenu() {
         statusMenu.removeAllItems()
 
-        let canRestore = panelController?.canRestoreMinimizedWindows == true
+        let canRestore = panelController?.canRestoreHiddenApplications == true
         let minimizeItem = NSMenuItem(
-            title: canRestore ? "恢复刚才最小化的窗口" : "最小化全部窗口",
-            action: #selector(minimizeAllWindows), keyEquivalent: ""
+            title: canRestore ? "恢复刚才隐藏的 App" : "隐藏全部 App",
+            action: #selector(toggleAllApplications), keyEquivalent: ""
         )
         minimizeItem.image = NSImage(
             systemSymbolName: canRestore ? "rectangle.stack" : "minus.rectangle",
@@ -182,8 +252,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusMenu.addItem(quitItem)
     }
 
-    @objc private func minimizeAllWindows() {
-        panelController?.minimizeAllWindows()
+    @objc private func toggleAllApplications() {
+        panelController?.toggleAllApplications()
     }
 
     @objc private func selectLayoutMode(_ sender: NSMenuItem) {
@@ -224,6 +294,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func quitTaskDock() {
         NSApp.terminate(nil)
     }
+}
+
+extension Notification.Name {
+    static let taskDockOpenFileSettings = Notification.Name("TaskDockOpenFileSettings")
+    static let taskDockTestFinderCut = Notification.Name("TaskDockTestFinderCut")
 }
 
 let application = NSApplication.shared

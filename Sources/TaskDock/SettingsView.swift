@@ -1,9 +1,12 @@
 import AppKit
+import FinderSync
 import SwiftUI
 import UniformTypeIdentifiers
+import TaskDockBrowserProtocol
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general
+    case files
     case taskbar
     case dockCompanion
     case feedback
@@ -14,6 +17,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .general: return "通用"
+        case .files: return "右键功能"
         case .taskbar: return "任务栏"
         case .dockCompanion: return "融合模式"
         case .feedback: return "用户反馈"
@@ -24,6 +28,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .general: return "gearshape"
+        case .files: return "doc.badge.plus"
         case .taskbar: return "rectangle.bottomthird.inset.filled"
         case .dockCompanion: return "dock.rectangle"
         case .feedback: return "bubble.left.and.bubble.right"
@@ -37,10 +42,19 @@ struct SettingsView: View {
     @ObservedObject var license: LicenseService
     @ObservedObject private var updateChecker = UpdateChecker.shared
     @State private var selectedTab: SettingsTab = .general
+    @State private var fileEntries = FileTypeSettings.load()
+    @State private var customFileTitle = ""
+    @State private var customFileExtension = ""
+    @State private var fileTypeMessage = ""
+    @AppStorage(FileTypeSettings.enabledKey, store: UserDefaults(suiteName: FileTypeSettings.domain))
+    private var rightClickEnabled = false
+    @AppStorage(FileTypeSettings.entryVisibleKey, store: UserDefaults(suiteName: FileTypeSettings.domain))
+    private var rightClickEntryVisible = false
     @AppStorage("feedbackDraftTitle") private var feedbackTitle = ""
     @AppStorage("feedbackDraftDetails") private var feedbackDetails = ""
     @State private var feedbackOpenFailed = false
     @State private var feedbackCopied = false
+    @State private var browserBridgeMessage = ""
     let windows: [WindowModel]
     let onChanged: () -> Void
     let onVisualChanged: () -> Void
@@ -90,7 +104,7 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(SettingsTab.allCases) { tab in
+                ForEach(SettingsTab.allCases.filter { $0 != .files || rightClickEntryVisible }) { tab in
                     Button {
                         selectedTab = tab
                     } label: {
@@ -129,6 +143,8 @@ struct SettingsView: View {
             Group {
                 switch selectedTab {
                 case .general: generalTab
+                case .files:
+                    if rightClickEntryVisible { filesTab } else { generalTab }
                 case .taskbar: taskbarTab
                 case .dockCompanion: dockCompanionTab
                 case .feedback: feedbackTab
@@ -139,6 +155,111 @@ struct SettingsView: View {
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 850, minHeight: 620)
+        .onReceive(NotificationCenter.default.publisher(for: .taskDockOpenFileSettings)) { _ in
+            guard rightClickEntryVisible else { return }
+            fileEntries = FileTypeSettings.load()
+            selectedTab = .files
+        }
+        .onChange(of: rightClickEntryVisible) { visible in
+            if !visible, selectedTab == .files { selectedTab = .about }
+        }
+    }
+
+    private var filesTab: some View {
+        tabScrollView {
+            settingsSection(title: "右键功能", description: "在 Finder 右键菜单中新建文件，并使用剪切与移动。") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("启用右键功能", isOn: $rightClickEnabled)
+                    Button("隐藏“右键功能”入口") {
+                        rightClickEntryVisible = false
+                        selectedTab = .about
+                    }
+                    Text("隐藏设置入口后，已开启的右键功能会继续运行。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            settingsSection(title: "第三方右键菜单") {
+                ContextMenuSettingsView()
+            }
+            settingsSection(title: "Finder 右键新建文件", description: "所有新建类型收在“新建文件”子菜单。勾选显示的类型，用箭头调整顺序，改动立即生效。") {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(fileEntries.indices, id: \.self) { index in
+                        let entry = fileEntries[index]
+                        HStack(spacing: 12) {
+                            Toggle("\(entry.title)  .\(entry.fileExtension)", isOn: Binding(
+                                get: { fileEntries[index].enabled },
+                                set: { fileEntries[index].enabled = $0; saveFileEntries() }
+                            ))
+                            Spacer()
+                            Button("↑") { moveFileEntry(at: index, by: -1) }
+                                .disabled(index == 0)
+                            Button("↓") { moveFileEntry(at: index, by: 1) }
+                                .disabled(index == fileEntries.count - 1)
+                            if !entry.isBuiltIn {
+                                Button("移除") {
+                                    fileEntries.remove(at: index)
+                                    saveFileEntries()
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    HStack {
+                        TextField("名称，例如 JSON 文件", text: $customFileTitle)
+                        TextField("扩展名，例如 json", text: $customFileExtension)
+                            .frame(width: 145)
+                        Button("添加类型") { addFileEntry() }
+                    }
+                    if !fileTypeMessage.isEmpty {
+                        Text(fileTypeMessage).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("Excel、Word 使用空白文档模板；自定义类型生成空白文件。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!rightClickEnabled)
+            settingsSection(title: "Finder 剪切与移动", description: "选中文件后右键点“剪切”或按 ⌘X；在目标文件夹按 ⌘V，或右键点“粘贴并移动”。") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("剪切后会移动原文件。同名文件不会被覆盖；快捷键需要 TaskDock 保持运行。")
+                    Button("打开 Finder 扩展设置") {
+                        FIFinderSyncController.showExtensionManagementInterface()
+                    }
+                    Button("授权并测试 ⌘X") {
+                        NotificationCenter.default.post(name: .taskDockTestFinderCut, object: nil)
+                    }
+                    Text("先在 Finder 选中测试文件，再点上方按钮检查快捷键授权。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!rightClickEnabled)
+        }
+    }
+
+    private func saveFileEntries() {
+        FileTypeSettings.save(fileEntries)
+    }
+
+    private func moveFileEntry(at index: Int, by offset: Int) {
+        let other = index + offset
+        guard fileEntries.indices.contains(index), fileEntries.indices.contains(other) else { return }
+        fileEntries.swapAt(index, other)
+        saveFileEntries()
+    }
+
+    private func addFileEntry() {
+        let title = customFileTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = customFileExtension.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard FileTypeSettings.validName(title), FileTypeSettings.validExtension(suffix),
+              !fileEntries.contains(where: { $0.fileExtension.lowercased() == suffix }) else {
+            fileTypeMessage = "名称或扩展名无效，或扩展名已经存在。"
+            return
+        }
+        fileEntries.append(FileTypeEntry(id: UUID().uuidString, title: title,
+                                         baseName: "新建\(title)", fileExtension: suffix, enabled: true))
+        saveFileEntries()
+        customFileTitle = ""
+        customFileExtension = ""
+        fileTypeMessage = "已添加，Finder 菜单下次打开时生效。"
     }
 
     private var feedbackTab: some View {
@@ -231,6 +352,39 @@ struct SettingsView: View {
                         (license.isUnlocked ? "试用剩余 \(license.remainingDays) 天" : "试用已结束") : "已购买授权")
                     Spacer()
                     Button("购买与激活…", action: onOpenLicense)
+                }
+            }
+            settingsSection(title: "浏览器下载进度", description: "安装配套扩展后，为每个 Chrome / Edge 下载建立独立任务项，以文件名为标题。仅在本机传输文件名和进度，不传输完整路径、网址或文件内容。") {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(ProgressBrowser.allCases, id: \.rawValue) { browser in
+                        HStack {
+                            Text(browser.label)
+                            Spacer()
+                            Text(BrowserProgressIntegration.configured(browser) ? "本机通信已配置" : "尚未配置")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("连接 \(browser.label)") {
+                                do {
+                                    try BrowserProgressIntegration.register(browser)
+                                    browserBridgeMessage = "已配置 \(browser.label)。请在浏览器扩展管理页加载配套扩展；具体步骤见安装说明。"
+                                } catch { browserBridgeMessage = error.localizedDescription }
+                            }
+                            Button("断开连接") {
+                                do {
+                                    try BrowserProgressIntegration.unregister(browser)
+                                    browserBridgeMessage = "已断开 \(browser.label) 的本机通信。扩展残留进度最多 15 秒后消失。"
+                                } catch { browserBridgeMessage = error.localizedDescription }
+                            }
+                            .disabled(!BrowserProgressIntegration.configured(browser))
+                        }
+                    }
+                    HStack {
+                        Button("打开扩展文件夹", action: BrowserProgressIntegration.openExtensionFolder)
+                        Button("安装说明", action: BrowserProgressIntegration.openInstructions)
+                    }
+                    if !browserBridgeMessage.isEmpty {
+                        Text(browserBridgeMessage).font(.callout).foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             settingsSection(title: "显示模式", description: "选择 TaskDock 当前使用的模式；窗口显示在各模式中分别设置。") {
@@ -352,8 +506,10 @@ struct SettingsView: View {
         tabScrollView {
             settingsSection(title: "TaskDock", description: "版本 \(updateChecker.currentVersion)") {
                 HStack(spacing: 16) {
-                    Image(nsImage: NSApp.applicationIconImage)
-                        .resizable()
+                    RightClickEasterEggLogo {
+                        rightClickEntryVisible = true
+                        fileEntries = FileTypeSettings.load()
+                    }
                         .frame(width: 64, height: 64)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("TaskDock")
@@ -394,6 +550,29 @@ struct SettingsView: View {
             )
 
             modeVisualSettings(for: .taskbar)
+
+            settingsSection(title: "任务栏背景", description: "调节磨砂底座，图标和文字不变。") {
+                HStack {
+                    Label("任务栏背景透明度", systemImage: "circle.lefthalf.filled")
+                    Spacer()
+                    Text("\(Int((settings.taskbarBackgroundTransparency * 100).rounded()))%")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $settings.taskbarBackgroundTransparency, in: 0...1, step: 0.01)
+                    .accessibilityLabel("任务栏背景透明度")
+                    .onChange(of: settings.taskbarBackgroundTransparency) { _ in onVisualChanged() }
+                HStack {
+                    Text("更实")
+                    Spacer()
+                    Text("更透明")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Text("拖动实时预览并自动保存；0% 保留当前底色，100% 隐藏底座。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             settingsSection(title: "位置与尺寸", description: "调整任务栏留白、高度和收藏图标放大倍率。") {
                 HStack {

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>TaskDock 下载进度</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><span class="mark">↓</span><div><h1>TaskDock 下载进度</h1><p>每个文件，一项进度</p></div></header>
+  <section class="card"><div class="row"><span id="browser">浏览器</span><span class="pill" id="connection">正在检查连接…</span></div>
+    <div class="amount" id="progress">—</div><progress id="bar" max="1" value="0" hidden></progress><p id="summary">正在读取下载状态…</p>
+  </section>
+  <p class="hint" id="hint"></p>
+  <button id="retry">检查连接</button>
+  <footer>仅本机传输文件名和下载进度。<br>不传输完整路径、网址或文件内容。</footer>
+  <script src="popup.js"></script>
+</body></html>

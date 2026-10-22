@@ -53,7 +53,16 @@ final class AXWindowService {
     }
     private var pointerAvoidedFrames: [String: ReservedWindowFrame] = [:]
     private var pointerSuppressedFrames: [String: CGRect] = [:]
+    private var pointerSuppressedAt: [String: Date] = [:]
+    private var pointerDefaultRetries: [String: Int] = [:]
+    private var pointerDefaultLayoutFrames: [String: CGRect] = [:]
+    private var pointerCandidateFrames: [String: (frame: CGRect, since: Date)] = [:]
+    private func suppressPointerAvoidance(_ id: String, frame: CGRect) {
+        pointerSuppressedFrames[id] = frame
+        pointerSuppressedAt[id] = Date()
+    }
     private var activePointerRetractions: [String: UUID] = [:]
+    var isAnimatingPointerAvoidance: Bool { !activePointerRetractions.isEmpty }
     private var reservedWindowFrames: [String: ReservedWindowFrame] = [:]
     private var activeWindowLifts: [String: UUID] = [:]
     private var liftSuppressedFrames: [String: CGRect] = [:]
@@ -418,6 +427,10 @@ final class AXWindowService {
         let activeIDs = Set(windows.map(\.nativeWindowID))
         pointerAvoidedFrames = pointerAvoidedFrames.filter { activeIDs.contains($0.key) }
         pointerSuppressedFrames = pointerSuppressedFrames.filter { activeIDs.contains($0.key) }
+        pointerSuppressedAt = pointerSuppressedAt.filter { activeIDs.contains($0.key) }
+        pointerDefaultRetries = pointerDefaultRetries.filter { activeIDs.contains($0.key) }
+        pointerCandidateFrames = pointerCandidateFrames.filter { activeIDs.contains($0.key) }
+        pointerDefaultLayoutFrames = pointerDefaultLayoutFrames.filter { activeIDs.contains($0.key) }
         activePointerRetractions = activePointerRetractions.filter { activeIDs.contains($0.key) }
         var seen = Set<CFHashCode>()
         for window in windows where !window.isMinimized {
@@ -428,27 +441,53 @@ final class AXWindowService {
                   !reservedWindowFrames.values.contains(where: { CFEqual($0.window, window.axWindow) }),
                   let current = windowFrame(window.axWindow) else { continue }
             if activePointerRetractions[window.nativeWindowID] != nil { continue }
+            let detectedDefault = PointerWindowAvoidanceGeometry.isDefaultAvoidanceWindow(
+                current, screen: screenFrame, visibleScreen: visibleFrame, desktopTop: desktopTop)
+            let rememberedDefault = pointerDefaultLayoutFrames[window.nativeWindowID].map { original in
+                guard let target = PointerWindowAvoidanceGeometry.adjustedFrame(window: original,
+                    screen: screenFrame, visibleScreen: visibleFrame, panel: panelFrame,
+                    desktopTop: desktopTop) else { return false }
+                return PointerWindowAvoidanceGeometry.isOnAnimationPath(current, from: original, to: target)
+            } ?? false
+            let defaultLayout = detectedDefault || rememberedDefault
+            if detectedDefault && !rememberedDefault { pointerDefaultLayoutFrames[window.nativeWindowID] = current }
+            if !defaultLayout { pointerDefaultLayoutFrames.removeValue(forKey: window.nativeWindowID) }
             if let prior = pointerAvoidedFrames[window.nativeWindowID],
                !WindowSpaceReservationGeometry.approximatelyEqual(current, prior.applied) {
                 pointerAvoidedFrames.removeValue(forKey: window.nativeWindowID)
                 if WindowSpaceReservationGeometry.approximatelyEqual(current, prior.original) {
-                    let defaultLayout = PointerWindowAvoidanceGeometry.isDefaultAvoidanceWindow(
-                        current, screen: screenFrame, visibleScreen: visibleFrame, desktopTop: desktopTop)
                     // An immediate rebound is an app rejecting our adjustment. A later
                     // maximize/tile action must be eligible for its default animation again.
                     if !defaultLayout || Date().timeIntervalSince(prior.lastAdjustmentAt) < 1.5 {
-                        pointerSuppressedFrames[window.nativeWindowID] = current
+                        suppressPointerAvoidance(window.nativeWindowID, frame: current)
                     }
                 }
             }
             if let suppressed = pointerSuppressedFrames[window.nativeWindowID] {
-                if WindowSpaceReservationGeometry.approximatelyEqual(current, suppressed) { continue }
-                pointerSuppressedFrames.removeValue(forKey: window.nativeWindowID)
+                let id = window.nativeWindowID
+                if WindowSpaceReservationGeometry.approximatelyEqual(current, suppressed) {
+                    guard PointerWindowAvoidanceGeometry.canRetryDefaultLayout(isDefault: defaultLayout,
+                        elapsed: Date().timeIntervalSince(pointerSuppressedAt[id] ?? Date()),
+                        retries: pointerDefaultRetries[id] ?? 0) else { continue }
+                    pointerDefaultRetries[id, default: 0] += 1
+                } else {
+                    pointerDefaultRetries.removeValue(forKey: id)
+                }
+                pointerSuppressedFrames.removeValue(forKey: id)
+                pointerSuppressedAt.removeValue(forKey: id)
             }
-            guard includeOrdinaryWindows || PointerWindowAvoidanceGeometry.isDefaultAvoidanceWindow(
-                current, screen: screenFrame, visibleScreen: visibleFrame, desktopTop: desktopTop) else { continue }
-            guard let target = PointerWindowAvoidanceGeometry.retractedFrame(window: current,
-                screen: screenFrame, panel: panelFrame, desktopTop: desktopTop) else { continue }
+            guard includeOrdinaryWindows || defaultLayout else { continue }
+            // A maximize/tile transition can span several AX observations. Wait for
+            // a stable frame before starting our own animation.
+            if let candidate = pointerCandidateFrames[window.nativeWindowID],
+               WindowSpaceReservationGeometry.approximatelyEqual(current, candidate.frame, tolerance: 2) {
+                guard Date().timeIntervalSince(candidate.since) >= 0.2 else { continue }
+            } else {
+                pointerCandidateFrames[window.nativeWindowID] = (current, Date())
+                continue
+            }
+            guard let target = PointerWindowAvoidanceGeometry.adjustedFrame(window: current,
+                screen: screenFrame, visibleScreen: visibleFrame, panel: panelFrame, desktopTop: desktopTop) else { continue }
             // AX is already bound to this window. An on-screen PID/frame
             // match is sufficient; the title matcher uses a stricter 2pt tolerance
             // and can reject valid windows whose CG/AX bounds differ slightly.
@@ -461,21 +500,28 @@ final class AXWindowService {
                 return WindowSpaceReservationGeometry.approximatelyEqual(frame, current, tolerance: 6)
             }
             guard isOnScreen else { continue }
-            var sizeSettable: DarwinBoolean = false
-            guard AXUIElementIsAttributeSettable(window.axWindow, kAXSizeAttribute as CFString,
-                &sizeSettable) == .success, sizeSettable.boolValue else { continue }
+            let attribute = target.size == current.size ? kAXPositionAttribute : kAXSizeAttribute
+            var settable: DarwinBoolean = false
+            guard AXUIElementIsAttributeSettable(window.axWindow, attribute as CFString,
+                &settable) == .success, settable.boolValue else { continue }
             let id = window.nativeWindowID
             let token = UUID()
             let original = pointerAvoidedFrames[id]?.original ?? current
             pointerAvoidedFrames[id] = ReservedWindowFrame(window: window.axWindow,
                 original: original, applied: current)
             activePointerRetractions[id] = token
-            advancePointerRetraction(id: id, token: token, start: current, target: target, step: 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) { [weak self] in
+                // Begin when the initial window scan has yielded the main thread.
+                // Counting that scan as animation time would jump over the opening frames.
+                let startedAt = ProcessInfo.processInfo.systemUptime - 1.0 / 60.0
+                self?.advancePointerRetraction(id: id, token: token, start: current,
+                    target: target, startedAt: startedAt)
+            }
         }
     }
 
     private func advancePointerRetraction(id: String, token: UUID,
-                                           start: CGRect, target: CGRect, step: Int) {
+                                           start: CGRect, target: CGRect, startedAt: TimeInterval) {
         guard activePointerRetractions[id] == token else { return }
         guard var reservation = pointerAvoidedFrames[id],
               let current = windowFrame(reservation.window) else {
@@ -483,38 +529,65 @@ final class AXWindowService {
             return
         }
         guard NSEvent.pressedMouseButtons == 0,
-              WindowSpaceReservationGeometry.approximatelyEqual(current, reservation.applied, tolerance: 2) else {
+              PointerWindowAvoidanceGeometry.isOnAnimationPath(current, from: start, to: target) else {
             activePointerRetractions.removeValue(forKey: id)
-            pointerSuppressedFrames[id] = current
+            suppressPointerAvoidance(id, frame: current)
             return
         }
-        let steps = 8
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        let progress = PointerWindowAvoidanceGeometry.animationProgress(elapsed: elapsed)
         let next = PointerWindowAvoidanceGeometry.animationFrame(
-            from: start, to: target, progress: CGFloat(step) / CGFloat(steps))
-        var size = next.size
-        guard let value = AXValueCreate(.cgSize, &size),
-              setAttribute(reservation.window, kAXSizeAttribute, value: value),
-              let applied = windowFrame(reservation.window) else {
+            from: start, to: target, progress: progress)
+        let updated: Bool
+        if start.size == target.size {
+            var position = next.origin
+            if let value = AXValueCreate(.cgPoint, &position) {
+                updated = setAttribute(reservation.window, kAXPositionAttribute, value: value)
+            } else { updated = false }
+        } else {
+            var size = next.size
+            if let value = AXValueCreate(.cgSize, &size) {
+                updated = setAttribute(reservation.window, kAXSizeAttribute, value: value)
+            } else { updated = false }
+        }
+        guard updated, let applied = windowFrame(reservation.window) else {
             activePointerRetractions.removeValue(forKey: id)
-            pointerSuppressedFrames[id] = windowFrame(reservation.window) ?? current
+            suppressPointerAvoidance(id, frame: windowFrame(reservation.window) ?? current)
             return
         }
         reservation.applied = applied
         reservation.lastAdjustmentAt = Date()
         pointerAvoidedFrames[id] = reservation
-        guard WindowSpaceReservationGeometry.approximatelyEqual(applied, next, tolerance: 2) else {
-            // App minimum sizes or automatic layout may reject the resize.
-            // Retain the restoration record but never repeatedly fight that frame.
+        guard PointerWindowAvoidanceGeometry.isOnAnimationPath(applied, from: start, to: target) else {
             activePointerRetractions.removeValue(forKey: id)
-            pointerSuppressedFrames[id] = applied
+            suppressPointerAvoidance(id, frame: applied)
             return
         }
-        if step == steps {
-            activePointerRetractions.removeValue(forKey: id)
+        if progress >= 1 {
+            if WindowSpaceReservationGeometry.approximatelyEqual(applied, target, tolerance: 2) {
+                activePointerRetractions.removeValue(forKey: id)
+                return
+            }
+            // Give the app a bounded settling period rather than treating one
+            // delayed AX read as a permanent refusal to resize.
+            if elapsed >= PointerWindowAvoidanceGeometry.animationDuration + 0.35 {
+                activePointerRetractions.removeValue(forKey: id)
+                suppressPointerAvoidance(id, frame: applied)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+                self?.advancePointerRetraction(id: id, token: token, start: start,
+                    target: target, startedAt: startedAt)
+            }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-            self?.advancePointerRetraction(id: id, token: token, start: start, target: target, step: step + 1)
+        // AX round trips consume time. Schedule against the original clock instead
+        // of adding a full delay after each reply; skip stale frames when an app is slow.
+        let nowElapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        let delay = PointerWindowAvoidanceGeometry.nextAnimationDelay(elapsed: nowElapsed)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.advancePointerRetraction(id: id, token: token, start: start,
+                target: target, startedAt: startedAt)
         }
     }
 
@@ -587,6 +660,10 @@ final class AXWindowService {
         }
         pointerAvoidedFrames.removeAll()
         pointerSuppressedFrames.removeAll()
+        pointerSuppressedAt.removeAll()
+        pointerDefaultRetries.removeAll()
+        pointerCandidateFrames.removeAll()
+        pointerDefaultLayoutFrames.removeAll()
     }
 
     func showAllWindows(for pid: pid_t, from windows: [WindowModel]) {

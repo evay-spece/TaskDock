@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import TaskDockBrowserProtocol
 
 @MainActor
 final class RecentAppPopoverState: ObservableObject {
@@ -24,10 +25,10 @@ struct TaskbarView: View {
     @ObservedObject var favoriteBadges: FavoriteBadgeStore
     @ObservedObject var windowProgress: WindowProgressStore
     let isAccessibilityTrusted: Bool
-    let canRestoreMinimizedWindows: Bool
+    let canRestoreHiddenApplications: Bool
     let onRequestPermission: () -> Void
     let onSelect: (WindowModel) -> Void
-    let onMinimizeAll: () -> Void
+    let onToggleAllApplications: () -> Void
     let onOpenTrash: () -> Void
     let onEmptyTrash: () -> Void
     let onRestoreLatestTrashItem: () -> Void
@@ -78,6 +79,17 @@ struct TaskbarView: View {
     var body: some View {
         taskbarView
             .preferredColorScheme(settings.layoutMode == .taskbar ? nil : .dark)
+    }
+
+    private var downloadTasks: [BrowserDownloadTask] {
+        settings.layoutMode == .taskbar && showsControls ? windowProgress.downloads : []
+    }
+
+    private func downloadItemWidth(_ task: BrowserDownloadTask) -> CGFloat {
+        let preferred = settings.taskbarItemWidthMode == .fixed ? TaskbarItemSizing.defaultFixedWidth * taskbarPanelScale
+            : TaskbarItemSizing.adaptiveWidth(title: task.download.filename,
+                fontSize: settings.taskbarItemFontSize, scale: taskbarPanelScale)
+        return task.download.isComplete ? max(preferred, 158 * taskbarContentScale) : preferred
     }
 
     private var shelfApps: [FavoriteApp] {
@@ -220,13 +232,42 @@ struct TaskbarView: View {
                         }
                     }
 
-                    if windows.isEmpty && showsEmptyState {
+                    if windows.isEmpty && downloadTasks.isEmpty && showsEmptyState {
                         Spacer(minLength: 0)
-                    } else if !windows.isEmpty {
+                    } else if !windows.isEmpty || !downloadTasks.isEmpty {
                         let itemWidths = taskItemWidths(for: geometry.size.width
                             - (settings.layoutMode == .taskbar ? 2 * settings.taskbarSideInset : 0))
                         taskItemLane {
                         HStack(spacing: taskbarItemSpacing) {
+                            ForEach(downloadTasks) { task in
+                                DownloadTaskItemView(task: task, width: downloadItemWidth(task),
+                                    height: taskbarItemHeight, scale: taskbarContentScale,
+                                    fontSize: settings.taskbarItemFontSize,
+                                    highlightStyle: settings.taskItemHighlightStyle,
+                                    transparency: settings.nonSelectedItemTransparency,
+                                    onOpenDownloads: { onPerformWindowAction { BrowserDownloadNavigation.open(task.browser) } },
+                                    onOpenFile: { finished in onPerformWindowAction {
+                                        BrowserDownloadNavigation.openFile(task, reveal: false) { success in
+                                            if success { windowProgress.dismissDownload(task) }
+                                            finished(success)
+                                        }
+                                    } },
+                                    onRevealFile: { finished in onPerformWindowAction {
+                                        BrowserDownloadNavigation.openFile(task, reveal: true) { success in
+                                            if success { windowProgress.dismissDownload(task) }
+                                            finished(success)
+                                        }
+                                    } },
+                                    onClose: { windowProgress.dismissDownload(task) })
+                                .contextMenu {
+                                    if task.download.isComplete {
+                                        Button("移除此下载任务") { windowProgress.dismissDownload(task) }
+                                    }
+                                }
+                                .frame(width: downloadItemWidth(task), height: taskbarBaseHeight)
+                                .offset(y: -taskbarVisualLift)
+                                .help("\(task.download.filename) · \(task.browser.label) · \(task.status)")
+                            }
                             ForEach(appGroups) { group in
                                 let itemWidth = itemWidths[group.windows[0].id] ?? 0
                                 HStack(spacing: taskbarItemSpacing) {
@@ -347,11 +388,11 @@ struct TaskbarView: View {
                     && settings.dockCompanionShowsBottomBar {
                     HStack(spacing: 2 * taskbarPanelScale) {
                         TaskbarControlButton(
-                            systemImage: canRestoreMinimizedWindows ? "rectangle.stack" : "minus.rectangle",
-                            help: canRestoreMinimizedWindows ? "恢复刚才最小化的窗口" : "最小化全部窗口",
+                            systemImage: canRestoreHiddenApplications ? "rectangle.stack" : "arrow.down.to.line",
+                            help: canRestoreHiddenApplications ? "恢复刚才隐藏的 App" : "隐藏全部 App",
                             scale: taskbarContentScale,
                             isTaskbarMode: false,
-                            action: onMinimizeAll
+                            action: onToggleAllApplications
                         )
                     }
                     .fixedSize(horizontal: true, vertical: false)
@@ -372,7 +413,8 @@ struct TaskbarView: View {
                     if settings.layoutMode == .taskbar {
                         TaskbarGlassSurface(
                             cornerRadius: min(18, taskbarBaseHeight * 0.34),
-                            showsTopHighlight: true)
+                            showsTopHighlight: true, isFrosted: true)
+                            .opacity(1 - settings.taskbarBackgroundTransparency)
                     } else {
                         FusionDockTileSurface(
                             cornerRadius: 14 * min(taskbarContentScale, 1.3),
@@ -396,12 +438,12 @@ struct TaskbarView: View {
         .overlay(alignment: .bottomTrailing) {
             if showsControls && settings.layoutMode == .taskbar {
                 TaskbarEdgeControlButton(
-                    systemImage: canRestoreMinimizedWindows ? "rectangle.stack" : "minus.rectangle",
-                    help: canRestoreMinimizedWindows ? "恢复刚才最小化的窗口" : "最小化全部窗口",
+                    systemImage: canRestoreHiddenApplications ? "rectangle.stack" : "arrow.down.to.line",
+                    help: canRestoreHiddenApplications ? "恢复刚才隐藏的 App" : "隐藏全部 App",
                     scale: taskbarContentScale,
                     barHeight: taskbarBaseHeight,
                     visualLift: taskbarVisualLift,
-                    action: onMinimizeAll
+                    action: onToggleAllApplications
                 )
             }
         }
@@ -603,6 +645,11 @@ struct TaskbarView: View {
 
     private func finishAppReorder(in groups: AppGroupLayout, spacing: CGFloat) {
         isSettlingAppDrag = true
+        // Dwell only delays the preview. An explicit drop uses the final target.
+        if pendingDropToken != nil {
+            hoverTargetAppKey = pendingDropCandidate?.appKey
+            dragDirection = pendingDropCandidate?.direction
+        }
         pendingDropCandidate = nil
         pendingDropToken = nil
         var positionChange: CGFloat = 0
@@ -685,30 +732,27 @@ struct TaskbarView: View {
                 .max()
         }
 
-        guard let targetIndex else {
+        let candidate = targetIndex.map { PendingDropCandidate(appKey: groups.keys[$0], direction: direction) }
+        if hoverTargetAppKey == candidate?.appKey && dragDirection == candidate?.direction {
+            // Returning to the confirmed slot cancels a pending change.
             pendingDropCandidate = nil
             pendingDropToken = nil
-            hoverTargetAppKey = nil
-            dragDirection = nil
             return
         }
+        if pendingDropToken != nil && pendingDropCandidate == candidate { return }
 
-        let candidate = PendingDropCandidate(appKey: groups.keys[targetIndex], direction: direction)
-        if hoverTargetAppKey == candidate.appKey && dragDirection == candidate.direction { return }
-        if pendingDropCandidate == candidate { return }
-
-        hoverTargetAppKey = nil
-        dragDirection = nil
+        // Keep the previous preview while crossing other items. Change it only
+        // after dwelling on one target, including returning to the original slot.
         pendingDropCandidate = candidate
         let token = UUID()
         pendingDropToken = token
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             guard pendingDropToken == token,
                   pendingDropCandidate == candidate,
                   draggedAppKey == sourceKey,
                   !isSettlingAppDrag else { return }
-            hoverTargetAppKey = candidate.appKey
-            dragDirection = candidate.direction
+            hoverTargetAppKey = candidate?.appKey
+            dragDirection = candidate?.direction
             pendingDropCandidate = nil
             pendingDropToken = nil
         }
@@ -811,11 +855,20 @@ private struct TaskbarGlassSurface: View {
     let cornerRadius: CGFloat
     var showsTopHighlight = false
     var showsBottomHighlight = true
+    var isFrosted = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         Group {
-            if #available(macOS 26, *) {
+            if isFrosted {
+                NativeTaskbarFrostedView(cornerRadius: cornerRadius)
+                    .overlay {
+                        if #available(macOS 26, *) {
+                            NativeFusionGlassView(cornerRadius: cornerRadius, isDockStyle: true)
+                        }
+                    }
+                    .allowsHitTesting(false)
+            } else if #available(macOS 26, *) {
                 NativeFusionGlassView(cornerRadius: cornerRadius)
                     .allowsHitTesting(false)
             } else {
@@ -826,8 +879,19 @@ private struct TaskbarGlassSurface: View {
             }
         }
         .overlay {
-            shape.fill(Color(red: 0.28, green: 0.36, blue: 0.47).opacity(0.12))
+            shape.fill(Color(red: 0.28, green: 0.36, blue: 0.47).opacity(isFrosted ? 0 : 0.12))
                 .allowsHitTesting(false)
+        }
+        .overlay {
+            if isFrosted {
+                shape.fill(Color.white.opacity(0.12))
+                    .overlay {
+                        shape.strokeBorder(LinearGradient(
+                            colors: [Color.white.opacity(0.16), Color.white.opacity(0.05), Color.black.opacity(0.16)],
+                            startPoint: .top, endPoint: .bottom), lineWidth: 0.75)
+                    }
+                    .allowsHitTesting(false)
+            }
         }
         .overlay {
             if showsBottomHighlight {
@@ -848,7 +912,7 @@ private struct TaskbarGlassSurface: View {
             if showsTopHighlight {
                 Capsule()
                     .fill(LinearGradient(
-                        colors: [.clear, Color.white.opacity(0.72), .clear],
+                        colors: [.clear, Color.white.opacity(isFrosted ? 0.18 : 0.72), .clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     ))
@@ -877,22 +941,55 @@ private struct TaskbarGlassSurface: View {
     }
 }
 
+/// Blur the windows and wallpaper behind the bar with an always-active system material.
+private struct NativeTaskbarFrostedView: NSViewRepresentable {
+    let cornerRadius: CGFloat
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView(frame: .zero)
+        view.material = .hudWindow
+        view.appearance = NSAppearance(named: .vibrantDark)
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.alphaValue = 1
+        view.wantsLayer = true
+        view.layer?.masksToBounds = true
+        view.layer?.cornerRadius = cornerRadius
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = .hudWindow
+        view.appearance = NSAppearance(named: .vibrantDark)
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.alphaValue = 1
+        view.layer?.cornerRadius = cornerRadius
+    }
+}
+
 /// Use native Liquid Glass on macOS 26+ and a material fallback on older systems.
 @available(macOS 26, *)
 private struct NativeFusionGlassView: NSViewRepresentable {
     let cornerRadius: CGFloat
+    var isDockStyle = false
 
     func makeNSView(context: Context) -> NSGlassEffectView {
         let glass = NSGlassEffectView(frame: .zero)
         glass.style = .clear
+        glass.appearance = isDockStyle ? NSAppearance(named: .darkAqua) : nil
         glass.cornerRadius = cornerRadius
-        glass.alphaValue = 0.7
+        glass.tintColor = isDockStyle ? NSColor.white.withAlphaComponent(0.04) : nil
+        glass.alphaValue = isDockStyle ? 0.25 : 0.7
         return glass
     }
 
     func updateNSView(_ nsView: NSGlassEffectView, context: Context) {
+        nsView.style = .clear
+        nsView.appearance = isDockStyle ? NSAppearance(named: .darkAqua) : nil
         nsView.cornerRadius = cornerRadius
-        nsView.alphaValue = 0.7
+        nsView.tintColor = isDockStyle ? NSColor.white.withAlphaComponent(0.04) : nil
+        nsView.alphaValue = isDockStyle ? 0.25 : 0.7
     }
 }
 
@@ -1214,6 +1311,110 @@ private struct FusionCollapsedAppView: View {
             .padding(12)
             .frame(width: 280)
         }
+    }
+}
+
+private struct DownloadTaskItemView: View {
+    let task: BrowserDownloadTask
+    let width: CGFloat
+    let height: CGFloat
+    let scale: CGFloat
+    let fontSize: CGFloat
+    let highlightStyle: TaskItemHighlightStyle
+    let transparency: Double
+    let onOpenDownloads: () -> Void
+    let onOpenFile: (@escaping (Bool) -> Void) -> Void
+    let onRevealFile: (@escaping (Bool) -> Void) -> Void
+    let onClose: () -> Void
+    @State private var hovered = false
+    @State private var isOpening = false
+    private var highlight: Color { highlightStyle == .systemAccent ? .accentColor : .white }
+
+    private func open(reveal: Bool) {
+        guard !isOpening else { return }
+        isOpening = true
+        let action = reveal ? onRevealFile : onOpenFile
+        action { _ in isOpening = false }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button {
+                if task.download.isComplete { open(reveal: false) }
+                else { onOpenDownloads() }
+            } label: {
+                HStack(spacing: 7 * scale) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: task.download.localPath ?? task.download.filename))
+                        .resizable().scaledToFit()
+                        .frame(width: 18 * scale, height: 18 * scale)
+                        .accessibilityHidden(true)
+                    Text(isOpening ? "正在打开…" : task.download.filename)
+                        .font(.system(size: fontSize * scale, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.96))
+                        .shadow(color: .black.opacity(0.45), radius: 1, y: 1)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if !task.download.isComplete {
+                        if task.download.paused {
+                            Image(systemName: "pause.fill").font(.system(size: 10 * scale))
+                        } else if let progress = task.progress, width >= 105 * scale {
+                            TaskItemProgressLabel(value: progress, scale: scale)
+                        } else { ProgressView().controlSize(.mini) }
+                    }
+                }
+                .padding(.leading, 8 * scale).padding(.trailing, 4 * scale)
+                .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
+                .contentShape(Rectangle())
+            }
+            .accessibilityLabel(task.download.isComplete ? "打开文件：\(task.download.filename)" : "下载：\(task.download.filename)")
+            .help(task.download.isComplete ? "打开文件：\(task.download.filename)" : "打开浏览器下载列表")
+            if task.download.isComplete {
+                Button { open(reveal: true) } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 13 * scale, weight: .medium))
+                        .frame(width: 28 * scale, height: height)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("打开文件夹").help("打开文件夹并选中文件")
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11 * scale, weight: .semibold))
+                        .frame(width: 24 * scale, height: height)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("关闭下载任务").help("关闭下载任务，不删除文件")
+            }
+        }
+        .buttonStyle(DownloadTaskButtonStyle(scale: scale))
+        .disabled(isOpening)
+        .foregroundStyle(Color.white.opacity(0.96))
+        .frame(width: width, height: height)
+        .background {
+            RoundedRectangle(cornerRadius: 7 * scale)
+                .fill(Color.black.opacity(hovered ? 0.44 : task.progress != nil ? 0.44 : 0.38))
+            RoundedRectangle(cornerRadius: 7 * scale)
+                .fill(highlight.opacity(hovered ? (highlightStyle == .systemAccent ? 0.13 : 0.18) : 0))
+            if let progress = task.progress {
+                TaskItemProgressFill(value: progress, cornerRadius: 7 * scale)
+            }
+            RoundedRectangle(cornerRadius: 7 * scale)
+                .stroke(highlight.opacity(hovered ? 0.56 : task.progress == nil ? 0 : 0.14), lineWidth: 0.7)
+        }
+        .opacity(1 - transparency * 0.4)
+        .clipShape(RoundedRectangle(cornerRadius: 7 * scale))
+        .onHover { hovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovered)
+    }
+}
+
+private struct DownloadTaskButtonStyle: ButtonStyle {
+    let scale: CGFloat
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.white.opacity(configuration.isPressed ? 0.24 : 0),
+                        in: RoundedRectangle(cornerRadius: 5 * scale))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.07), value: configuration.isPressed)
     }
 }
 

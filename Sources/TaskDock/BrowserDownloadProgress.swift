@@ -1,4 +1,5 @@
 import Foundation
+import TaskDockBrowserProtocol
 
 /// Safari downloads are owned by the application, not by an AX window. Read its
 /// local download state and attach it to one of Safari's taskbar windows.
