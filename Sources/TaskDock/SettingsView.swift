@@ -6,10 +6,11 @@ import TaskDockBrowserProtocol
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general
-    case files
     case taskbar
-    case dockCompanion
     case feedback
+    case dockCompanion
+    case files
+    case developer
     case about
 
     var id: String { rawValue }
@@ -21,6 +22,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .taskbar: return "任务栏"
         case .dockCompanion: return "融合模式"
         case .feedback: return "用户反馈"
+        case .developer: return "开发者调试"
         case .about: return "关于"
         }
     }
@@ -32,6 +34,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .taskbar: return "rectangle.bottomthird.inset.filled"
         case .dockCompanion: return "dock.rectangle"
         case .feedback: return "bubble.left.and.bubble.right"
+        case .developer: return "hammer"
         case .about: return "info.circle"
         }
     }
@@ -50,6 +53,8 @@ struct SettingsView: View {
     private var rightClickEnabled = false
     @AppStorage(FileTypeSettings.entryVisibleKey, store: UserDefaults(suiteName: FileTypeSettings.domain))
     private var rightClickEntryVisible = false
+    @AppStorage(DeveloperDebugSettings.entryVisibleKey) private var developerEntryVisible = false
+    @AppStorage("fusionSettingsVisibleV1") private var fusionEntryVisible = false
     @AppStorage("feedbackDraftTitle") private var feedbackTitle = ""
     @AppStorage("feedbackDraftDetails") private var feedbackDetails = ""
     @State private var feedbackOpenFailed = false
@@ -104,7 +109,16 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(SettingsTab.allCases.filter { $0 != .files || rightClickEntryVisible }) { tab in
+                ForEach(SettingsTab.allCases.filter {
+                    ($0 != .files || rightClickEntryVisible) && ($0 != .developer || developerEntryVisible)
+                        && ($0 != .dockCompanion || fusionEntryVisible)
+                }) { tab in
+                    if tab == .about, firstVisibleEasterEggTab != nil {
+                        Divider().padding(.vertical, 7).padding(.horizontal, 15)
+                    }
+                    if tab == firstVisibleEasterEggTab {
+                        Divider().padding(.vertical, 7).padding(.horizontal, 15)
+                    }
                     Button {
                         selectedTab = tab
                     } label: {
@@ -131,7 +145,7 @@ struct SettingsView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
-            .padding(.top, 65)
+            .padding(.top, 26)
             .padding(.bottom, 16)
             .frame(width: 208)
             .background(Color(nsColor: .textBackgroundColor))
@@ -146,8 +160,11 @@ struct SettingsView: View {
                 case .files:
                     if rightClickEntryVisible { filesTab } else { generalTab }
                 case .taskbar: taskbarTab
-                case .dockCompanion: dockCompanionTab
+                case .dockCompanion:
+                    if fusionEntryVisible { dockCompanionTab } else { generalTab }
                 case .feedback: feedbackTab
+                case .developer:
+                    if developerEntryVisible { developerTab } else { generalTab }
                 case .about: aboutTab
                 }
             }
@@ -155,6 +172,12 @@ struct SettingsView: View {
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 850, minHeight: 620)
+        .onAppear {
+            if UserDefaults.standard.object(forKey: "fusionSettingsVisibleV1") == nil,
+               rightClickEntryVisible || developerEntryVisible {
+                fusionEntryVisible = true
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .taskDockOpenFileSettings)) { _ in
             guard rightClickEntryVisible else { return }
             fileEntries = FileTypeSettings.load()
@@ -163,11 +186,36 @@ struct SettingsView: View {
         .onChange(of: rightClickEntryVisible) { visible in
             if !visible, selectedTab == .files { selectedTab = .about }
         }
+        .onChange(of: developerEntryVisible) { visible in
+            if !visible, selectedTab == .developer { selectedTab = .about }
+        }
+        .onChange(of: fusionEntryVisible) { visible in
+            if !visible, selectedTab == .dockCompanion { selectedTab = .about }
+        }
+    }
+
+    private var firstVisibleEasterEggTab: SettingsTab? {
+        if fusionEntryVisible { return .dockCompanion }
+        if rightClickEntryVisible { return .files }
+        return developerEntryVisible ? .developer : nil
+    }
+
+    private var developerTab: some View {
+        tabScrollView {
+            settingsSection(title: "设置入口", description: "调试设置在重启后保留。") {
+                Button("隐藏“开发者调试”入口") {
+                    developerEntryVisible = false
+                    selectedTab = .about
+                }
+            }
+            settingsSection(title: "任务栏外观") { ExperimentalTaskbarGlassSettingsView() }
+            settingsSection(title: "浮动气泡窗口") { DeveloperDebugSettingsView() }
+        }
     }
 
     private var filesTab: some View {
         tabScrollView {
-            settingsSection(title: "右键功能", description: "在 Finder 右键菜单中新建文件，并使用剪切与移动。") {
+            settingsSection(title: "功能开关", description: "在 Finder 右键菜单中新建文件，并使用剪切与移动。") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle("启用右键功能", isOn: $rightClickEnabled)
                     Button("隐藏“右键功能”入口") {
@@ -178,9 +226,7 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            settingsSection(title: "第三方右键菜单") {
-                ContextMenuSettingsView()
-            }
+            finderCutSettings
             settingsSection(title: "Finder 右键新建文件", description: "所有新建类型收在“新建文件”子菜单。勾选显示的类型，用箭头调整顺序，改动立即生效。") {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(fileEntries.indices, id: \.self) { index in
@@ -218,6 +264,13 @@ struct SettingsView: View {
                 }
             }
             .disabled(!rightClickEnabled)
+            settingsSection(title: "第三方右键菜单") {
+                ContextMenuSettingsView()
+            }
+        }
+    }
+
+    private var finderCutSettings: some View {
             settingsSection(title: "Finder 剪切与移动", description: "选中文件后右键点“剪切”或按 ⌘X；在目标文件夹按 ⌘V，或右键点“粘贴并移动”。") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("剪切后会移动原文件。同名文件不会被覆盖；快捷键需要 TaskDock 保持运行。")
@@ -232,7 +285,6 @@ struct SettingsView: View {
                 }
             }
             .disabled(!rightClickEnabled)
-        }
     }
 
     private func saveFileEntries() {
@@ -346,13 +398,8 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         tabScrollView {
-            settingsSection(title: "购买与激活", description: "7 天完整试用，¥59 一次购买授权；人工核款后通过邮件发码。") {
-                HStack {
-                    Text((license.activatedLicenseCode.isEmpty && !LicenseStatus.hasValidPurchase) ?
-                        (license.isUnlocked ? "试用剩余 \(license.remainingDays) 天" : "试用已结束") : "已购买授权")
-                    Spacer()
-                    Button("购买与激活…", action: onOpenLicense)
-                }
+            settingsSection(title: "外观", description: "调整 TaskDock 的浅色或深色外观，与液态玻璃通透度独立设置。") {
+                AppAppearanceSettingsView()
             }
             settingsSection(title: "浏览器下载进度", description: "安装配套扩展后，为每个 Chrome / Edge 下载建立独立任务项，以文件名为标题。仅在本机传输文件名和进度，不传输完整路径、网址或文件内容。") {
                 VStack(alignment: .leading, spacing: 12) {
@@ -387,22 +434,6 @@ struct SettingsView: View {
                     }
                 }
             }
-            settingsSection(title: "显示模式", description: "选择 TaskDock 当前使用的模式；窗口显示在各模式中分别设置。") {
-                HStack {
-                    Text("显示模式")
-                    Spacer()
-                    Picker("显示模式", selection: $settings.layoutMode) {
-                        ForEach(TaskDockLayoutMode.allCases) { mode in
-                            Label(mode.label, systemImage: mode.systemImage).tag(mode)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .onChange(of: settings.layoutMode) { _ in onChanged() }
-                }
-            }
-
             settingsSection(title: "任务项外观", description: "设置窗口卡片的高亮颜色。") {
                 HStack {
                     Text("任务项高亮颜色")
@@ -419,13 +450,13 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection(title: "隐藏/显示快捷键", description: "连续按两次选定的修饰键。") {
+            settingsSection(title: "切换回原生 Dock", description: "双击选定的修饰键，切换回原生 Dock；再次双击可返回 TaskDock。") {
                 HStack {
                     Text("快捷键")
                     Spacer()
-                    Picker("隐藏/显示 TaskDock 快捷键", selection: $settings.toggleModifier) {
+                    Picker("切换回原生 Dock 快捷键", selection: $settings.toggleModifier) {
                         ForEach(TaskbarToggleModifier.allCases) { modifier in
-                            Text(modifier.label).tag(modifier)
+                            Text("双击 \(modifier.label)").tag(modifier)
                         }
                     }
                     .labelsHidden()
@@ -508,6 +539,8 @@ struct SettingsView: View {
                 HStack(spacing: 16) {
                     RightClickEasterEggLogo {
                         rightClickEntryVisible = true
+                        developerEntryVisible = true
+                        fusionEntryVisible = true
                         fileEntries = FileTypeSettings.load()
                     }
                         .frame(width: 64, height: 64)
@@ -522,6 +555,7 @@ struct SettingsView: View {
                 }
             }
 
+            purchaseSettings
             settingsSection(title: "软件更新") {
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -540,6 +574,17 @@ struct SettingsView: View {
         }
     }
 
+    private var purchaseSettings: some View {
+        settingsSection(title: "购买与激活", description: "7 天完整试用，¥59 一次购买授权；人工核款后通过邮件发码。") {
+            HStack {
+                Text((license.activatedLicenseCode.isEmpty && !LicenseStatus.hasValidPurchase) ?
+                    (license.isUnlocked ? "试用剩余 \(license.remainingDays) 天" : "试用已结束") : "已购买授权")
+                Spacer()
+                Button("购买与激活…", action: onOpenLicense)
+            }
+        }
+    }
+
     private var taskbarTab: some View {
         tabScrollView {
             modeHeader(
@@ -551,7 +596,7 @@ struct SettingsView: View {
 
             modeVisualSettings(for: .taskbar)
 
-            settingsSection(title: "任务栏背景", description: "调节磨砂底座，图标和文字不变。") {
+            settingsSection(title: "任务栏背景", description: "macOS 26 及以上使用原生液态玻璃，随系统明暗模式调整；旧系统使用毛玻璃。") {
                 HStack {
                     Label("任务栏背景透明度", systemImage: "circle.lefthalf.filled")
                     Spacer()
@@ -569,7 +614,7 @@ struct SettingsView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                Text("拖动实时预览并自动保存；0% 保留当前底色，100% 隐藏底座。")
+                Text("拖动实时预览并自动保存；0% 保留完整系统材质（推荐），100% 隐藏底座。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -598,7 +643,7 @@ struct SettingsView: View {
                 Slider(value: $settings.taskbarHeight, in: SettingsStore.taskbarHeightRange, step: 2)
                     .accessibilityLabel("任务栏高度")
                     .onChange(of: settings.taskbarHeight) { _ in onLayoutChanged() }
-                Text("任务栏、图标和任务项同步调整；默认 38 pt。")
+                Text("任务栏、图标和任务项同步调整；默认 50 pt。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -632,7 +677,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .onChange(of: settings.taskbarItemFontSize) { _ in onVisualChanged() }
                 }
-                Text("仅调整任务栏任务项文字，共 5 档；默认 12 pt。")
+                Text("仅调整任务栏任务项文字，共 5 档；默认 8 pt。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -702,7 +747,7 @@ struct SettingsView: View {
                     isOn: $settings.favoriteMagnificationEnabled
                 )
                     .onChange(of: settings.favoriteMagnificationEnabled) { _ in onVisualChanged() }
-                Text("运行中的 App 图标下方显示灰白色指示灯，无论是否有窗口。")
+                Text("运行中的 App 图标下方显示指示点，随系统明暗模式调整颜色，无论是否有窗口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Divider()
@@ -777,6 +822,29 @@ struct SettingsView: View {
 
     private var dockCompanionTab: some View {
         tabScrollView {
+            settingsSection(title: "设置入口") {
+                Button("隐藏“融合模式”入口") {
+                    fusionEntryVisible = false
+                    selectedTab = .about
+                }
+                Text("仅隐藏设置入口，当前显示模式保持不变。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            settingsSection(title: "显示模式", description: "选择 TaskDock 当前使用的模式；窗口显示在各模式中分别设置。") {
+                HStack {
+                    Text("显示模式")
+                    Spacer()
+                    Picker("显示模式", selection: $settings.layoutMode) {
+                        ForEach(TaskDockLayoutMode.allCases) { mode in
+                            Label(mode.label, systemImage: mode.systemImage).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: settings.layoutMode) { _ in onChanged() }
+                }
+            }
             modeHeader(
                 title: "融合模式",
                 description: "分别选择 Dock 左右两侧显示的 App，并设置进入融合栏所需的窗口数量。",
@@ -976,7 +1044,7 @@ struct SettingsView: View {
                 content()
             }
             .padding(.horizontal, 30)
-            .padding(.top, 54)
+            .padding(.top, 18)
             .padding(.bottom, 30)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

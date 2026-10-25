@@ -5,11 +5,13 @@ struct FavoriteShelfMenuAction {
     let title: String?
     let isEnabled: Bool
     let perform: (() -> Void)?
+    let symbol: String?
 
-    init(title: String?, isEnabled: Bool = true, perform: (() -> Void)?) {
+    init(title: String?, isEnabled: Bool = true, symbol: String? = nil, perform: (() -> Void)?) {
         self.title = title
         self.isEnabled = isEnabled
         self.perform = perform
+        self.symbol = symbol
     }
 
     static let separator = FavoriteShelfMenuAction(title: nil, perform: nil)
@@ -24,11 +26,12 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
     let onLocationChange: (CGPoint?) -> Void
     let itemAt: (CGPoint) -> String?
     let iconCenterForItem: (String) -> CGPoint?
+    let iconTopForItem: (String) -> CGPoint?
     let iconForItem: (String) -> NSImage?
     let canDragItem: (String) -> Bool
     let onClick: (String) -> Void
     let onContextMenu: (String) -> [FavoriteShelfMenuAction]
-    let onContextMenuVisibilityChange: (Bool) -> Void
+    let onContextMenuVisibilityChange: (String?) -> Void
     let onDragUpdate: (String, CGSize, Bool, CGFloat) -> Void
     let onDragEnd: (Bool) -> Void
     let onRemove: (String) -> Void
@@ -52,6 +55,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         view.onLocationChange = onLocationChange
         view.itemAt = itemAt
         view.iconCenterForItem = iconCenterForItem
+        view.iconTopForItem = iconTopForItem
         view.iconForItem = iconForItem
         view.canDragItem = canDragItem
         view.onClick = onClick
@@ -77,11 +81,12 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         var onLocationChange: ((CGPoint?) -> Void)?
         var itemAt: ((CGPoint) -> String?)?
         var iconCenterForItem: ((String) -> CGPoint?)?
+        var iconTopForItem: ((String) -> CGPoint?)?
         var iconForItem: ((String) -> NSImage?)?
         var canDragItem: ((String) -> Bool)?
         var onClick: ((String) -> Void)?
         var onContextMenu: ((String) -> [FavoriteShelfMenuAction])?
-        var onContextMenuVisibilityChange: ((Bool) -> Void)?
+        var onContextMenuVisibilityChange: ((String?) -> Void)?
         var onDragUpdate: ((String, CGSize, Bool, CGFloat) -> Void)?
         var onDragEnd: ((Bool) -> Void)?
         var onRemove: ((String) -> Void)?
@@ -289,9 +294,12 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
             let menuHeight = DockStyleContextMenu.height(for: actions) + 24
             let menuSize = NSSize(width: menuWidth, height: menuHeight)
             let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
-            let originX = min(max(screenPoint.x - menuSize.width / 2, visibleFrame.minX + 8),
+            let originX = min(max(screenPoint.x - 30, visibleFrame.minX + 8),
                               visibleFrame.maxX - menuSize.width - 8)
-            let originY = min(screenPoint.y + min(previewSize, 44) / 2 + 4,
+            let iconTopY = iconTopForItem?(id).map {
+                window.convertPoint(toScreen: convert($0, to: nil)).y
+            } ?? (screenPoint.y + min(previewSize, 44) / 2)
+            let originY = min(iconTopY + 14,
                               visibleFrame.maxY - menuSize.height - 8)
             let arrowX = min(max(screenPoint.x - originX, 20), menuSize.width - 20)
             let panel = DockContextMenuPanel(
@@ -302,7 +310,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
             )
             panel.isOpaque = false
             panel.backgroundColor = .clear
-            panel.hasShadow = false
+            panel.hasShadow = true
             panel.level = .popUpMenu
             panel.acceptsMouseMovedEvents = true
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -331,10 +339,9 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
                 action()
             })
             hosting.frame = NSRect(origin: .zero, size: menuSize)
-            hosting.appearance = NSAppearance(named: .aqua)
             panel.contentView = hosting
             contextPanel = panel
-            onContextMenuVisibilityChange?(true)
+            onContextMenuVisibilityChange?(id)
             panel.makeKeyAndOrderFront(nil)
             contextDismissMonitor = NSEvent.addLocalMonitorForEvents(
                 matching: [.leftMouseDown, .rightMouseDown, .keyDown]
@@ -346,7 +353,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
                 }
                 if event.type != .keyDown, event.window != self.contextPanel {
                     self.closeContextMenu()
-                    return nil
+                    return event
                 }
                 return event
             }
@@ -371,7 +378,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
             contextPanel = nil
             if wasOpen {
                 pendingLocation = nil
-                onContextMenuVisibilityChange?(false)
+                onContextMenuVisibilityChange?(nil)
                 onLocationChange?(nil)
             }
         }
@@ -423,7 +430,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
             (preview?.contentView as? FavoriteDragPreviewView)?.setReady(
                 removalState.isReady(now: ProcessInfo.processInfo.systemUptime))
             let mouse = NSEvent.mouseLocation
-            preview?.setFrameOrigin(NSPoint(x: mouse.x - grabOffset.x - 70,
+            preview?.setFrameOrigin(NSPoint(x: mouse.x - grabOffset.x - (preview?.frame.width ?? 140) / 2,
                                             y: mouse.y - grabOffset.y - previewSize / 2 - 8))
             preview?.orderFrontRegardless()
         }
@@ -572,21 +579,14 @@ private struct DockStyleContextBubble: View {
     let onSelect: (() -> Void) -> Void
 
     var body: some View {
-        ZStack(alignment: .top) {
-            DockStyleBubbleShape(arrowX: arrowX)
-                .fill(Color(nsColor: NSColor(calibratedWhite: 0.96, alpha: 0.86)))
-                .overlay {
-                    DockStyleBubbleShape(arrowX: arrowX)
-                        .stroke(Color.white.opacity(0.62), lineWidth: 0.8)
-                }
+        FloatingBubbleSurface(arrowX: arrowX) {
             DockStyleContextMenu(actions: actions, menuWidth: menuWidth,
                                  hoverState: hoverState, onSelect: onSelect)
                 .padding(.top, 5)
+                .padding(.bottom, 9)
+                .frame(width: menuWidth)
         }
         .frame(width: menuWidth, height: DockStyleContextMenu.height(for: actions) + 24)
-        .compositingGroup()
-        .clipShape(DockStyleBubbleShape(arrowX: arrowX))
-        .shadow(color: .black.opacity(0.22), radius: 12, y: 5)
     }
 }
 
@@ -682,7 +682,7 @@ private struct DockStyleContextMenu: View {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder func dockMenuFocusAppearance() -> some View {
         if #available(macOS 14, *) {
             focusEffectDisabled()

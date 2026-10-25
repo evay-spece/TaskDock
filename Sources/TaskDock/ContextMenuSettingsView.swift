@@ -18,7 +18,7 @@ struct ContextMenuSettingsView: View {
                 let rows = manager.items.filter { service ? $0.kind == .service : $0.kind == .finder }
                 if !rows.isEmpty {
                     Divider()
-                    Text(service ? "服务菜单" : "Finder 扩展").font(.subheadline.bold())
+                    DisclosureGroup("\(service ? "服务菜单" : "Finder 扩展")（\(rows.count)）") {
                     ForEach(rows) { item in
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 3) {
@@ -32,6 +32,7 @@ struct ContextMenuSettingsView: View {
                             }
                             Button(item.disabled ? "启用" : (service ? "隐藏" : "停用")) { manager.change(item) }
                         }.disabled(manager.busy)
+                    }
                     }
                 }
             }

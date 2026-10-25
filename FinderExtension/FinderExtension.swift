@@ -28,7 +28,15 @@ final class TaskDockFinderExtension: FIFinderSync {
         menuFolder = folder
 
         let menu = NSMenu(title: "")
+        if menuKind == .contextualMenuForItems {
+            let cut = NSMenuItem(title: "剪切  ⌘X", action: #selector(cutSelected(_:)), keyEquivalent: "x")
+            cut.keyEquivalentModifierMask = [.command]
+            cut.image = menuIcon("scissors", description: "剪切")
+            cut.target = self
+            menu.addItem(cut)
+        }
         let parent = NSMenuItem(title: "新建文件", action: nil, keyEquivalent: "")
+        parent.image = menuIcon("doc.badge.plus", description: "新建文件")
         let submenu = NSMenu(title: "新建文件")
         for (index, entry) in FileTypeSettings.load().filter(\.enabled).enumerated() {
             let item = NSMenuItem(title: entry.title, action: #selector(createFile(_:)), keyEquivalent: "")
@@ -44,12 +52,6 @@ final class TaskDockFinderExtension: FIFinderSync {
         }
         parent.submenu = submenu
         if !submenu.items.isEmpty { menu.addItem(parent) }
-        if menuKind == .contextualMenuForItems {
-            let cut = NSMenuItem(title: "剪切  ⌘X", action: #selector(cutSelected(_:)), keyEquivalent: "x")
-            cut.keyEquivalentModifierMask = [.command]
-            cut.target = self
-            menu.addItem(cut)
-        }
         if !ClipboardCutter.cutFiles().isEmpty {
             let paste = NSMenuItem(title: "粘贴并移动  ⌘V", action: #selector(pasteAndMove(_:)), keyEquivalent: "v")
             paste.keyEquivalentModifierMask = [.command]
@@ -58,6 +60,14 @@ final class TaskDockFinderExtension: FIFinderSync {
             menu.addItem(paste)
         }
         return menu
+    }
+
+    private func menuIcon(_ symbol: String, description: String) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: description) else { return nil }
+        let configured = image.withSymbolConfiguration(.init(pointSize: 16, weight: .regular)) ?? image
+        configured.size = NSSize(width: 16, height: 16)
+        configured.isTemplate = true
+        return configured
     }
 
     @objc private func pasteAndMove(_ sender: NSMenuItem) {

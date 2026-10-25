@@ -59,6 +59,7 @@ struct TaskbarView: View {
     @State private var isSettlingAppDrag = false
     @State private var favoriteMagnificationActive = false
     @State private var hoveredWindowID: String?
+    @State private var downloadsExpanded = false
 
     private var reducesTaskbarMotion: Bool {
         settings.layoutMode == .taskbar && systemReduceMotion
@@ -78,7 +79,6 @@ struct TaskbarView: View {
 
     var body: some View {
         taskbarView
-            .preferredColorScheme(settings.layoutMode == .taskbar ? nil : .dark)
     }
 
     private var downloadTasks: [BrowserDownloadTask] {
@@ -239,7 +239,37 @@ struct TaskbarView: View {
                             - (settings.layoutMode == .taskbar ? 2 * settings.taskbarSideInset : 0))
                         taskItemLane {
                         HStack(spacing: taskbarItemSpacing) {
-                            ForEach(downloadTasks) { task in
+                            if downloadTasks.count > 3 {
+                                Button { downloadsExpanded.toggle() } label: {
+                                    HStack(spacing: 7 * taskbarContentScale) {
+                                        Image(systemName: downloadTasks.allSatisfy { $0.download.isComplete } ? "checkmark.circle.fill" : "arrow.down.circle")
+                                        Text("下载 · \(downloadTasks.count)")
+                                        Image(systemName: "chevron.up").font(.caption)
+                                    }
+                                    .font(.system(size: settings.taskbarItemFontSize * taskbarContentScale, weight: .medium))
+                                    .foregroundStyle(Color.primary)
+                                    .frame(width: 158 * taskbarContentScale, height: taskbarItemHeight)
+                                    .background(RoundedRectangle(cornerRadius: 7 * taskbarContentScale).fill(Color.primary.opacity(0.05)))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("展开 \(downloadTasks.count) 个下载任务")
+                                .popover(isPresented: $downloadsExpanded, arrowEdge: .bottom) {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        Text("下载任务（\(downloadTasks.count)）").font(.headline)
+                                        ScrollView {
+                                            VStack(spacing: 8) {
+                                                ForEach(downloadTasks) { task in downloadPopoverRow(task) }
+                                            }
+                                        }.frame(maxHeight: 420)
+                                    }.padding(16).frame(width: 380)
+                                }
+                                .onChange(of: downloadsExpanded) { onRecentPopoverVisibilityChanged($0) }
+                                .onChange(of: downloadTasks.count) { if $0 <= 3 { downloadsExpanded = false } }
+                                .onDisappear { downloadsExpanded = false; onRecentPopoverVisibilityChanged(false) }
+                                .frame(height: taskbarBaseHeight)
+                                .offset(y: -taskbarVisualLift)
+                            }
+                            ForEach(downloadTasks.count > 3 ? [] : downloadTasks) { task in
                                 DownloadTaskItemView(task: task, width: downloadItemWidth(task),
                                     height: taskbarItemHeight, scale: taskbarContentScale,
                                     fontSize: settings.taskbarItemFontSize,
@@ -259,11 +289,10 @@ struct TaskbarView: View {
                                         }
                                     } },
                                     onClose: { windowProgress.dismissDownload(task) })
-                                .contextMenu {
-                                    if task.download.isComplete {
-                                        Button("移除此下载任务") { windowProgress.dismissDownload(task) }
-                                    }
-                                }
+                                .floatingBubbleContextMenu(actions: task.download.isComplete ? [
+                                    FavoriteShelfMenuAction(title: "移除此下载任务", perform: { windowProgress.dismissDownload(task) })
+                                ] : [], iconCenterX: 17 * taskbarContentScale,
+                                    onVisibilityChange: onRecentPopoverVisibilityChanged)
                                 .frame(width: downloadItemWidth(task), height: taskbarBaseHeight)
                                 .offset(y: -taskbarVisualLift)
                                 .help("\(task.download.filename) · \(task.browser.label) · \(task.status)")
@@ -343,17 +372,16 @@ struct TaskbarView: View {
                                             }
                                         }
                                         .simultaneousGesture(taskbarReorderGesture(for: window, itemWidths: itemWidths))
-                                        .contextMenu {
-                                            Button { toggleFavorite(window) } label: {
-                                                Label(favoriteMenuTitle(for: window), systemImage: "star")
-                                            }
-                                            Divider()
-                                            Button("显示该 App 的所有窗口") { onShowAppWindows(window) }
-                                            Divider()
-                                            Button("屏蔽此类窗口") { onBlockWindowType(window) }
-                                            Divider()
-                                            Button("关闭此窗口", role: .destructive) { onClose(window) }
-                                        }
+                                        .floatingBubbleContextMenu(actions: [
+                                            FavoriteShelfMenuAction(title: favoriteMenuTitle(for: window), symbol: "star", perform: { toggleFavorite(window) }),
+                                            .separator,
+                                            FavoriteShelfMenuAction(title: "显示该 App 的所有窗口", perform: { onShowAppWindows(window) }),
+                                            .separator,
+                                            FavoriteShelfMenuAction(title: "屏蔽此类窗口", perform: { onBlockWindowType(window) }),
+                                            .separator,
+                                            FavoriteShelfMenuAction(title: "关闭此窗口", perform: { onClose(window) })
+                                        ], iconCenterX: itemWidth < 72 * taskbarContentScale ? itemWidth / 2 : 17 * taskbarContentScale,
+                                            onVisibilityChange: onRecentPopoverVisibilityChanged)
                                         .accessibilityElement(children: .combine)
                                         .accessibilityValue(window.isFocused ? "当前焦点窗口" : "非焦点窗口")
                                     }
@@ -413,8 +441,7 @@ struct TaskbarView: View {
                     if settings.layoutMode == .taskbar {
                         TaskbarGlassSurface(
                             cornerRadius: min(18, taskbarBaseHeight * 0.34),
-                            showsTopHighlight: true, isFrosted: true)
-                            .opacity(1 - settings.taskbarBackgroundTransparency)
+                            opacity: 1 - settings.taskbarBackgroundTransparency)
                     } else {
                         FusionDockTileSurface(
                             cornerRadius: 14 * min(taskbarContentScale, 1.3),
@@ -462,6 +489,34 @@ struct TaskbarView: View {
         } else {
             content()
         }
+    }
+
+    private func downloadPopoverRow(_ task: BrowserDownloadTask) -> some View {
+        DownloadTaskItemView(task: task, width: 348, height: max(44, taskbarItemHeight), scale: taskbarContentScale,
+            fontSize: settings.taskbarItemFontSize, highlightStyle: settings.taskItemHighlightStyle,
+            transparency: settings.nonSelectedItemTransparency,
+            onOpenDownloads: {
+                downloadsExpanded = false
+                onPerformWindowAction { BrowserDownloadNavigation.open(task.browser) }
+            },
+            onOpenFile: { finished in
+                downloadsExpanded = false
+                onPerformWindowAction {
+                    BrowserDownloadNavigation.openFile(task, reveal: false) { success in
+                        if success { windowProgress.dismissDownload(task) }; finished(success)
+                    }
+                }
+            },
+            onRevealFile: { finished in
+                downloadsExpanded = false
+                onPerformWindowAction {
+                    BrowserDownloadNavigation.openFile(task, reveal: true) { success in
+                        if success { windowProgress.dismissDownload(task) }; finished(success)
+                    }
+                }
+            },
+            onClose: { windowProgress.dismissDownload(task) }, usesPopoverAppearance: true)
+            .help("\(task.download.filename) · \(task.browser.label) · \(task.status)")
     }
 
     private func taskItemWidths(for totalWidth: CGFloat) -> [String: CGFloat] {
@@ -850,121 +905,23 @@ private struct FusionDockTileSurface: View {
     }
 }
 
-/// Use the system glass itself as the full-width taskbar surface.
-private struct TaskbarGlassSurface: View {
+/// Keep native glass outside SwiftUI's compositing hierarchy.
+private struct TaskbarGlassSurface: NSViewRepresentable {
+    @AppStorage(TaskbarExperimentalGlass.preferenceKey) private var experimental = false
+    @AppStorage(TaskbarExperimentalGlass.clarityKey) private var clarity = 1.0
     let cornerRadius: CGFloat
-    var showsTopHighlight = false
-    var showsBottomHighlight = true
-    var isFrosted = false
+    let opacity: Double
 
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        Group {
-            if isFrosted {
-                NativeTaskbarFrostedView(cornerRadius: cornerRadius)
-                    .overlay {
-                        if #available(macOS 26, *) {
-                            NativeFusionGlassView(cornerRadius: cornerRadius, isDockStyle: true)
-                        }
-                    }
-                    .allowsHitTesting(false)
-            } else if #available(macOS 26, *) {
-                NativeFusionGlassView(cornerRadius: cornerRadius)
-                    .allowsHitTesting(false)
-            } else {
-                shape.fill(.ultraThinMaterial)
-                    .overlay {
-                        shape.strokeBorder(Color.white.opacity(0.28), lineWidth: 1)
-                    }
-            }
-        }
-        .overlay {
-            shape.fill(Color(red: 0.28, green: 0.36, blue: 0.47).opacity(isFrosted ? 0 : 0.12))
-                .allowsHitTesting(false)
-        }
-        .overlay {
-            if isFrosted {
-                shape.fill(Color.white.opacity(0.12))
-                    .overlay {
-                        shape.strokeBorder(LinearGradient(
-                            colors: [Color.white.opacity(0.16), Color.white.opacity(0.05), Color.black.opacity(0.16)],
-                            startPoint: .top, endPoint: .bottom), lineWidth: 0.75)
-                    }
-                    .allowsHitTesting(false)
-            }
-        }
-        .overlay {
-            if showsBottomHighlight {
-                shape.fill(LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0.72),
-                        .init(color: Color.white.opacity(0.06), location: 0.9),
-                        .init(color: Color.white.opacity(0.16), location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ))
-                .blendMode(.overlay)
-                .allowsHitTesting(false)
-            }
-        }
-        .overlay(alignment: .top) {
-            if showsTopHighlight {
-                Capsule()
-                    .fill(LinearGradient(
-                        colors: [.clear, Color.white.opacity(isFrosted ? 0.18 : 0.72), .clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ))
-                    .frame(height: 1.2)
-                    .padding(.horizontal, cornerRadius * 1.5)
-                    .padding(.top, 1)
-                    .allowsHitTesting(false)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if showsBottomHighlight {
-                Capsule()
-                    .fill(LinearGradient(
-                        colors: [.clear, Color.white.opacity(0.58), .clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ))
-                    .frame(height: 1.5)
-                    .padding(.horizontal, cornerRadius * 1.5)
-                    .padding(.bottom, 1)
-                    .blendMode(.overlay)
-                    .allowsHitTesting(false)
-            }
-        }
-        .shadow(color: Color.black.opacity(0.18), radius: 12, y: 3)
-    }
-}
-
-/// Blur the windows and wallpaper behind the bar with an always-active system material.
-private struct NativeTaskbarFrostedView: NSViewRepresentable {
-    let cornerRadius: CGFloat
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView(frame: .zero)
-        view.material = .hudWindow
-        view.appearance = NSAppearance(named: .vibrantDark)
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.alphaValue = 1
-        view.wantsLayer = true
-        view.layer?.masksToBounds = true
-        view.layer?.cornerRadius = cornerRadius
-        return view
+    func makeNSView(context: Context) -> TaskbarGlassAnchorView {
+        TaskbarGlassAnchorView()
     }
 
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = .hudWindow
-        view.appearance = NSAppearance(named: .vibrantDark)
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.alphaValue = 1
-        view.layer?.cornerRadius = cornerRadius
+    func updateNSView(_ view: TaskbarGlassAnchorView, context: Context) {
+        view.configure(cornerRadius: cornerRadius, opacity: opacity, experimental: experimental && TaskbarExperimentalGlass.isSupported, clarity: clarity)
+    }
+
+    static func dismantleNSView(_ view: TaskbarGlassAnchorView, coordinator: ()) {
+        view.detachGlass()
     }
 }
 
@@ -977,7 +934,7 @@ private struct NativeFusionGlassView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSGlassEffectView {
         let glass = NSGlassEffectView(frame: .zero)
         glass.style = .clear
-        glass.appearance = isDockStyle ? NSAppearance(named: .darkAqua) : nil
+        glass.appearance = nil
         glass.cornerRadius = cornerRadius
         glass.tintColor = isDockStyle ? NSColor.white.withAlphaComponent(0.04) : nil
         glass.alphaValue = isDockStyle ? 0.25 : 0.7
@@ -986,7 +943,7 @@ private struct NativeFusionGlassView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSGlassEffectView, context: Context) {
         nsView.style = .clear
-        nsView.appearance = isDockStyle ? NSAppearance(named: .darkAqua) : nil
+        nsView.appearance = nil
         nsView.cornerRadius = cornerRadius
         nsView.tintColor = isDockStyle ? NSColor.white.withAlphaComponent(0.04) : nil
         nsView.alphaValue = isDockStyle ? 0.25 : 0.7
@@ -1069,11 +1026,40 @@ private struct TaskItemProgressLabel: View {
         Text("\(Int((value * 100).rounded()))%")
             .font(.system(size: 11 * scale, weight: .semibold, design: .rounded))
             .monospacedDigit()
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.6), radius: 1, y: 1)
+            .foregroundStyle(Color.primary)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .accessibilityLabel("进度 \(Int((value * 100).rounded()))%")
+    }
+}
+
+/// A stable reading surface above the clear outer glass; labels retain semantic colors.
+private struct TaskbarReadableItemSurface: View {
+    let cornerRadius: CGFloat
+    var isHovered = false
+    var isFocused = false
+    var transparency: Double = 0
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        ZStack {
+            if isFocused {
+                shape.fill(colorScheme == .dark
+                    ? Color(white: 0.30).opacity(reduceTransparency ? 1 : 0.96)
+                    : Color.white.opacity(reduceTransparency ? 1 : 0.96))
+            } else if reduceTransparency {
+                shape.fill(Color(nsColor: .controlBackgroundColor))
+            } else {
+                shape.fill(.thinMaterial).opacity(isHovered ? 0.72 : 0.40)
+                shape.fill(Color(nsColor: .controlBackgroundColor)
+                    .opacity(isHovered ? 0.18 : 0.06))
+            }
+            shape.strokeBorder(Color.primary.opacity(isFocused ? 0.20 : isHovered ? 0.10 : 0.035), lineWidth: 0.7)
+        }
+        .opacity(reduceTransparency || isFocused ? 1 : 1 - transparency * 0.4)
+        .allowsHitTesting(false)
     }
 }
 
@@ -1115,14 +1101,13 @@ private struct TaskbarCollapsedAppView: View {
                     }
                 if !compact {
                     Text(representative.applicationName)
-                        .font(.system(size: taskbarFontSize * contentScale, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.96))
-                        .shadow(color: Color.black.opacity(0.45), radius: 1, y: 1)
+                        .font(.system(size: taskbarFontSize * contentScale, weight: windows.contains(where: \.isFocused) ? .semibold : .medium))
+                        .foregroundStyle(Color.primary)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("\(windows.count)")
                         .font(.system(size: 10 * contentScale, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.96))
+                        .foregroundStyle(Color.secondary)
                         .padding(.horizontal, 5 * contentScale)
                         .padding(.vertical, 2 * contentScale)
                         .background(Color.white.opacity(0.12), in: Capsule())
@@ -1135,14 +1120,12 @@ private struct TaskbarCollapsedAppView: View {
             .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight)
             .background {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 7 * contentScale)
-                        .fill(Color.black.opacity(windows.contains(where: \.isFocused) ? 0.52
-                            : (isHovered ? 0.48 : 0.38)))
+                    TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
+                        isHovered: isHovered, isFocused: windows.contains(where: \.isFocused),
+                        transparency: nonSelectedItemTransparency)
                     if let progress {
                         TaskItemProgressFill(value: progress, cornerRadius: 7 * contentScale)
                     }
-                    RoundedRectangle(cornerRadius: 7 * contentScale)
-                        .stroke(Color.white.opacity(windows.contains(where: \.isFocused) || isHovered ? 0.28 : 0), lineWidth: 0.7)
                 }
             }
             .overlay(alignment: .bottomLeading) {
@@ -1164,7 +1147,6 @@ private struct TaskbarCollapsedAppView: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .opacity(windows.contains(where: \.isFocused) ? 1 : 1 - nonSelectedItemTransparency)
         .help("\(representative.applicationName)：\(windows.count) 个窗口，点击选择"
               + (progress.map { "；进度 \(Int($0 * 100))%" } ?? ""))
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口，点击选择")
@@ -1326,9 +1308,10 @@ private struct DownloadTaskItemView: View {
     let onOpenFile: (@escaping (Bool) -> Void) -> Void
     let onRevealFile: (@escaping (Bool) -> Void) -> Void
     let onClose: () -> Void
+    var usesPopoverAppearance = false
     @State private var hovered = false
     @State private var isOpening = false
-    private var highlight: Color { highlightStyle == .systemAccent ? .accentColor : .white }
+    private var highlight: Color { .accentColor }
 
     private func open(reveal: Bool) {
         guard !isOpening else { return }
@@ -1344,21 +1327,33 @@ private struct DownloadTaskItemView: View {
                 else { onOpenDownloads() }
             } label: {
                 HStack(spacing: 7 * scale) {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: task.download.localPath ?? task.download.filename))
+                    if task.download.isComplete {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 18 * scale))
+                            .foregroundStyle(Color.green)
+                            .frame(width: 18 * scale, height: 18 * scale)
+                            .accessibilityHidden(true)
+                    } else {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: task.download.localPath ?? task.download.filename))
                         .resizable().scaledToFit()
                         .frame(width: 18 * scale, height: 18 * scale)
                         .accessibilityHidden(true)
+                    }
                     Text(isOpening ? "正在打开…" : task.download.filename)
-                        .font(.system(size: fontSize * scale, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.96))
-                        .shadow(color: .black.opacity(0.45), radius: 1, y: 1)
+                        .font(.system(size: (usesPopoverAppearance ? max(13, fontSize) : fontSize) * scale, weight: usesPopoverAppearance ? .semibold : .medium))
+                        .foregroundStyle(Color.primary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if !task.download.isComplete {
                         if task.download.paused {
                             Image(systemName: "pause.fill").font(.system(size: 10 * scale))
                         } else if let progress = task.progress, width >= 105 * scale {
-                            TaskItemProgressLabel(value: progress, scale: scale)
+                            if usesPopoverAppearance {
+                                Text("\(Int(progress * 100))%")
+                                    .font(.system(size: 12 * scale, weight: .semibold)).monospacedDigit()
+                            } else {
+                                TaskItemProgressLabel(value: progress, scale: scale)
+                            }
                         } else { ProgressView().controlSize(.mini) }
                     }
                 }
@@ -1387,11 +1382,26 @@ private struct DownloadTaskItemView: View {
         }
         .buttonStyle(DownloadTaskButtonStyle(scale: scale))
         .disabled(isOpening)
-        .foregroundStyle(Color.white.opacity(0.96))
+        .foregroundStyle(Color.primary)
         .frame(width: width, height: height)
         .background {
-            RoundedRectangle(cornerRadius: 7 * scale)
-                .fill(Color.black.opacity(hovered ? 0.44 : task.progress != nil ? 0.44 : 0.38))
+            if usesPopoverAppearance {
+                RoundedRectangle(cornerRadius: 7 * scale)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                RoundedRectangle(cornerRadius: 7 * scale)
+                    .fill(Color.accentColor.opacity(hovered ? 0.10 : 0))
+                RoundedRectangle(cornerRadius: 7 * scale)
+                    .stroke(Color.primary.opacity(0.14), lineWidth: 1)
+                if let progress = task.progress {
+                    GeometryReader { geometry in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.accentColor)
+                            .frame(width: geometry.size.width * progress, height: 3)
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                    }
+                }
+            } else {
+            TaskbarReadableItemSurface(cornerRadius: 7 * scale, isHovered: hovered, transparency: transparency)
             RoundedRectangle(cornerRadius: 7 * scale)
                 .fill(highlight.opacity(hovered ? (highlightStyle == .systemAccent ? 0.13 : 0.18) : 0))
             if let progress = task.progress {
@@ -1399,8 +1409,9 @@ private struct DownloadTaskItemView: View {
             }
             RoundedRectangle(cornerRadius: 7 * scale)
                 .stroke(highlight.opacity(hovered ? 0.56 : task.progress == nil ? 0 : 0.14), lineWidth: 0.7)
+            }
         }
-        .opacity(1 - transparency * 0.4)
+
         .clipShape(RoundedRectangle(cornerRadius: 7 * scale))
         .onHover { hovered = $0 }
         .animation(.easeOut(duration: 0.12), value: hovered)
@@ -1463,18 +1474,16 @@ struct WindowTaskItemView: View {
                             .accessibilityHidden(true)
                     }
                 }
-                .opacity(isTaskbarMode && !window.isFocused
-                    ? 1 - nonSelectedItemTransparency : 1)
+                .opacity(1)
             if availableWidth >= textVisibilityWidth {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(taskItemTitle)
                         .font(.system(
                             size: (isTaskbarMode ? taskbarFontSize : 10.5) * contentScale,
-                            weight: .medium
+                            weight: window.isFocused ? .semibold : .medium
                         ))
                         .foregroundStyle(titleColor)
-                        .shadow(color: isTaskbarMode ? .black.opacity(0.45) : .clear,
-                                radius: 1, y: 1)
+                        .shadow(color: .clear, radius: 0)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1494,16 +1503,14 @@ struct WindowTaskItemView: View {
                         isHighlighted: isHovered || window.isFocused
                     )
                 } else if isTaskbarMode {
-                    RoundedRectangle(cornerRadius: 7 * contentScale)
-                        .fill(taskbarGlassItemBackground)
+                    TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
+                        isHovered: isHovered, isFocused: window.isFocused,
+                        transparency: nonSelectedItemTransparency)
                     RoundedRectangle(cornerRadius: 7 * contentScale)
                         .fill(itemBaseBackground)
                     if let progress {
                         TaskItemProgressFill(value: progress, cornerRadius: 7 * contentScale)
                     }
-                    RoundedRectangle(cornerRadius: 7 * contentScale)
-                        .stroke(taskItemHighlightColor.opacity(isHovered ? 0.56 : window.isFocused ? 0.34
-                            : (progress == nil ? 0 : 0.14)), lineWidth: 0.7)
                 } else {
                     RoundedRectangle(cornerRadius: 7 * contentScale)
                         .fill(.ultraThinMaterial)
@@ -1513,8 +1520,7 @@ struct WindowTaskItemView: View {
                         .fill(itemBaseBackground)
                 }
             }
-            .opacity(isTaskbarMode && !window.isFocused
-                ? 1 - nonSelectedItemTransparency * 0.4 : 1)
+
         }
         .overlay(alignment: isTaskbarMode ? .bottomLeading : .bottom) {
             if progress == nil && window.isFocused {
@@ -1541,7 +1547,7 @@ struct WindowTaskItemView: View {
         }
         .scaleEffect(isHovered && !reducesMotion ? 1.012 : 1.0)
         .opacity(window.isFocused || isTaskbarMode ? 1 : 1 - nonSelectedItemTransparency)
-        .shadow(color: isHovered ? Color.black.opacity(0.28) : .clear, radius: 4, y: 1)
+        .shadow(color: isHovered ? Color.black.opacity(isTaskbarMode ? 0.12 : 0.28) : .clear, radius: 4, y: 1)
         .zIndex(isHovered ? 2 : (window.isFocused ? 1 : 0))
         .animation(
             reducesMotion ? .easeOut(duration: 0.07)
@@ -1564,7 +1570,7 @@ struct WindowTaskItemView: View {
             case .systemAccent:
                 return Color.accentColor.opacity(isHovered ? (window.isFocused ? 0.23 : 0.13) : 0.16)
             case .white:
-                return Color.white.opacity(isHovered ? (window.isFocused ? 0.26 : 0.18) : 0.20)
+                return window.isFocused ? .clear : Color.primary.opacity(isHovered ? 0.08 : 0)
             }
         }
         if isHovered || window.isFocused {
@@ -1582,18 +1588,7 @@ struct WindowTaskItemView: View {
     }
 
     private var taskItemHighlightColor: Color {
-        highlightStyle == .systemAccent ? .accentColor : .white
-    }
-
-    private var taskbarGlassItemBackground: Color {
-        if highlightStyle == .systemAccent {
-            if isHovered { return Color.black.opacity(0.36) }
-            if window.isFocused { return Color.black.opacity(0.42) }
-        }
-        if isHovered { return Color.black.opacity(window.isFocused ? 0.46 : 0.44) }
-        if window.isFocused { return Color.black.opacity(0.52) }
-        if progress != nil { return Color.black.opacity(0.44) }
-        return Color.black.opacity(0.38)
+        isTaskbarMode ? .accentColor : (highlightStyle == .systemAccent ? .accentColor : .white)
     }
 
     private var cardSurfaceColor: Color {
@@ -1604,7 +1599,7 @@ struct WindowTaskItemView: View {
     }
 
     private var titleColor: Color {
-        Color.white.opacity(0.96)
+        Color.primary
     }
 
     private var subtitleColor: Color {
@@ -1665,7 +1660,7 @@ private struct TaskbarEdgeControlButton: View {
                 .font(.system(size: 12 * scale, weight: .medium))
                 .frame(width: 32 * scale, height: max(28 * scale, barHeight - 8))
                 .background {
-                    TaskbarGlassSurface(cornerRadius: 8 * scale, showsBottomHighlight: false)
+                    TaskbarGlassSurface(cornerRadius: 8 * scale, opacity: 1)
                         .overlay {
                             RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
                                 .fill(Color.white.opacity(isHovered ? 0.10 : 0))
@@ -1746,15 +1741,15 @@ private struct RecentApplicationDockView: View {
         } label: {
             Image(systemName: "clock.fill")
                 .font(.system(size: 16 * sizeScale, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.96))
+                .foregroundStyle(Color.primary)
                 .frame(width: 27 * sizeScale, height: 27 * sizeScale)
                 .background {
                     RoundedRectangle(cornerRadius: 8 * sizeScale, style: .continuous)
-                        .fill(Color.black.opacity(isButtonHovered || popoverState.isPresented ? 0.62 : 0.48))
+                        .fill(Color.primary.opacity(isButtonHovered || popoverState.isPresented ? 0.10 : 0.045))
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 8 * sizeScale, style: .continuous)
-                        .strokeBorder(Color.white.opacity(isButtonHovered || popoverState.isPresented ? 0.34 : 0.20), lineWidth: 0.7)
+                        .strokeBorder(Color.primary.opacity(isButtonHovered || popoverState.isPresented ? 0.12 : 0), lineWidth: 0.7)
                 }
                 .scaleEffect(isButtonHovered ? 1.04 : 1)
                 .blur(radius: blurredByFavorites ? 7 * sizeScale : 0)
@@ -1770,7 +1765,7 @@ private struct RecentApplicationDockView: View {
         .onHover { isButtonHovered = $0 }
         .help("最近打开的 App")
         .accessibilityLabel("最近打开的 App；点击展开列表")
-        .popover(isPresented: $popoverState.isPresented, arrowEdge: .top) {
+        .floatingBubbleWindow(isPresented: $popoverState.isPresented) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("最近打开的 App")
                     .font(.headline)
@@ -1798,6 +1793,7 @@ private struct RecentApplicationDockView: View {
                                         .frame(width: 26, height: 26)
                                     Text(application.applicationName)
                                         .lineLimit(1)
+                                        .foregroundStyle(hoveredApplicationID == application.id ? Color.white : Color.primary)
                                     Spacer(minLength: 0)
                                 }
                                 .frame(minWidth: 190, alignment: .leading)
@@ -1805,6 +1801,7 @@ private struct RecentApplicationDockView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("打开 \(application.applicationName)")
+                            .dockMenuFocusAppearance()
 
                             Button {
                                 if popoverState.favoritedInCurrentListIDs.contains(application.id) {
@@ -1816,13 +1813,14 @@ private struct RecentApplicationDockView: View {
                             } label: {
                                 Image(systemName: popoverState.favoritedInCurrentListIDs.contains(application.id) ? "star.fill" : "star")
                                     .font(.system(size: 15, weight: .medium))
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(hoveredApplicationID == application.id ? Color.white : Color.primary)
                                     .frame(width: 22, height: 26)
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .opacity(hoveredApplicationID == application.id
                                 || popoverState.favoritedInCurrentListIDs.contains(application.id) ? 1 : 0)
+                            .dockMenuFocusAppearance()
                             .allowsHitTesting(hoveredApplicationID == application.id
                                 || popoverState.favoritedInCurrentListIDs.contains(application.id))
                             .accessibilityHidden(hoveredApplicationID != application.id
@@ -1838,13 +1836,14 @@ private struct RecentApplicationDockView: View {
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .font(.system(size: 13, weight: .medium))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(hoveredApplicationID == application.id ? Color.white : Color.secondary)
                                         .frame(width: 22, height: 26)
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 .help("退出 \(application.applicationName)")
                                 .accessibilityLabel("退出 \(application.applicationName)")
+                                .dockMenuFocusAppearance()
                             } else {
                                 Color.clear.frame(width: 22, height: 26)
                             }
@@ -1853,12 +1852,8 @@ private struct RecentApplicationDockView: View {
                         .padding(.vertical, 3)
                         .background {
                             if hoveredApplicationID == application.id {
-                                RoundedRectangle(cornerRadius: 7)
-                                    .fill(Color.accentColor.opacity(isDark ? 0.40 : 0.26))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .stroke(Color.accentColor.opacity(0.95), lineWidth: 1.2)
-                                    }
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(Color.accentColor)
                             }
                         }
                         .contentShape(Rectangle())
@@ -2124,6 +2119,10 @@ private struct FavoriteDockView: View {
                     guard let center = visualController.view?.iconCenter(for: id) else { return nil }
                     return CGPoint(x: center.x + hoverSafetyWidth, y: center.y)
                 },
+                iconTopForItem: { id in
+                    guard let top = visualController.view?.iconTop(for: id) else { return nil }
+                    return CGPoint(x: top.x + hoverSafetyWidth, y: top.y)
+                },
                 iconForItem: { id in items.first { $0.id == id }?.icon(for: calendarIconDate) },
                 canDragItem: { id in
                     guard let item = items.first(where: { $0.id == id }) else { return false }
@@ -2143,8 +2142,9 @@ private struct FavoriteDockView: View {
                           let item = items.first(where: { $0.id == id }) else { return [] }
                     return contextMenuActions(for: item)
                 },
-                onContextMenuVisibilityChange: { isOpen in
-                    visualController.setMagnificationPaused(isOpen)
+                onContextMenuVisibilityChange: { id in
+                    visualController.view?.setContextMenuItem(id)
+                    visualController.setMagnificationPaused(id != nil)
                 },
                 onDragUpdate: updateDrag,
                 onDragEnd: { outside in
@@ -2595,6 +2595,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         private var indicatorLayers: [CALayer] = []
         private var badgeLayers: [CALayer] = []
         private let hoverLabelLayer = CAShapeLayer()
+        private var hoverBubble: FloatingBubbleHintView?
+        private var smallBubbleSettingsObserver: NSObjectProtocol?
         private let hoverLabelTextLayer = CATextLayer()
         private var favoriteIDs: [String] = []
         private var favoriteNames: [String] = []
@@ -2624,9 +2626,11 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         private var mouseUpMonitor: Any?
         private var globalMouseUpMonitor: Any?
         private var pressedFavoriteID: String?
+        private var contextMenuFavoriteID: String?
         private var pressGeneration = 0
 
         deinit {
+            if let smallBubbleSettingsObserver { NotificationCenter.default.removeObserver(smallBubbleSettingsObserver) }
             entryTimer?.invalidate()
             slotShiftTimer?.invalidate()
             if let mouseDownMonitor { NSEvent.removeMonitor(mouseDownMonitor) }
@@ -2652,6 +2656,11 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             hoverLabelTextLayer.foregroundColor = NSColor(calibratedWhite: 0.08, alpha: 1).cgColor
             hoverLabelLayer.addSublayer(hoverLabelTextLayer)
             layer?.addSublayer(hoverLabelLayer)
+            smallBubbleSettingsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: .main
+            ) { [weak self] _ in
+                self?.updateLayers(animated: false)
+            }
         }
 
         required init?(coder: NSCoder) { nil }
@@ -2695,6 +2704,13 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             guard let index = favoriteIDs.firstIndex(of: id),
                   id != "utility:separator" else { return }
             finishPress()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for (otherID, overlay) in pressOverlayLayers where otherID != id {
+                overlay.removeAllAnimations()
+                overlay.opacity = 0
+            }
+            CATransaction.commit()
             pressedFavoriteID = id
             pressGeneration += 1
             let icon = iconLayers[index]
@@ -2722,7 +2738,24 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             overlay.opacity = 0.42
         }
 
+        func setContextMenuItem(_ id: String?) {
+            if let previous = contextMenuFavoriteID {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                pressOverlayLayers[previous]?.opacity = 0
+                CATransaction.commit()
+                pressedFavoriteID = nil
+                pressGeneration += 1
+            }
+            contextMenuFavoriteID = nil
+            if let id {
+                beginPress(for: id)
+                contextMenuFavoriteID = id
+            }
+        }
+
         private func finishPress() {
+            guard contextMenuFavoriteID == nil else { return }
             guard let id = pressedFavoriteID else { return }
             pressedFavoriteID = nil
             pressGeneration += 1
@@ -2751,6 +2784,12 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             let icon = iconLayers[index].presentation() ?? iconLayers[index]
             return CGPoint(x: icon.position.x,
                            y: icon.position.y + icon.bounds.height * icon.transform.m22 / 2)
+        }
+
+        func iconTop(for id: String) -> CGPoint? {
+            guard let index = favoriteIDs.firstIndex(of: id), iconLayers.indices.contains(index) else { return nil }
+            let icon = iconLayers[index].presentation() ?? iconLayers[index]
+            return CGPoint(x: icon.position.x, y: icon.position.y + icon.bounds.height * icon.transform.m22)
         }
 
         private var hiddenDraggedItemID: String?
@@ -2982,8 +3021,9 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         }
 
         private func updateIndicatorColors() {
+            let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             for indicator in indicatorLayers {
-                indicator.backgroundColor = NSColor(calibratedWhite: 0.82, alpha: 0.96).cgColor
+                indicator.backgroundColor = NSColor(calibratedWhite: isDark ? 0.88 : 0.12, alpha: 0.9).cgColor
             }
         }
 
@@ -3034,6 +3074,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         func setMagnificationPaused(_ paused: Bool) {
             guard isMagnificationPaused != paused else { return }
             if paused {
+                hoverLabelLayer.opacity = 0
+                hoverBubble?.isHidden = true
                 stopEntryAnimation()
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
@@ -3228,18 +3270,20 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         }
 
         private func updateHoverLabel(at iconTop: CGPoint?, index: Int?) {
-            guard let iconTop, let index else {
+            hoverLabelLayer.opacity = 0
+            guard !isMagnificationPaused, hiddenDraggedItemID == nil, let iconTop, let index else {
                 hoverLabelLayer.opacity = 0
+                hoverBubble?.isHidden = true
                 return
             }
             let title = favoriteNames[index]
-            let fontSize = 13 * sizeScale
+            let fontSize = SmallBubbleMetrics.fontSize
             if displayedHoverLabel != title || hoverLabelTextLayer.fontSize != fontSize {
                 displayedHoverLabel = title
-                let font = NSFont.systemFont(ofSize: fontSize, weight: .medium)
-                hoverLabelWidth = min(240 * sizeScale,
+                let font = NSFont.systemFont(ofSize: fontSize, weight: .regular)
+                hoverLabelWidth = min(280 * sizeScale,
                     ceil((title as NSString).size(withAttributes: [.font: font]).width)
-                        + 24 * sizeScale)
+                        + 28)
                 hoverLabelTextLayer.font = font
                 hoverLabelTextLayer.fontSize = fontSize
                 hoverLabelTextLayer.string = title
@@ -3260,7 +3304,17 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                 x: centerX,
                 y: iconTop.y + 5 * sizeScale
                     + FavoriteMagnificationLayout.hoverLabelHeight * sizeScale / 2)
-            hoverLabelLayer.opacity = 1
+            let left = centerX - hoverLabelWidth / 2
+            let arrow = iconTop.x - left
+            if hoverBubble == nil {
+                let hint = FloatingBubbleHintView(title: title, width: hoverLabelWidth, fontSize: fontSize, arrowX: arrow)
+                addSubview(hint)
+                hoverBubble = hint
+            }
+            hoverBubble?.update(title: title, width: hoverLabelWidth, fontSize: fontSize, arrowX: arrow)
+            hoverBubble?.frame = CGRect(x: left, y: iconTop.y + SmallBubbleMetrics.iconGap,
+                                       width: hoverLabelWidth, height: SmallBubbleMetrics.height)
+            hoverBubble?.isHidden = false
         }
 
         private static func hoverLabelPath(width: CGFloat, height: CGFloat, scale: CGFloat) -> CGPath {

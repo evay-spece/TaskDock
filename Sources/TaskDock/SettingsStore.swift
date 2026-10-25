@@ -52,11 +52,11 @@ enum TaskbarToggleModifier: String, CaseIterable, Identifiable {
 
 @MainActor
 final class SettingsStore: ObservableObject {
-    static let defaultTaskbarHeight: CGFloat = 38
-    static let defaultTaskbarSideInset: CGFloat = 147
+    static let defaultTaskbarHeight: CGFloat = 50
+    static let defaultTaskbarSideInset: CGFloat = 88
     static let taskbarSideInsetRange: ClosedRange<CGFloat> = 35...500
     static let taskbarHeightRange: ClosedRange<CGFloat> = 34...64
-    static let defaultTaskbarItemFontSize: CGFloat = 12
+    static let defaultTaskbarItemFontSize: CGFloat = 8
     static let taskbarItemFontSizes: [CGFloat] = [8, 9, 10, 11, 12]
     static let recentAppHistoryLimit = 50
     @Published var blacklistedAppKeys: Set<String> { didSet { save() } }
@@ -181,7 +181,7 @@ final class SettingsStore: ObservableObject {
         taskbarBackgroundTransparency = savedBackgroundTransparency.isFinite
             ? min(max(savedBackgroundTransparency, 0), 1) : 0
         taskbarItemWidthMode = TaskbarItemWidthMode(rawValue:
-            defaults.string(forKey: taskbarItemWidthModeKey) ?? "fixed") ?? .fixed
+            defaults.string(forKey: taskbarItemWidthModeKey) ?? "adaptive") ?? .adaptive
         let savedFontSize = defaults.object(forKey: taskbarItemFontSizeKey) as? Double ?? Double(Self.defaultTaskbarItemFontSize)
         taskbarItemFontSize = Self.taskbarItemFontSizes.min {
             abs($0 - CGFloat(savedFontSize)) < abs($1 - CGFloat(savedFontSize))

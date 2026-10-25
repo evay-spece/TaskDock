@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             UpdateSupport.archiveLegacyBackups()
         }
         ReleaseDefaults101.applyIfNeeded()
+        ReleaseDefaults170.applyIfNeeded()
+        EasterEggSettingsEntryReset.applyIfNeeded(
+            build: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        )
         license.start()
         panelController = TaskbarPanelController(license: license, onOpenLicense: { [weak self] in
             self?.openLicense()
@@ -301,7 +305,9 @@ extension Notification.Name {
     static let taskDockTestFinderCut = Notification.Name("TaskDockTestFinderCut")
 }
 
+TaskbarExperimentalGlass.installPreferenceIsolation()
 let application = NSApplication.shared
+AppAppearanceSettings.install()
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 application.delegate = delegate
 application.run()

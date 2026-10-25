@@ -239,17 +239,18 @@ final class TaskbarPanelController {
     }
 
     private func makePanel(contentView: NSView) -> NSPanel {
-        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = TaskbarExperimentalGlass.makePanel()
+        (panel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.appearance = settings.layoutMode == .taskbar ? nil : NSAppearance(named: .darkAqua)
+        panel.appearance = nil
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovable = false
         panel.acceptsMouseMovedEvents = true
-        panel.contentView = contentView
+        panel.contentView = TaskbarNativeContentView(hosting: contentView)
         return panel
     }
 
@@ -261,7 +262,7 @@ final class TaskbarPanelController {
     ) -> TaskbarView {
         TaskbarView(
             windows: windows,
-            recentApplications: settings.layoutMode == .taskbar ? recentApplications : [],
+            recentApplications: settings.layoutMode == .taskbar && showsControls ? recentApplications : [],
             recentAppPopoverState: recentAppPopoverState,
             runningApplicationIDs: settings.layoutMode == .taskbar ? runningApplicationIDs : [],
             favoriteBadges: favoriteBadges,
@@ -321,7 +322,9 @@ final class TaskbarPanelController {
             windowService.clearWindowSpaceReservations(restore: true, windows: [])
             pointerWasInAvoidanceRegion = false
             appliedLayoutMode = settings.layoutMode
-            let appearance = settings.layoutMode == .taskbar ? nil : NSAppearance(named: .darkAqua)
+            (panel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
+            (dockFinderPanel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
+            let appearance: NSAppearance? = nil
             panel?.appearance = appearance
             dockFinderPanel?.appearance = appearance
             if settings.layoutMode == .dockCompanion {

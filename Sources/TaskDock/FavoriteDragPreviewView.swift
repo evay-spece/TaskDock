@@ -3,34 +3,41 @@ import AppKit
 /// Matches the shelf's native hover-name bubble, with a downward tail above the icon.
 final class FavoriteDragPreviewView: NSView {
     private let imageView = NSImageView()
-    private let bubble = CAShapeLayer()
-    private let textLayer = CATextLayer()
+    private let bubble = FloatingBubbleHintView(title: "移除收藏", width: 80, fontSize: SmallBubbleMetrics.fontSize, arrowX: 40)
     private let iconSize: CGFloat
+    private var settingsObserver: NSObjectProtocol?
 
     init(icon: NSImage?, iconSize: CGFloat) {
         self.iconSize = iconSize
-        super.init(frame: NSRect(x: 0, y: 0, width: 140, height: iconSize + 70))
+        super.init(frame: NSRect(origin: .zero, size: Self.requiredSize(iconSize: iconSize)))
         wantsLayer = true
         layer?.masksToBounds = false
         imageView.image = icon
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.alphaValue = 0.8
         addSubview(imageView)
-        bubble.fillColor = NSColor(calibratedWhite: 0.96, alpha: 0.97).cgColor
-        bubble.strokeColor = NSColor(calibratedWhite: 0.55, alpha: 0.50).cgColor
-        bubble.lineWidth = 0.75
-        bubble.shadowColor = NSColor.black.cgColor
-        bubble.shadowOpacity = 0.20
-        bubble.shadowRadius = 7
-        bubble.shadowOffset = CGSize(width: 0, height: -2)
-        textLayer.string = "移除收藏"
-        textLayer.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        textLayer.fontSize = 14
-        textLayer.alignmentMode = .center
-        textLayer.foregroundColor = NSColor(calibratedWhite: 0.08, alpha: 1).cgColor
-        bubble.addSublayer(textLayer)
-        layer?.addSublayer(bubble)
+        addSubview(bubble)
         setReady(false)
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let size = Self.requiredSize(iconSize: self.iconSize)
+            self.window?.setContentSize(size)
+            self.setFrameSize(size)
+            self.needsLayout = true
+        }
+    }
+
+    static func requiredSize(iconSize: CGFloat) -> NSSize {
+        let font = NSFont.systemFont(ofSize: SmallBubbleMetrics.fontSize, weight: .regular)
+        let textWidth = ceil(("移除收藏" as NSString).size(withAttributes: [.font: font]).width) + 28
+        return NSSize(width: max(140, iconSize + 16, textWidth + 16),
+                      height: iconSize + 16 + SmallBubbleMetrics.iconGap + SmallBubbleMetrics.height)
+    }
+
+    deinit {
+        if let settingsObserver { NotificationCenter.default.removeObserver(settingsObserver) }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -38,7 +45,7 @@ final class FavoriteDragPreviewView: NSView {
     func setReady(_ ready: Bool) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        bubble.opacity = ready ? 1 : 0
+        bubble.isHidden = !ready
         imageView.alphaValue = ready ? 0.65 : 0.8
         CATransaction.commit()
     }
@@ -46,8 +53,10 @@ final class FavoriteDragPreviewView: NSView {
     override func layout() {
         super.layout()
         imageView.frame = NSRect(x: (bounds.width - iconSize) / 2, y: 8, width: iconSize, height: iconSize)
-        let width: CGFloat = 88
-        let height: CGFloat = 38
+        let font = NSFont.systemFont(ofSize: SmallBubbleMetrics.fontSize, weight: .regular)
+        let width = max(80, ceil(("移除收藏" as NSString).size(withAttributes: [.font: font]).width) + 28)
+        bubble.update(title: "移除收藏", width: width, fontSize: SmallBubbleMetrics.fontSize, arrowX: width / 2)
+        let height = SmallBubbleMetrics.height
         let tail: CGFloat = 7
         let radius: CGFloat = 14
         let center = width / 2
@@ -67,11 +76,7 @@ final class FavoriteDragPreviewView: NSView {
         path.closeSubpath()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        bubble.frame = NSRect(x: (bounds.width - width) / 2, y: iconSize + 16, width: width, height: height)
-        bubble.path = path
-        bubble.shadowPath = path
-        textLayer.frame = NSRect(x: 6, y: tail + 6, width: width - 12, height: 20)
-        textLayer.contentsScale = window?.backingScaleFactor ?? 2
+        bubble.frame = NSRect(x: (bounds.width - width) / 2, y: imageView.frame.maxY + SmallBubbleMetrics.iconGap, width: width, height: height)
         CATransaction.commit()
     }
 }
