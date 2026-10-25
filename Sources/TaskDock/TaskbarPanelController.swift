@@ -342,7 +342,7 @@ final class TaskbarPanelController {
         panel?.level = .floating
         dockFinderPanel?.level = .floating
 
-        let scale = settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
+        let scale = settings.taskbarHeight / SettingsStore.layoutReferenceTaskbarHeight
         // Keep the transparent side margins inside the window so magnified
         // icons can draw and receive pointer events beyond the idle bar.
         let height = settings.taskbarHeight + FavoriteMagnificationLayout.headroom(

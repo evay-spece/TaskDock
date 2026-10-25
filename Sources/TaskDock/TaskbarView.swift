@@ -591,13 +591,13 @@ struct TaskbarView: View {
     private var taskbarPanelScale: CGFloat {
         settings.layoutMode == .dockCompanion
             ? DockCompanionSizing.scale(for: settings.dockCompanionHeight)
-            : settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
+            : settings.taskbarHeight / SettingsStore.layoutReferenceTaskbarHeight
     }
 
     private var taskbarContentScale: CGFloat {
         settings.layoutMode == .dockCompanion
             ? DockCompanionSizing.contentScale(for: settings.dockCompanionHeight)
-            : settings.taskbarHeight / SettingsStore.defaultTaskbarHeight
+            : settings.taskbarHeight / SettingsStore.layoutReferenceTaskbarHeight
     }
 
     private var taskbarItemHeight: CGFloat {
@@ -1758,7 +1758,7 @@ private struct RecentApplicationDockView: View {
                 .animation(.easeOut(duration: 0.12), value: isButtonHovered)
                 .frame(width: 32 * sizeScale, height: 30 * sizeScale)
                 .offset(y: -visualLift)
-                .frame(width: 32 * sizeScale, height: SettingsStore.defaultTaskbarHeight * sizeScale)
+                .frame(width: 32 * sizeScale, height: SettingsStore.layoutReferenceTaskbarHeight * sizeScale)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2062,7 +2062,7 @@ private struct FavoriteDockView: View {
         .frame(
             width: CGFloat(items.count) * itemStep
                 - CGFloat(items.filter(\.isSeparator).count) * 28 * sizeScale,
-            height: SettingsStore.defaultTaskbarHeight * sizeScale,
+            height: SettingsStore.layoutReferenceTaskbarHeight * sizeScale,
             alignment: .center
         )
         .background {
@@ -2087,7 +2087,7 @@ private struct FavoriteDockView: View {
             FavoriteShelfInteractionView(
                 shelfInset: hoverSafetyWidth,
                 shelfWidth: hitRegionWidth ?? .greatestFiniteMagnitude,
-                shelfHeight: SettingsStore.defaultTaskbarHeight * sizeScale,
+                shelfHeight: SettingsStore.layoutReferenceTaskbarHeight * sizeScale,
                 previewSize: FavoriteMagnificationLayout.iconSize * peakScale * sizeScale,
                 onLocationChange: { location in
                     guard draggedFavoriteID == nil else { return }
@@ -2191,7 +2191,7 @@ private struct FavoriteDockView: View {
             .frame(width: CGFloat(items.count) * itemStep
                 - CGFloat(items.filter(\.isSeparator).count) * 28 * sizeScale
                 + 2 * hoverSafetyWidth,
-                height: SettingsStore.defaultTaskbarHeight * sizeScale
+                height: SettingsStore.layoutReferenceTaskbarHeight * sizeScale
                     + FavoriteMagnificationLayout.headroom(for: sizeScale, peakScale: peakScale))
         }
         .contentShape(Rectangle())
@@ -2819,7 +2819,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                 // Keep the visible icon's horizontal footprint clickable all
                 // the way down to the screen edge, including while magnified.
                 if point.y >= 0, point.y < centerY - halfHeight,
-                   point.y <= SettingsStore.defaultTaskbarHeight * sizeScale {
+                   point.y <= SettingsStore.layoutReferenceTaskbarHeight * sizeScale {
                     let scale = icon.transform.m11
                     if let previous = bottomCandidate {
                         guard scale > previous.scale + 0.001

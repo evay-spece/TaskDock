@@ -53,6 +53,8 @@ enum TaskbarToggleModifier: String, CaseIterable, Identifiable {
 @MainActor
 final class SettingsStore: ObservableObject {
     static let defaultTaskbarHeight: CGFloat = 50
+    // Geometry was designed around 38 pt; changing the user's default must not resize icons.
+    static let layoutReferenceTaskbarHeight: CGFloat = 38
     static let defaultTaskbarSideInset: CGFloat = 88
     static let taskbarSideInsetRange: ClosedRange<CGFloat> = 35...500
     static let taskbarHeightRange: ClosedRange<CGFloat> = 34...64
