@@ -364,13 +364,6 @@ struct TaskbarView: View {
                                             ? taskbarBaseHeight : taskbarItemHeight)
                                         .background(Color.black.opacity(settings.layoutMode == .taskbar ? 0.001 : 0))
                                         .contentShape(Rectangle())
-                                        .onHover { inside in
-                                            if inside {
-                                                hoveredWindowID = window.id
-                                            } else if hoveredWindowID == window.id {
-                                                hoveredWindowID = nil
-                                            }
-                                        }
                                         .simultaneousGesture(taskbarReorderGesture(for: window, itemWidths: itemWidths))
                                         .floatingBubbleContextMenu(actions: [
                                             FavoriteShelfMenuAction(title: favoriteMenuTitle(for: window), symbol: "star", perform: { toggleFavorite(window) }),
@@ -382,8 +375,23 @@ struct TaskbarView: View {
                                             FavoriteShelfMenuAction(title: "关闭此窗口", perform: { onClose(window) })
                                         ], iconCenterX: itemWidth < 72 * taskbarContentScale ? itemWidth / 2 : 17 * taskbarContentScale,
                                             onVisibilityChange: onRecentPopoverVisibilityChanged)
+                                        .background(TaskbarPointerHoverTracker { inside in
+                                            if inside {
+                                                hoveredWindowID = window.id
+                                            } else if hoveredWindowID == window.id {
+                                                hoveredWindowID = nil
+                                            }
+                                        })
+                                        .onHover { inside in
+                                            if inside {
+                                                hoveredWindowID = window.id
+                                            } else if hoveredWindowID == window.id {
+                                                hoveredWindowID = nil
+                                            }
+                                        }
                                         .accessibilityElement(children: .combine)
-                                        .accessibilityValue(window.isFocused ? "当前焦点窗口" : "非焦点窗口")
+                                        .accessibilityValue(window.isFocused ? "当前焦点窗口"
+                                            : hoveredWindowID == window.id ? "鼠标悬停" : "非焦点窗口")
                                     }
                                     }
                                 }
@@ -1033,11 +1041,75 @@ private struct TaskItemProgressLabel: View {
     }
 }
 
+/// Polls the actual pointer position because nonactivating taskbar panels can miss
+/// SwiftUI hover transitions when another application owns the key window.
+private struct TaskbarPointerHoverTracker: NSViewRepresentable {
+    let onHover: (Bool) -> Void
+
+    func makeNSView(context: Context) -> HoverView {
+        HoverView()
+    }
+
+    func updateNSView(_ view: HoverView, context: Context) {
+        view.onHover = onHover
+    }
+
+    static func dismantleNSView(_ view: HoverView, coordinator: ()) {
+        view.stopTracking()
+    }
+
+    final class HoverView: NSView {
+        var onHover: ((Bool) -> Void)?
+        private var timer: Timer?
+        private var wasInside = false
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            timer?.invalidate()
+            timer = nil
+            if window != nil {
+                let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
+                    self?.updateHover()
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                self.timer = timer
+                updateHover()
+            } else {
+                reportHover(false)
+            }
+        }
+
+        func stopTracking() {
+            timer?.invalidate()
+            timer = nil
+            reportHover(false)
+        }
+
+        private func updateHover() {
+            guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor else {
+                reportHover(false)
+                return
+            }
+            let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+            reportHover(bounds.contains(point))
+        }
+
+        private func reportHover(_ inside: Bool) {
+            guard inside != wasInside else { return }
+            wasInside = inside
+            DispatchQueue.main.async { [weak self] in self?.onHover?(inside) }
+        }
+    }
+}
+
 /// A stable reading surface above the clear outer glass; labels retain semantic colors.
 private struct TaskbarReadableItemSurface: View {
     let cornerRadius: CGFloat
     var isHovered = false
     var isFocused = false
+    var usesSubtleHoverPill = false
     var transparency: Double = 0
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var colorScheme
@@ -1049,6 +1121,12 @@ private struct TaskbarReadableItemSurface: View {
                 shape.fill(colorScheme == .dark
                     ? Color(white: 0.30).opacity(reduceTransparency ? 1 : 0.96)
                     : Color.white.opacity(reduceTransparency ? 1 : 0.96))
+            } else if usesSubtleHoverPill {
+                if isHovered {
+                    shape.fill(colorScheme == .dark
+                        ? Color(white: 0.30).opacity(reduceTransparency ? 0.78 : 0.62)
+                        : Color.white.opacity(reduceTransparency ? 0.78 : 0.62))
+                }
             } else if reduceTransparency {
                 shape.fill(Color(nsColor: .controlBackgroundColor))
             } else {
@@ -1056,7 +1134,9 @@ private struct TaskbarReadableItemSurface: View {
                 shape.fill(Color(nsColor: .controlBackgroundColor)
                     .opacity(isHovered ? 0.18 : 0.06))
             }
-            shape.strokeBorder(Color.primary.opacity(isFocused ? 0.20 : isHovered ? 0.10 : 0.035), lineWidth: 0.7)
+            if isFocused || !usesSubtleHoverPill || isHovered {
+                shape.strokeBorder(Color.primary.opacity(isFocused ? 0.20 : isHovered ? 0.10 : 0.035), lineWidth: 0.7)
+            }
         }
         .opacity(reduceTransparency || isFocused ? 1 : 1 - transparency * 0.4)
         .allowsHitTesting(false)
@@ -1122,9 +1202,11 @@ private struct TaskbarCollapsedAppView: View {
             .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight)
             .background {
                 ZStack {
-                    if windows.contains(where: \.isFocused) {
+                    if windows.contains(where: \.isFocused) || isHovered {
                         TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
-                            isHovered: isHovered, isFocused: true)
+                            isHovered: isHovered,
+                            isFocused: windows.contains(where: \.isFocused),
+                            usesSubtleHoverPill: true)
                     }
                     if let progress {
                         TaskItemProgressFill(value: progress, cornerRadius: 7 * contentScale)
@@ -1149,16 +1231,16 @@ private struct TaskbarCollapsedAppView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .scaleEffect(isHovered && !windows.contains(where: \.isFocused) && !reduceMotion ? 1.04 : 1)
         .opacity(windows.contains(where: \.isFocused) || isHovered
             ? 1 : 1 - nonSelectedItemTransparency * 0.2)
-        .shadow(color: isHovered && !windows.contains(where: \.isFocused)
-            ? Color.accentColor.opacity(0.7) : .clear, radius: 7 * contentScale)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isHovered)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: isHovered)
+        .background(TaskbarPointerHoverTracker { isHovered = $0 })
         .onHover { isHovered = $0 }
         .help("\(representative.applicationName)：\(windows.count) 个窗口，点击选择"
               + (progress.map { "；进度 \(Int($0 * 100))%" } ?? ""))
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口，点击选择")
+        .accessibilityValue(windows.contains(where: \.isFocused) ? "当前焦点窗口"
+            : isHovered ? "鼠标悬停" : "非焦点窗口")
         .popover(isPresented: $isShowingWindows, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(representative.applicationName).font(.headline)
@@ -1513,9 +1595,12 @@ struct WindowTaskItemView: View {
                         isHighlighted: isHovered || window.isFocused
                     )
                 } else if isTaskbarMode {
-                    if window.isFocused {
+                    if window.isFocused || isHovered {
                         TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
-                            isHovered: isHovered, isFocused: true)
+                            isHovered: isHovered, isFocused: window.isFocused,
+                            usesSubtleHoverPill: true)
+                    }
+                    if window.isFocused {
                         RoundedRectangle(cornerRadius: 7 * contentScale)
                             .fill(itemBaseBackground)
                     }
@@ -1556,17 +1641,15 @@ struct WindowTaskItemView: View {
                 TaskItemProgressBar(value: progress, scale: contentScale)
             }
         }
-        .scaleEffect(isHovered && !reducesMotion ? (showsIdleHoverGlow ? 1.04 : 1.012) : 1)
-        .opacity(window.isFocused || showsIdleHoverGlow ? 1
+        .scaleEffect(isHovered && !reducesMotion && !isTaskbarMode ? 1.012 : 1)
+        .opacity(window.isFocused || showsIdleHoverPill ? 1
             : 1 - nonSelectedItemTransparency * (isTaskbarMode ? 0.2 : 1))
-        .shadow(color: showsIdleHoverGlow ? Color.accentColor.opacity(0.7)
-            : isHovered && !isTaskbarMode ? Color.black.opacity(0.28) : .clear,
-            radius: showsIdleHoverGlow ? 7 * contentScale : 4,
-            y: showsIdleHoverGlow ? 0 : 1)
+        .shadow(color: isHovered && !isTaskbarMode ? Color.black.opacity(0.28) : .clear,
+            radius: 4, y: 1)
         .zIndex(isHovered ? 2 : (window.isFocused ? 1 : 0))
         .animation(
             reducesMotion ? .easeOut(duration: 0.07)
-                : isTaskbarMode ? .easeInOut(duration: 0.24) : .easeOut(duration: 0.12),
+                : isTaskbarMode ? .easeOut(duration: 0.10) : .easeOut(duration: 0.12),
             value: isHovered
         )
         .offset(y: -visualLift)
@@ -1578,7 +1661,7 @@ struct WindowTaskItemView: View {
         NSImage(named: NSImage.applicationIconName) ?? NSImage(size: NSSize(width: 24, height: 24))
     }
 
-    private var showsIdleHoverGlow: Bool {
+    private var showsIdleHoverPill: Bool {
         isTaskbarMode && isHovered && !window.isFocused
     }
 
