@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let license = LicenseService()
     private var licenseWindowController: TaskDockLicenseWindowController?
     private var updateWindowController: UpdateProgressWindowController?
+    private var updateReminderWindowController: UpdateReminderWindowController?
+    private let majorMinorReminderKey = "taskdock.lastMajorMinorUpdateReminder"
     private let finderFileHotkeys = FinderCutHotkey()
     private var pendingFileURL: URL?
 
@@ -41,7 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         })
         panelController?.show()
         configureStatusItem()
-        updateChecker.check()
+        updateChecker.onAutomaticMajorMinorUpdateAvailable = { [weak self] update in
+            self?.showMajorMinorUpdateReminder(update)
+        }
+        updateChecker.check(automatic: true)
         if ProcessInfo.processInfo.arguments.contains("--show-settings") {
             panelController?.presentSettings()
         }
@@ -278,6 +283,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         updateChecker.checkAndInstall()
+    }
+
+    private func showMajorMinorUpdateReminder(_ update: UpdateChecker.AvailableUpdate) {
+        let lastReminded = UserDefaults.standard.string(forKey: majorMinorReminderKey)
+        guard updateReminderWindowController?.window?.isVisible != true,
+              UpdateSupport.shouldRemindForMajorMinorUpgrade(
+                  update.version, than: updateChecker.currentVersion, lastReminded: lastReminded
+              ),
+              let upgradeID = UpdateSupport.majorMinorUpgradeID(
+                  update.version, than: updateChecker.currentVersion
+              ) else { return }
+
+        let controller = UpdateReminderWindowController(
+            currentVersion: updateChecker.currentVersion,
+            newVersion: update.version,
+            onUpdate: { [weak self] in
+                self?.updateReminderWindowController?.close()
+                self?.checkForUpdates()
+            },
+            onLater: { [weak self] in self?.updateReminderWindowController?.close() }
+        )
+        updateReminderWindowController = controller
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        UserDefaults.standard.set(upgradeID, forKey: majorMinorReminderKey)
     }
 
     @objc private func openLicense() {

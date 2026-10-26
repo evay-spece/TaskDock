@@ -51,6 +51,26 @@ enum UpdateSupport {
         return false
     }
 
+    /// A patch release keeps the same reminder group; major/minor upgrades get one prompt each.
+    static func majorMinorUpgradeID(_ candidate: String, than current: String) -> String? {
+        guard isNewer(candidate, than: current) else { return nil }
+        let candidateParts = versionParts(candidate)
+        let currentParts = versionParts(current)
+        let candidateMajor = candidateParts.first ?? 0
+        let candidateMinor = candidateParts.count > 1 ? candidateParts[1] : 0
+        let currentMajor = currentParts.first ?? 0
+        let currentMinor = currentParts.count > 1 ? currentParts[1] : 0
+        guard candidateMajor != currentMajor || candidateMinor != currentMinor else { return nil }
+        return "\(candidateMajor).\(candidateMinor)"
+    }
+
+    static func shouldRemindForMajorMinorUpgrade(
+        _ candidate: String, than current: String, lastReminded: String?
+    ) -> Bool {
+        guard let upgradeID = majorMinorUpgradeID(candidate, than: current) else { return false }
+        return upgradeID != lastReminded
+    }
+
     static func normalizedVersion(_ version: String) -> String {
         version.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
     }

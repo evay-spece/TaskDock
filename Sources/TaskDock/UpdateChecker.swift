@@ -26,23 +26,31 @@ final class UpdateChecker: ObservableObject {
     @Published private(set) var downloadProgress: Double?
 
     let currentVersion: String
-    private let latestReleaseAPI = URL(string: "https://api.github.com/repos/evay-spece/TaskDock/releases/latest")!
+    var onAutomaticMajorMinorUpdateAvailable: ((AvailableUpdate) -> Void)?
+    private let latestReleaseAPI: URL
+    private let session: URLSession
     private var installWhenReady = false
+    private var automaticCheckPending = false
     private var lastCheckedAt: Date?
 
-    init(currentVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0") {
+    init(currentVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0",
+         latestReleaseAPI: URL = URL(string: "https://api.github.com/repos/evay-spece/TaskDock/releases/latest")!,
+         session: URLSession = .shared) {
         self.currentVersion = currentVersion
+        self.latestReleaseAPI = latestReleaseAPI
+        self.session = session
     }
 
-    func check() {
+    func check(automatic: Bool = false) {
         guard !isBusy else { return }
+        automaticCheckPending = automatic
         status = .checking
         Task { await fetchLatestRelease() }
     }
 
     func checkIfNeeded(maxAge: TimeInterval = 6 * 60 * 60) {
         if lastCheckedAt == nil || Date().timeIntervalSince(lastCheckedAt!) > maxAge {
-            check()
+            check(automatic: true)
         }
     }
 
@@ -81,11 +89,12 @@ final class UpdateChecker: ObservableObject {
     }
 
     private func fetchLatestRelease() async {
+        defer { automaticCheckPending = false }
         do {
             var request = URLRequest(url: latestReleaseAPI)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("TaskDock/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 throw UpdateError.invalidResponse
             }
@@ -108,13 +117,18 @@ final class UpdateChecker: ObservableObject {
                 status = .failed(message: "新版本缺少可验证的安装包", releaseURL: releaseURL)
                 return
             }
-            status = .updateAvailable(AvailableUpdate(
+            let update = AvailableUpdate(
                 version: version,
                 releaseURL: releaseURL,
                 assetURL: assetURL,
                 digest: digest
-            ))
-            if installWhenReady, case .updateAvailable(let update) = status {
+            )
+            status = .updateAvailable(update)
+            if automaticCheckPending && !installWhenReady,
+               UpdateSupport.majorMinorUpgradeID(version, than: currentVersion) != nil {
+                onAutomaticMajorMinorUpdateAvailable?(update)
+            }
+            if installWhenReady {
                 downloadAndRestart(update)
             }
         } catch {
