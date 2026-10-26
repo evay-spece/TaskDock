@@ -1103,6 +1103,7 @@ private struct TaskbarCollapsedAppView: View {
                     Text(representative.applicationName)
                         .font(.system(size: taskbarFontSize * contentScale, weight: windows.contains(where: \.isFocused) ? .semibold : .medium))
                         .foregroundStyle(Color.primary)
+                        .shadow(color: windows.contains(where: \.isFocused) ? .clear : Color.black.opacity(0.8), radius: 1.5)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("\(windows.count)")
@@ -1120,9 +1121,10 @@ private struct TaskbarCollapsedAppView: View {
             .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight)
             .background {
                 ZStack {
-                    TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
-                        isHovered: isHovered, isFocused: windows.contains(where: \.isFocused),
-                        transparency: nonSelectedItemTransparency)
+                    if windows.contains(where: \.isFocused) {
+                        TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
+                            isHovered: isHovered, isFocused: true)
+                    }
                     if let progress {
                         TaskItemProgressFill(value: progress, cornerRadius: 7 * contentScale)
                     }
@@ -1146,6 +1148,7 @@ private struct TaskbarCollapsedAppView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .opacity(windows.contains(where: \.isFocused) ? 1 : 1 - nonSelectedItemTransparency * 0.2)
         .onHover { isHovered = $0 }
         .help("\(representative.applicationName)：\(windows.count) 个窗口，点击选择"
               + (progress.map { "；进度 \(Int($0 * 100))%" } ?? ""))
@@ -1483,7 +1486,8 @@ struct WindowTaskItemView: View {
                             weight: window.isFocused ? .semibold : .medium
                         ))
                         .foregroundStyle(titleColor)
-                        .shadow(color: .clear, radius: 0)
+                        .shadow(color: isTaskbarMode && !window.isFocused
+                            ? Color.black.opacity(0.8) : .clear, radius: 1.5)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1503,11 +1507,12 @@ struct WindowTaskItemView: View {
                         isHighlighted: isHovered || window.isFocused
                     )
                 } else if isTaskbarMode {
-                    TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
-                        isHovered: isHovered, isFocused: window.isFocused,
-                        transparency: nonSelectedItemTransparency)
-                    RoundedRectangle(cornerRadius: 7 * contentScale)
-                        .fill(itemBaseBackground)
+                    if window.isFocused {
+                        TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
+                            isHovered: isHovered, isFocused: true)
+                        RoundedRectangle(cornerRadius: 7 * contentScale)
+                            .fill(itemBaseBackground)
+                    }
                     if let progress {
                         TaskItemProgressFill(value: progress, cornerRadius: 7 * contentScale)
                     }
@@ -1546,8 +1551,8 @@ struct WindowTaskItemView: View {
             }
         }
         .scaleEffect(isHovered && !reducesMotion ? 1.012 : 1.0)
-        .opacity(window.isFocused || isTaskbarMode ? 1 : 1 - nonSelectedItemTransparency)
-        .shadow(color: isHovered ? Color.black.opacity(isTaskbarMode ? 0.12 : 0.28) : .clear, radius: 4, y: 1)
+        .opacity(window.isFocused ? 1 : 1 - nonSelectedItemTransparency * (isTaskbarMode ? 0.2 : 1))
+        .shadow(color: isHovered && !isTaskbarMode ? Color.black.opacity(0.28) : .clear, radius: 4, y: 1)
         .zIndex(isHovered ? 2 : (window.isFocused ? 1 : 0))
         .animation(
             reducesMotion ? .easeOut(duration: 0.07)

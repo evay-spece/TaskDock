@@ -1052,11 +1052,16 @@ struct SettingsView: View {
 
     private func modeVisualSettings(for mode: TaskDockLayoutMode) -> some View {
         Group {
-            settingsSection(title: "任务项透明度", description: "仅影响当前模式的任务项。") {
+            settingsSection(
+                title: mode == .taskbar ? "任务项淡化" : "任务项透明度",
+                description: mode == .taskbar
+                    ? "非选中项直接显示在任务栏上，可轻微淡化图标和文字。"
+                    : "仅影响当前模式的任务项。"
+            ) {
                 HStack {
-                    Text("非选中项透明度")
+                    Text(mode == .taskbar ? "非选中项淡化强度" : "非选中项透明度")
                     Spacer()
-                    Picker("非选中项透明度", selection: Binding(
+                    Picker(mode == .taskbar ? "非选中项淡化强度" : "非选中项透明度", selection: Binding(
                         get: { Int((settings.transparency(in: mode) * 100).rounded()) },
                         set: { settings.setTransparency(Double($0) / 100, in: mode); onVisualChanged() }
                     )) {
