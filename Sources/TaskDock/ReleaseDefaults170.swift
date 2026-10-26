@@ -10,7 +10,6 @@ enum ReleaseDefaults170 {
         guard defaults.string(forKey: migrationKey) != version else { return }
         let values: [String: Any] = [
             "taskdock.layoutMode": "taskbar",
-            "taskdock.appearanceModeV1": "dark",
             "taskdock.taskbarHeight": 50.0,
             "taskdock.taskbarLeadingInset": 88.0,
             "taskdock.taskbarBackgroundTransparency": 0.0,

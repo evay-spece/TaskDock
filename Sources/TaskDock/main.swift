@@ -338,7 +338,7 @@ extension Notification.Name {
 
 TaskbarExperimentalGlass.installPreferenceIsolation()
 let application = NSApplication.shared
-AppAppearanceSettings.install()
+TaskDockAppearance.install()
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 application.delegate = delegate
 application.run()

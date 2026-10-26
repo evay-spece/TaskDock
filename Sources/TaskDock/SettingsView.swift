@@ -398,9 +398,6 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         tabScrollView {
-            settingsSection(title: "外观", description: "调整 TaskDock 的浅色或深色外观，与液态玻璃通透度独立设置。") {
-                AppAppearanceSettingsView()
-            }
             settingsSection(title: "浏览器下载进度", description: "安装配套扩展后，为每个 Chrome / Edge 下载建立独立任务项，以文件名为标题。仅在本机传输文件名和进度，不传输完整路径、网址或文件内容。") {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(ProgressBrowser.allCases, id: \.rawValue) { browser in

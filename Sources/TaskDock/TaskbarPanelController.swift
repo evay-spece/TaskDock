@@ -245,7 +245,7 @@ final class TaskbarPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.appearance = nil
+        panel.appearance = TaskDockAppearance.fixed
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovable = false
@@ -324,9 +324,8 @@ final class TaskbarPanelController {
             appliedLayoutMode = settings.layoutMode
             (panel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
             (dockFinderPanel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
-            let appearance: NSAppearance? = nil
-            panel?.appearance = appearance
-            dockFinderPanel?.appearance = appearance
+            panel?.appearance = TaskDockAppearance.fixed
+            dockFinderPanel?.appearance = TaskDockAppearance.fixed
             if settings.layoutMode == .dockCompanion {
                 stableDockGeometry = nil
                 pendingDockGeometry = nil
