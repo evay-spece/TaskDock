@@ -1076,6 +1076,7 @@ private struct TaskbarCollapsedAppView: View {
     let onSelect: (WindowModel) -> Void
     @State private var isShowingWindows = false
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let representative = windows.first(where: \.isFocused) ?? windows[0]
@@ -1148,7 +1149,12 @@ private struct TaskbarCollapsedAppView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(windows.contains(where: \.isFocused) ? 1 : 1 - nonSelectedItemTransparency * 0.2)
+        .scaleEffect(isHovered && !windows.contains(where: \.isFocused) && !reduceMotion ? 1.04 : 1)
+        .opacity(windows.contains(where: \.isFocused) || isHovered
+            ? 1 : 1 - nonSelectedItemTransparency * 0.2)
+        .shadow(color: isHovered && !windows.contains(where: \.isFocused)
+            ? Color.accentColor.opacity(0.7) : .clear, radius: 7 * contentScale)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isHovered)
         .onHover { isHovered = $0 }
         .help("\(representative.applicationName)：\(windows.count) 个窗口，点击选择"
               + (progress.map { "；进度 \(Int($0 * 100))%" } ?? ""))
@@ -1550,9 +1556,13 @@ struct WindowTaskItemView: View {
                 TaskItemProgressBar(value: progress, scale: contentScale)
             }
         }
-        .scaleEffect(isHovered && !reducesMotion ? 1.012 : 1.0)
-        .opacity(window.isFocused ? 1 : 1 - nonSelectedItemTransparency * (isTaskbarMode ? 0.2 : 1))
-        .shadow(color: isHovered && !isTaskbarMode ? Color.black.opacity(0.28) : .clear, radius: 4, y: 1)
+        .scaleEffect(isHovered && !reducesMotion ? (showsIdleHoverGlow ? 1.04 : 1.012) : 1)
+        .opacity(window.isFocused || showsIdleHoverGlow ? 1
+            : 1 - nonSelectedItemTransparency * (isTaskbarMode ? 0.2 : 1))
+        .shadow(color: showsIdleHoverGlow ? Color.accentColor.opacity(0.7)
+            : isHovered && !isTaskbarMode ? Color.black.opacity(0.28) : .clear,
+            radius: showsIdleHoverGlow ? 7 * contentScale : 4,
+            y: showsIdleHoverGlow ? 0 : 1)
         .zIndex(isHovered ? 2 : (window.isFocused ? 1 : 0))
         .animation(
             reducesMotion ? .easeOut(duration: 0.07)
@@ -1566,6 +1576,10 @@ struct WindowTaskItemView: View {
 
     private var fallbackIcon: NSImage {
         NSImage(named: NSImage.applicationIconName) ?? NSImage(size: NSSize(width: 24, height: 24))
+    }
+
+    private var showsIdleHoverGlow: Bool {
+        isTaskbarMode && isHovered && !window.isFocused
     }
 
     private var itemBaseBackground: Color {
