@@ -3,6 +3,18 @@ import Foundation
 @main
 struct FavoriteMagnificationSelfTest {
     static func main() {
+        for exiting in [false, true] {
+            let duration = exiting ? FavoriteMagnificationTiming.exitDuration : FavoriteMagnificationTiming.entryDuration
+            precondition(FavoriteMagnificationTiming.progress(elapsed: 0, exiting: exiting) == 0)
+            precondition(FavoriteMagnificationTiming.progress(elapsed: duration, exiting: exiting) == 1)
+            var previous: CGFloat = 0
+            for frame in 0...120 {
+                let progress = FavoriteMagnificationTiming.progress(
+                    elapsed: duration * Double(frame) / 120, exiting: exiting)
+                precondition(progress >= previous && progress <= 1)
+                previous = progress
+            }
+        }
         let idle = FavoriteMagnificationLayout(count: 9, pointerX: nil)
         let reduced = FavoriteMagnificationLayout(count: 9, pointerX: 16, peakScale: 1.2)
         let enlarged = FavoriteMagnificationLayout(count: 9, pointerX: 16, peakScale: 2.4)

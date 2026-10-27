@@ -1,6 +1,17 @@
 import CoreGraphics
 import Foundation
 
+enum FavoriteMagnificationTiming {
+    static let entryDuration: TimeInterval = 0.18
+    static let exitDuration: TimeInterval = 0.14
+
+    static func progress(elapsed: TimeInterval, exiting: Bool) -> CGFloat {
+        let duration = exiting ? exitDuration : entryDuration
+        let linear = CGFloat(min(1, max(0, elapsed / duration)))
+        return exiting ? 1 - pow(1 - linear, 3) : linear * linear * (3 - 2 * linear)
+    }
+}
+
 enum FavoriteShelfReorderTarget {
     static func index(source: Int, count: Int, translation: CGFloat,
                       itemStep: CGFloat, previewIndex: Int? = nil) -> Int? {

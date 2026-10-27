@@ -207,11 +207,14 @@ struct TaskbarView: View {
                                 if favoriteMagnificationActive != active {
                                     favoriteMagnificationActive = active
                                 }
-                                if !active { favoriteLeadingExtension = 0; favoriteTrailingExtension = 0 }
                             },
                             onMagnificationBoundsChange: { leading, trailing in
-                                favoriteLeadingExtension = leading
-                                favoriteTrailingExtension = trailing
+                                var transaction = Transaction(animation: nil)
+                                transaction.disablesAnimations = true
+                                withTransaction(transaction) {
+                                    favoriteLeadingExtension = leading
+                                    favoriteTrailingExtension = trailing
+                                }
                             }
                         )
                         .fixedSize(horizontal: true, vertical: false)
@@ -2432,7 +2435,8 @@ private struct FavoriteDockView: View {
                 draggedFavoriteID: draggedFavoriteID,
                 isSettlingDrag: isSettlingDrag,
                 showsHoverLabel: showsHoverLabel,
-                controller: visualController
+                controller: visualController,
+                onMagnificationBoundsChange: onMagnificationBoundsChange
             )
             .allowsHitTesting(false)
         }
@@ -2460,13 +2464,6 @@ private struct FavoriteDockView: View {
                         separatorCount: items.filter(\.isSeparator).count
                     )
                     visualController.updatePointer(pointerX)
-                    let layout = FavoriteMagnificationLayout(count: items.count, pointerX: pointerX,
-                        sizeScale: sizeScale,
-                        separatorIndices: Set(items.indices.filter { items[$0].isSeparator }), peakScale: peakScale)
-                    let width = CGFloat(items.count) * itemStep
-                        - CGFloat(items.filter(\.isSeparator).count) * 28 * sizeScale
-                    let overflow = layout.horizontalOverflow(sizeScale: sizeScale, contentWidth: width)
-                    onMagnificationBoundsChange(overflow.leading, overflow.trailing)
                     onMagnificationChange(true)
                 },
                 itemAt: { location in
@@ -2910,10 +2907,12 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
     let isSettlingDrag: Bool
     let showsHoverLabel: Bool
     let controller: FavoriteDockVisualController
+    let onMagnificationBoundsChange: (CGFloat, CGFloat) -> Void
 
     func makeNSView(context: Context) -> DrawingView {
         let view = DrawingView()
         controller.view = view
+        view.onMagnificationBoundsChange = onMagnificationBoundsChange
         view.configure(
             items: items,
             calendarIconDate: calendarIconDate,
@@ -2933,6 +2932,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
 
     func updateNSView(_ view: DrawingView, context: Context) {
         controller.view = view
+        view.onMagnificationBoundsChange = onMagnificationBoundsChange
         view.configure(
             items: items,
             calendarIconDate: calendarIconDate,
@@ -2950,10 +2950,13 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ view: DrawingView, coordinator: ()) {
+        view.onMagnificationBoundsChange = nil
         view.updatePointer(nil)
     }
 
     final class DrawingView: NSView {
+        var onMagnificationBoundsChange: ((CGFloat, CGFloat) -> Void)?
+        private var lastReportedBounds: (CGFloat, CGFloat)?
         private static func highResolutionIcon(for item: FavoriteShelfItem, date: Date) -> CGImage? {
             let image = item.icon(for: date)
             if item.trashIsFull != nil,
@@ -3019,6 +3022,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         private var pointerX: CGFloat?
         private var entryStates: [EntryState] = []
         private var entryStartedAt: CFTimeInterval?
+        private var isExitingMagnification = false
         private var entryTimer: Timer?
         private var mouseDownMonitor: Any?
         private var mouseUpMonitor: Any?
@@ -3442,7 +3446,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
         func updatePointer(_ x: CGFloat?) {
             guard !isMagnificationPaused else { return }
             guard pointerX != x else { return }
-            if pointerX == nil && x != nil {
+            if (pointerX == nil) != (x == nil) {
                 entryStates = zip(iconLayers, indicatorLayers).map { icon, indicator in
                     let visibleIcon = icon.presentation() ?? icon
                     let visibleIndicator = indicator.presentation() ?? indicator
@@ -3455,18 +3459,16 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                 }
                 (iconLayers + indicatorLayers + badgeLayers).forEach { $0.removeAllAnimations() }
                 entryStartedAt = CACurrentMediaTime()
+                isExitingMagnification = x == nil
                 entryTimer?.invalidate()
                 let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
                     self?.advanceEntryAnimation()
                 }
                 RunLoop.main.add(timer, forMode: .common)
                 entryTimer = timer
-            } else if x == nil {
-                stopEntryAnimation()
             }
-            let animate = x == nil
             pointerX = x
-            updateLayers(animated: animate)
+            updateLayers(animated: false)
         }
 
         func setMagnificationPaused(_ paused: Bool) {
@@ -3493,7 +3495,9 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
 
         private func advanceEntryAnimation() {
             guard let entryStartedAt else { stopEntryAnimation(); return }
-            if CACurrentMediaTime() - entryStartedAt >= 0.18 {
+            let duration = isExitingMagnification
+                ? FavoriteMagnificationTiming.exitDuration : FavoriteMagnificationTiming.entryDuration
+            if CACurrentMediaTime() - entryStartedAt >= duration {
                 stopEntryAnimation()
             }
             updateLayers(animated: false)
@@ -3531,8 +3535,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             )
             let entryProgress: CGFloat
             if let entryStartedAt {
-                let linear = min(1, max(0, CGFloat((CACurrentMediaTime() - entryStartedAt) / 0.18)))
-                entryProgress = linear * linear * (3 - 2 * linear)
+                entryProgress = FavoriteMagnificationTiming.progress(
+                    elapsed: CACurrentMediaTime() - entryStartedAt, exiting: isExitingMagnification)
             } else {
                 entryProgress = 1
             }
@@ -3558,6 +3562,8 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                 )
             }
             var hoveredIconTop: CGPoint?
+            var visibleLeft = CGFloat.greatestFiniteMagnitude
+            var visibleRight = -CGFloat.greatestFiniteMagnitude
             let slotTime = CACurrentMediaTime()
             for (index, icon) in iconLayers.enumerated() {
                 let favoriteID = favoriteIDs[index]
@@ -3614,6 +3620,11 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
                     badgeLayers[index].opacity = 0
                     continue
                 }
+                if !isDragHidden {
+                    let halfWidth = FavoriteMagnificationLayout.iconSize * sizeScale * displayedScale / 2
+                    visibleLeft = min(visibleLeft, displayedIconPosition.x - halfWidth)
+                    visibleRight = max(visibleRight, displayedIconPosition.x + halfWidth)
+                }
                 icon.transform = CATransform3DMakeScale(displayedScale, displayedScale, 1)
                 icon.zPosition = favoriteID == draggedFavoriteID ? 20 : displayedScale
                 if index == hoveredIndex {
@@ -3665,6 +3676,22 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             }
             updateHoverLabel(at: hoveredIconTop, index: hoveredIndex)
             CATransaction.commit()
+            reportMagnificationBounds(left: visibleLeft, right: visibleRight)
+        }
+
+        private func reportMagnificationBounds(left: CGFloat, right: CGFloat) {
+            let contentWidth = CGFloat(favoriteIDs.count) * FavoriteMagnificationLayout.itemStep * sizeScale
+                - CGFloat(favoriteIDs.filter { $0 == "utility:separator" }.count) * 28 * sizeScale
+            let leading = left.isFinite ? max(0, 2 * sizeScale - left) : 0
+            let trailing = right.isFinite ? max(0, right - (contentWidth - 4 * sizeScale)) : 0
+            if let previous = lastReportedBounds,
+               abs(previous.0 - leading) < 0.01, abs(previous.1 - trailing) < 0.01 { return }
+            lastReportedBounds = (leading, trailing)
+            // These are the same interpolated icon frames rendered above. The
+            // bar follows them directly, without starting a second animation.
+            DispatchQueue.main.async { [weak self] in
+                self?.onMagnificationBoundsChange?(leading, trailing)
+            }
         }
 
         private func updateHoverLabel(at iconTop: CGPoint?, index: Int?) {
