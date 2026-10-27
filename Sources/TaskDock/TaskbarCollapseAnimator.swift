@@ -27,6 +27,7 @@ final class TaskbarCollapseAnimator {
         overlay.ignoresMouseEvents = true
         overlay.isOpaque = false
         overlay.backgroundColor = .clear
+        overlay.appearance = TaskDockAppearance.fixed
         overlay.hasShadow = true
 
         let background = NSVisualEffectView(frame: CGRect(origin: .zero, size: start.size))

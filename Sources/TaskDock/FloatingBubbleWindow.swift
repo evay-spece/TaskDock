@@ -202,14 +202,33 @@ enum SmallBubbleMetrics {
 
 final class FloatingBubbleHintView: NSHostingView<AnyView> {
     private var previous: (String, CGFloat, CGFloat, CGFloat)?
-    required init(rootView: AnyView) { super.init(rootView: rootView) }
+    private var appearanceObserver: NSObjectProtocol?
+    required init(rootView: AnyView) {
+        super.init(rootView: rootView)
+        followSystemAppearance()
+        appearanceObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.async { self?.followSystemAppearance() }
+        }
+    }
     convenience init(title: String, width: CGFloat, fontSize: CGFloat, arrowX: CGFloat) {
         self.init(rootView: AnyView(EmptyView()))
         update(title: title, width: width, fontSize: fontSize, arrowX: arrowX)
     }
     @MainActor required dynamic init?(coder: NSCoder) { nil }
+    deinit {
+        if let appearanceObserver {
+            DistributedNotificationCenter.default().removeObserver(appearanceObserver)
+        }
+    }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    private func followSystemAppearance() {
+        appearance = NSApp.effectiveAppearance
+    }
     func update(title: String, width: CGFloat, fontSize: CGFloat, arrowX: CGFloat) {
+        followSystemAppearance()
         if let previous, previous.0 == title, previous.1 == width,
            previous.2 == fontSize, previous.3 == arrowX { return }
         previous = (title, width, fontSize, arrowX)

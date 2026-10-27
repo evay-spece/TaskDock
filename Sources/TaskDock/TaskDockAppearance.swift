@@ -1,10 +1,10 @@
 import AppKit
 
-/// TaskDock keeps its current dark appearance regardless of the system setting.
+/// Only the taskbar panels use a fixed appearance. Other windows follow macOS.
 enum TaskDockAppearance {
     static var fixed: NSAppearance? { NSAppearance(named: .darkAqua) }
 
     static func install() {
-        NSApp.appearance = fixed
+        NSApp.appearance = nil
     }
 }

@@ -1276,7 +1276,7 @@ private struct TaskbarCollapsedAppView: View {
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口，点击选择")
         .accessibilityValue(windows.contains(where: \.isFocused) ? "当前焦点窗口"
             : isHovered ? "鼠标悬停" : "非焦点窗口")
-        .popover(isPresented: $isShowingWindows, arrowEdge: .top) {
+        .floatingBubbleWindow(isPresented: $isShowingWindows) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(representative.applicationName).font(.headline)
                 ScrollView(.vertical) {
@@ -1298,7 +1298,7 @@ private struct TaskbarCollapsedAppView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 360)
+                .frame(height: min(360, CGFloat(windows.count) * 32))
             }
             .padding(12)
             .frame(width: 280)
@@ -1382,7 +1382,7 @@ private struct FusionCollapsedAppView: View {
         .onHover { isHovered = $0 }
         .help("\(representative.applicationName)：\(windows.count) 个窗口，点击展开")
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口")
-        .popover(isPresented: $isShowingWindows, arrowEdge: .top) {
+        .floatingBubbleWindow(isPresented: $isShowingWindows) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(representative.applicationName)
                     .font(.headline)
@@ -1414,7 +1414,7 @@ private struct FusionCollapsedAppView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 360)
+                .frame(height: min(360, CGFloat(windows.count) * 32))
             }
             .padding(12)
             .frame(width: 280)
