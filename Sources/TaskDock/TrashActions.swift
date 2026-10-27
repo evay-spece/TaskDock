@@ -2,6 +2,17 @@ import AppKit
 import ApplicationServices
 
 enum TrashActions {
+    @discardableResult
+    static func moveToTrash(_ urls: [URL]) throws -> [URL] {
+        var results: [URL] = []
+        for url in urls {
+            var result: NSURL?
+            try FileManager.default.trashItem(at: url, resultingItemURL: &result)
+            if let result { results.append(result as URL) }
+        }
+        return results
+    }
+
     static func latestItem() -> URL? {
         let manager = FileManager.default
         let homeTrash = manager.homeDirectoryForCurrentUser

@@ -19,6 +19,7 @@ struct TaskbarView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(TaskbarBlackBackgroundSettings.transparencyKey) private var blackBackgroundTransparency = 1.0
+    @AppStorage("taskdock.magnificationPushesTasksV1") private var magnificationPushesTasks = false
     let windows: [WindowModel]
     let recentApplications: [FavoriteApp]
     let recentAppPopoverState: RecentAppPopoverState
@@ -63,6 +64,18 @@ struct TaskbarView: View {
     @State private var downloadsExpanded = false
     @State private var downloadButtonHovered = false
     @State private var taskItemLaneWidth: CGFloat = .infinity
+    @State private var pendingFocusWindowID: String?
+    @State private var favoriteLeadingExtension: CGFloat = 0
+    @State private var favoriteTrailingExtension: CGFloat = 0
+
+    private func selectImmediately(_ window: WindowModel) {
+        let target = window.isFocused ? "" : window.id
+        pendingFocusWindowID = target
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { onSelect(window) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            if pendingFocusWindowID == target { pendingFocusWindowID = nil }
+        }
+    }
 
     private var reducesTaskbarMotion: Bool {
         settings.layoutMode == .taskbar && systemReduceMotion
@@ -86,6 +99,11 @@ struct TaskbarView: View {
 
     var body: some View {
         taskbarView
+            .onChange(of: windows.first(where: \.isFocused)?.id) { focusedID in
+                if pendingFocusWindowID == focusedID || pendingFocusWindowID == "" {
+                    pendingFocusWindowID = nil
+                }
+            }
     }
 
     private var downloadTasks: [BrowserDownloadTask] {
@@ -189,6 +207,11 @@ struct TaskbarView: View {
                                 if favoriteMagnificationActive != active {
                                     favoriteMagnificationActive = active
                                 }
+                                if !active { favoriteLeadingExtension = 0; favoriteTrailingExtension = 0 }
+                            },
+                            onMagnificationBoundsChange: { leading, trailing in
+                                favoriteLeadingExtension = leading
+                                favoriteTrailingExtension = trailing
                             }
                         )
                         .fixedSize(horizontal: true, vertical: false)
@@ -197,6 +220,7 @@ struct TaskbarView: View {
                                 appCount: shelfApps.count,
                                 folderCount: showsControls ? settings.favoriteFolders.count : 0,
                                 showsTrash: showsControls) * taskbarPanelScale
+                                + (magnificationPushesTasks ? favoriteTrailingExtension : 0)
                             : nil, alignment: .leading)
                         .padding(.leading, settings.layoutMode == .taskbar
                             ? 5 * taskbarPanelScale : 0)
@@ -217,7 +241,7 @@ struct TaskbarView: View {
                             sizeScale: taskbarPanelScale,
                             isDark: colorScheme == .dark,
                             visualLift: taskbarVisualLift,
-                            blurredByFavorites: favoriteMagnificationActive,
+                            blurredByFavorites: favoriteMagnificationActive && !magnificationPushesTasks,
                             onOpen: onOpenFavorite,
                             onQuit: onQuitRecentApp,
                             onFavorite: { app in
@@ -353,7 +377,7 @@ struct TaskbarView: View {
                                             contentScale: taskbarContentScale,
                                             nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
                                             shortcutLabel: shortcutLabel(for: group.windows.first(where: \.isFocused) ?? group.windows[0]),
-                                            onSelect: onSelect
+                                            onSelect: selectImmediately
                                         )
                                         .frame(width: itemWidth, height: taskbarItemHeight)
                                         .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidths: itemWidths,
@@ -369,7 +393,8 @@ struct TaskbarView: View {
                                             taskbarFontSize: settings.taskbarItemFontSize,
                                             nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
                                             progress: group.windows.compactMap { windowProgress.values[$0.nativeWindowID] }.max(),
-                                            onSelect: onSelect
+                                            onSelect: selectImmediately,
+                                            focusOverride: pendingFocusWindowID.map { id in group.windows.contains { $0.id == id } }
                                         )
                                         .frame(width: itemWidth, height: taskbarBaseHeight)
                                         .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidths: itemWidths,
@@ -378,7 +403,7 @@ struct TaskbarView: View {
                                     ForEach(group.windows) { window in
                                         let itemWidth = itemWidths[window.id] ?? 0
                                         Button {
-                                            onSelect(window)
+                                            selectImmediately(window)
                                         } label: {
                                             WindowTaskItemView(
                                                 window: window,
@@ -399,7 +424,8 @@ struct TaskbarView: View {
                                                 onClose: { onClose(window) },
                                                 onToggleFavorite: { toggleFavorite(window) },
                                                 favoriteActionTitle: favoriteMenuTitle(for: window),
-                                                isHovered: hoveredWindowID == window.id
+                                                isHovered: hoveredWindowID == window.id,
+                                                focusOverride: pendingFocusWindowID.map { $0 == window.id }
                                             )
                                             .frame(height: settings.layoutMode == .taskbar
                                                 ? taskbarBaseHeight : taskbarItemHeight)
@@ -514,7 +540,7 @@ struct TaskbarView: View {
                 .frame(height: taskbarBaseHeight)
                 .offset(y: -taskbarVisualLift)
                 .padding(.leading, settings.layoutMode == .taskbar
-                    ? settings.taskbarSideInset : 0)
+                    ? max(0, settings.taskbarSideInset - favoriteLeadingExtension) : 0)
                 .padding(.trailing, settings.layoutMode == .taskbar
                     ? settings.taskbarSideInset : 0)
             }
@@ -1177,6 +1203,18 @@ private struct TaskbarPointerHoverTracker: NSViewRepresentable {
         var onHover: ((Bool) -> Void)?
         private var timer: Timer?
         private var wasInside = false
+        private var hoverTrackingArea: NSTrackingArea?
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+            let area = NSTrackingArea(rect: .zero,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+            addTrackingArea(area)
+            hoverTrackingArea = area
+        }
+        override func mouseEntered(with event: NSEvent) { reportHover(true) }
+        override func mouseExited(with event: NSEvent) { reportHover(false) }
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -1214,7 +1252,7 @@ private struct TaskbarPointerHoverTracker: NSViewRepresentable {
         private func reportHover(_ inside: Bool) {
             guard inside != wasInside else { return }
             wasInside = inside
-            DispatchQueue.main.async { [weak self] in self?.onHover?(inside) }
+            onHover?(inside)
         }
     }
 }
@@ -1240,7 +1278,7 @@ private struct TaskbarReadableItemSurface: View {
                     } else {
                         shape.fill(isFocused
                             ? Color.black.opacity(0.24 * hazeStrength)
-                            : Color.white.opacity(0.08 * hazeStrength))
+                            : Color.white.opacity(0.12 * hazeStrength))
                     }
                 }
             } else if isFocused {
@@ -1275,6 +1313,8 @@ private struct TaskbarCollapsedAppView: View {
     let nonSelectedItemTransparency: Double
     let progress: Double?
     let onSelect: (WindowModel) -> Void
+    var focusOverride: Bool? = nil
+    private var isFocused: Bool { focusOverride ?? windows.contains(where: \.isFocused) }
     @State private var isShowingWindows = false
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1303,9 +1343,9 @@ private struct TaskbarCollapsedAppView: View {
                     }
                 if !compact {
                     Text(representative.applicationName)
-                        .font(.system(size: taskbarFontSize * contentScale, weight: windows.contains(where: \.isFocused) ? .semibold : .medium))
+                        .font(.system(size: taskbarFontSize * contentScale, weight: isFocused ? .semibold : .medium))
                         .foregroundStyle(Color.primary)
-                        .shadow(color: windows.contains(where: \.isFocused) ? .clear : Color.black.opacity(0.8), radius: 1.5)
+                        .shadow(color: isFocused ? .clear : Color.black.opacity(0.8), radius: 1.5)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("\(windows.count)")
@@ -1323,10 +1363,10 @@ private struct TaskbarCollapsedAppView: View {
             .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight)
             .background {
                 ZStack {
-                    if windows.contains(where: \.isFocused) || isHovered {
+                    if isFocused || isHovered {
                         TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
                             isHovered: isHovered,
-                            isFocused: windows.contains(where: \.isFocused),
+                            isFocused: isFocused,
                             usesSubtleHoverPill: true)
                     }
                     if let progress {
@@ -1335,7 +1375,7 @@ private struct TaskbarCollapsedAppView: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if progress == nil && windows.contains(where: \.isFocused) {
+                if progress == nil && isFocused {
                     Capsule().fill(Color.accentColor)
                         .frame(width: (compact ? 18 : 22) * contentScale,
                                height: 3 * contentScale)
@@ -1352,15 +1392,15 @@ private struct TaskbarCollapsedAppView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(windows.contains(where: \.isFocused) || isHovered
+        .opacity(isFocused || isHovered
             ? 1 : 1 - nonSelectedItemTransparency * 0.2)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: isHovered)
+        .animation(nil, value: isHovered)
         .background(TaskbarPointerHoverTracker { isHovered = $0 })
         .onHover { isHovered = $0 }
         .help("\(representative.applicationName)：\(windows.count) 个窗口，点击选择"
               + (progress.map { "；进度 \(Int($0 * 100))%" } ?? ""))
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口，点击选择")
-        .accessibilityValue(windows.contains(where: \.isFocused) ? "当前焦点窗口"
+        .accessibilityValue(isFocused ? "当前焦点窗口"
             : isHovered ? "鼠标悬停" : "非焦点窗口")
         .floatingBubbleWindow(isPresented: $isShowingWindows) {
             VStack(alignment: .leading, spacing: 6) {
@@ -1749,6 +1789,8 @@ struct WindowTaskItemView: View {
     let onToggleFavorite: () -> Void
     let favoriteActionTitle: String
     var isHovered = false
+    var focusOverride: Bool? = nil
+    private var isFocused: Bool { focusOverride ?? window.isFocused }
 
     private var taskItemTitle: String {
         isTaskbarMode
@@ -1780,10 +1822,10 @@ struct WindowTaskItemView: View {
                     Text(taskItemTitle)
                         .font(.system(
                             size: (isTaskbarMode ? taskbarFontSize : 10.5) * contentScale,
-                            weight: window.isFocused ? .semibold : .medium
+                            weight: isFocused ? .semibold : .medium
                         ))
                         .foregroundStyle(titleColor)
-                        .shadow(color: isTaskbarMode && !window.isFocused
+                        .shadow(color: isTaskbarMode && !isFocused
                             ? Color.black.opacity(0.8) : .clear, radius: 1.5)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1801,15 +1843,15 @@ struct WindowTaskItemView: View {
                 if isDockCompanion {
                     FusionDockTileSurface(
                         cornerRadius: 11 * contentScale,
-                        isHighlighted: isHovered || window.isFocused
+                        isHighlighted: isHovered || isFocused
                     )
                 } else if isTaskbarMode {
-                    if window.isFocused || isHovered {
+                    if isFocused || isHovered {
                         TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
-                            isHovered: isHovered, isFocused: window.isFocused,
+                            isHovered: isHovered, isFocused: isFocused,
                             usesSubtleHoverPill: true)
                     }
-                    if window.isFocused {
+                    if isFocused {
                         RoundedRectangle(cornerRadius: 7 * contentScale)
                             .fill(itemBaseBackground)
                     }
@@ -1828,7 +1870,7 @@ struct WindowTaskItemView: View {
 
         }
         .overlay(alignment: isTaskbarMode ? .bottomLeading : .bottom) {
-            if progress == nil && window.isFocused {
+            if progress == nil && isFocused {
                 if isDockCompanion {
                     Circle()
                         .fill(Color.primary.opacity(0.76))
@@ -1851,14 +1893,13 @@ struct WindowTaskItemView: View {
             }
         }
         .scaleEffect(isHovered && !reducesMotion && !isTaskbarMode ? 1.012 : 1)
-        .opacity(window.isFocused || showsIdleHoverPill ? 1
+        .opacity(isFocused || showsIdleHoverPill ? 1
             : 1 - nonSelectedItemTransparency * (isTaskbarMode ? 0.2 : 1))
         .shadow(color: isHovered && !isTaskbarMode ? Color.black.opacity(0.28) : .clear,
             radius: 4, y: 1)
-        .zIndex(isHovered ? 2 : (window.isFocused ? 1 : 0))
+        .zIndex(isHovered ? 2 : (isFocused ? 1 : 0))
         .animation(
-            reducesMotion ? .easeOut(duration: 0.07)
-                : isTaskbarMode ? .easeOut(duration: 0.10) : .easeOut(duration: 0.12),
+            isTaskbarMode ? nil : .easeOut(duration: reducesMotion ? 0.07 : 0.12),
             value: isHovered
         )
         .offset(y: -visualLift)
@@ -1871,20 +1912,20 @@ struct WindowTaskItemView: View {
     }
 
     private var showsIdleHoverPill: Bool {
-        isTaskbarMode && isHovered && !window.isFocused
+        isTaskbarMode && isHovered && !isFocused
     }
 
     private var itemBaseBackground: Color {
         if isTaskbarMode {
-            guard isHovered || window.isFocused else { return .clear }
+            guard isHovered || isFocused else { return .clear }
             switch highlightStyle {
             case .systemAccent:
-                return window.isFocused ? .clear : Color.accentColor.opacity(isHovered ? 0.06 : 0)
+                return isFocused ? .clear : Color.accentColor.opacity(isHovered ? 0.06 : 0)
             case .white:
-                return window.isFocused ? .clear : Color.primary.opacity(isHovered ? 0.08 * hazeStrength : 0)
+                return isFocused ? .clear : Color.primary.opacity(isHovered ? 0.08 * hazeStrength : 0)
             }
         }
-        if isHovered || window.isFocused {
+        if isHovered || isFocused {
             switch highlightStyle {
             case .systemAccent:
                 return Color.accentColor.opacity(0.38)
@@ -2292,6 +2333,7 @@ private struct FavoriteDockView: View {
     let onDragChanged: (Bool) -> Void
     let onHoverActivity: (Bool) -> Void
     let onMagnificationChange: (Bool) -> Void
+    var onMagnificationBoundsChange: (CGFloat, CGFloat) -> Void = { _, _ in }
     @State private var visualController = FavoriteDockVisualController()
     @State private var draggedFavoriteID: String?
     @State private var dragStartIDs: [String]?
@@ -2418,6 +2460,13 @@ private struct FavoriteDockView: View {
                         separatorCount: items.filter(\.isSeparator).count
                     )
                     visualController.updatePointer(pointerX)
+                    let layout = FavoriteMagnificationLayout(count: items.count, pointerX: pointerX,
+                        sizeScale: sizeScale,
+                        separatorIndices: Set(items.indices.filter { items[$0].isSeparator }), peakScale: peakScale)
+                    let width = CGFloat(items.count) * itemStep
+                        - CGFloat(items.filter(\.isSeparator).count) * 28 * sizeScale
+                    let overflow = layout.horizontalOverflow(sizeScale: sizeScale, contentWidth: width)
+                    onMagnificationBoundsChange(overflow.leading, overflow.trailing)
                     onMagnificationChange(true)
                 },
                 itemAt: { location in
@@ -2479,7 +2528,8 @@ private struct FavoriteDockView: View {
                     onDragChanged(false)
                 },
                 onDropPreview: { urls, x in
-                    let incoming = newDropURLs(urls)
+                    if isTrashDropTarget(x: x) { externalInsertion = nil; return !urls.isEmpty }
+                    let incoming = newDropURLs(FavoriteShelfDrop.supportedURLs(urls))
                     guard !incoming.isEmpty else { return false }
                     let insertion = insertionTarget(incoming, x: x)
                     if externalInsertion != insertion {
@@ -2488,7 +2538,18 @@ private struct FavoriteDockView: View {
                     return true
                 },
                 onDropURLs: { urls, x in
-                    let incoming = newDropURLs(urls)
+                    if isTrashDropTarget(x: x) {
+                        externalInsertion = nil
+                        do {
+                            try TrashActions.moveToTrash(urls)
+                            return true
+                        } catch {
+                            let alert = NSAlert(error: error)
+                            alert.runModal()
+                            return false
+                        }
+                    }
+                    let incoming = newDropURLs(FavoriteShelfDrop.supportedURLs(urls))
                     guard !incoming.isEmpty else { return false }
                     let insertion = insertionTarget(incoming, x: x)
                     externalInsertion = nil
@@ -2627,6 +2688,11 @@ private struct FavoriteDockView: View {
         case .separator, .insertionGap:
             return []
         }
+    }
+
+    private func isTrashDropTarget(x: CGFloat) -> Bool {
+        guard showsTrash, let center = visualController.view?.iconCenter(for: "utility:trash") else { return false }
+        return abs(x - center.x) <= 16 * sizeScale
     }
 
     private func newDropURLs(_ urls: [URL]) -> [URL] {

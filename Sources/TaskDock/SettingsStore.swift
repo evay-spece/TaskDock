@@ -86,7 +86,9 @@ final class SettingsStore: ObservableObject {
     @Published var taskbarItemWidthMode: TaskbarItemWidthMode { didSet { save() } }
     @Published var taskbarItemFontSize: CGFloat { didSet { save() } }
     @Published var favoriteMagnificationEnabled: Bool { didSet { save() } }
-    @Published var favoriteMagnificationScale: CGFloat { didSet { save() } }
+    @Published var favoriteMagnificationScale: CGFloat {
+        didSet { favoriteMagnificationEnabled = favoriteMagnificationScale > 1.001; save() }
+    }
     @Published var taskbarCollapseSameAppWindows: Bool { didSet { save() } }
     @Published private(set) var dockCompanionLeftAppKeys: Set<String> { didSet { save() } }
     @Published private(set) var dockCompanionRightAppKeys: Set<String> { didSet { save() } }
@@ -182,8 +184,7 @@ final class SettingsStore: ObservableObject {
         let savedBackgroundTransparency = defaults.object(forKey: taskbarBackgroundTransparencyKey) as? Double ?? 0
         taskbarBackgroundTransparency = savedBackgroundTransparency.isFinite
             ? min(max(savedBackgroundTransparency, 0), 1) : 0
-        taskbarItemWidthMode = TaskbarItemWidthMode(rawValue:
-            defaults.string(forKey: taskbarItemWidthModeKey) ?? "adaptive") ?? .adaptive
+        taskbarItemWidthMode = .adaptive
         let savedFontSize = defaults.object(forKey: taskbarItemFontSizeKey) as? Double ?? Double(Self.defaultTaskbarItemFontSize)
         taskbarItemFontSize = Self.taskbarItemFontSizes.min {
             abs($0 - CGFloat(savedFontSize)) < abs($1 - CGFloat(savedFontSize))
@@ -191,8 +192,8 @@ final class SettingsStore: ObservableObject {
         favoriteMagnificationEnabled = defaults.object(forKey: favoriteMagnificationEnabledKey) as? Bool ?? true
         let savedMagnificationScale = defaults.object(forKey: favoriteMagnificationScaleKey) as? Double ?? 2.0
         favoriteMagnificationScale = savedMagnificationScale.isFinite
-            ? min(max(CGFloat(savedMagnificationScale), 1.2), 2.4) : 2.0
-        taskbarCollapseSameAppWindows = defaults.object(forKey: taskbarCollapseSameAppWindowsKey) as? Bool ?? true
+            ? min(max(CGFloat(savedMagnificationScale), 1.0), 2.4) : 2.0
+        taskbarCollapseSameAppWindows = false
         dockCompanionLeftAppKeys = Set(defaults.stringArray(forKey: dockCompanionLeftAppKeysKey) ?? ["com.apple.finder"])
         dockCompanionRightAppKeys = Set(defaults.stringArray(forKey: dockCompanionRightAppKeysKey) ?? [])
         dockCompanionRightAppsCustomized = defaults.bool(forKey: dockCompanionRightAppsCustomizedKey)

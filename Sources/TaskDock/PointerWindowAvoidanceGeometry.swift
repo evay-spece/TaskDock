@@ -4,6 +4,7 @@ import Foundation
 enum PointerWindowAvoidanceSettings {
     static let animationDurationKey = "taskdock.pointerAvoidanceAnimationDurationV1"
     static let triggerDelayKey = "taskdock.pointerAvoidanceTriggerDelayV1"
+    static let tiledDelayKey = "taskdock.tiledAvoidanceTriggerDelayV1"
     static let defaultAnimationDuration: TimeInterval = 0.24
     static let defaultTriggerDelay: TimeInterval = 0
 
@@ -13,6 +14,9 @@ enum PointerWindowAvoidanceSettings {
 
     static var triggerDelay: TimeInterval {
         value(for: triggerDelayKey, fallback: defaultTriggerDelay, range: 0...1.5)
+    }
+    static var tiledDelay: TimeInterval {
+        value(for: tiledDelayKey, fallback: 0, range: 0...2)
     }
 
     private static func value(for key: String, fallback: TimeInterval,

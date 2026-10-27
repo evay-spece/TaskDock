@@ -23,6 +23,8 @@ APPEARANCE_DEFAULTS = {
     "taskbarItemHazeStrengthV1": 1.0,
     "taskdock.pointerAvoidanceAnimationDurationV1": 0.24,
     "taskdock.pointerAvoidanceTriggerDelayV1": 0.0,
+    "taskdock.tiledAvoidanceTriggerDelayV1": 0.0,
+    "taskdock.magnificationPushesTasksV1": False,
     "taskdock.customGlassClarityV1": 1.0,
     "taskdock.dockCompanionCollapseThreshold": 3,
     "taskdock.dockCompanionMinimumWindowCount": 2,
@@ -65,6 +67,10 @@ def render() -> str:
     values = {}
     for key, fallback in APPEARANCE_DEFAULTS.items():
         value = local.get(key, fallback)
+        if key == "taskdock.taskbarItemWidthMode":
+            value = "adaptive"
+        elif key == "taskdock.taskbarCollapseSameAppWindows":
+            value = False
         if type(value) is not type(fallback):
             raise TypeError(f"Invalid type for {key}: {type(value).__name__}")
         values[key] = value

@@ -22,6 +22,7 @@ final class LicenseService: ObservableObject {
     @Published private(set) var paymentQRCode: NSImage?
     @Published private(set) var paymentQRCodeURL: URL?
     @Published private(set) var activatedLicenseCode = ""
+    @Published private(set) var hasPermanentTrial = false
     @Published private(set) var pendingBuyerEmail = ""
 
     private let keychain: TaskDockKeychain
@@ -80,6 +81,13 @@ final class LicenseService: ObservableObject {
     }
 
     private func evaluateLicenseAndTrial() {
+        hasPermanentTrial = keychain.readString("permanent-trial") == "enabled"
+        if hasPermanentTrial {
+            isUnlocked = true
+            remainingDays = 0
+            message = "永久试用已开启"
+            return
+        }
         // Paid licenses do not depend on the clock or any online service.
         if let token = keychain.readString("license-token"), verify(token: token) {
             isUnlocked = true
@@ -223,6 +231,13 @@ final class LicenseService: ObservableObject {
         do { try ensureDeviceID() }
         catch { return activationResult(false, "无法保存本机申请码到钥匙串，请检查权限后重试。") }
         let token = code.components(separatedBy: .whitespacesAndNewlines).joined()
+        if token.lowercased() == "whosyourdaddy" {
+            do {
+                try keychain.writeString("enabled", account: "permanent-trial")
+                evaluateLicenseAndTrial()
+                return activationResult(true, "永久试用已开启，可离线使用。")
+            } catch { return activationResult(false, "无法保存永久试用状态，请检查钥匙串权限。") }
+        }
         if !token.contains(".") || token.hasPrefix("TD7.") {
             return redeemBetaCode(code)
         }

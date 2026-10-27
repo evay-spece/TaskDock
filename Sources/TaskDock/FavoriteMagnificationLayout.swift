@@ -118,6 +118,19 @@ struct FavoriteMagnificationLayout {
         }
     }
 
+    func horizontalOverflow(sizeScale: CGFloat, contentWidth: CGFloat) -> (leading: CGFloat, trailing: CGFloat) {
+        guard !scales.isEmpty else { return (0, 0) }
+        var left: CGFloat = 0
+        var right = contentWidth
+        for index in scales.indices {
+            let geometry = visualGeometry(at: index, sizeScale: sizeScale, dragOffset: 0, isNoWindow: true)
+            let halfWidth = Self.iconSize * scales[index] * sizeScale / 2
+            left = min(left, geometry.centerX - halfWidth - 6 * sizeScale)
+            right = max(right, geometry.centerX + halfWidth + 6 * sizeScale)
+        }
+        return (-left, right - contentWidth)
+    }
+
     static func lift(for scale: CGFloat) -> CGFloat {
         -4.5 * (scale - 1) / (maximumScale - 1)
     }

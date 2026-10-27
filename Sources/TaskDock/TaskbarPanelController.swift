@@ -72,6 +72,7 @@ final class TaskbarPanelController {
     private var dockRestoreAvailableAt = Date.distantPast
     private var shortcutMonitor: ModifierDoubleTapMonitor?
     private var minimizeHotKeyMonitor: GlobalMinimizeHotKeyMonitor?
+    private var minimizeShortcutEnabled: Bool?
     private var optionHotKeyMonitor: OptionWindowHotKeyMonitor?
     private var registeredOptionShortcuts = OptionWindowHotKeyMonitor.Registered()
     private var registeredWindowCount = -1
@@ -124,9 +125,10 @@ final class TaskbarPanelController {
             }
         }
         minimizeHotKeyMonitor = GlobalMinimizeHotKeyMonitor { [weak self] in
+            guard UserDefaults.standard.object(forKey: "taskdock.optionDEnabledV1") as? Bool ?? true else { return }
             self?.performTrialAction { self?.toggleAllAppVisibility() }
         }
-        minimizeHotKeyMonitor?.start()
+        synchronizeMinimizeShortcut()
         shortcutMonitor = ModifierDoubleTapMonitor(
             settings: settings,
             onDoubleTap: { [weak self] in self?.toggleTaskbarVisibility() },
@@ -633,7 +635,15 @@ final class TaskbarPanelController {
         }
     }
 
+    private func synchronizeMinimizeShortcut() {
+        let enabled = UserDefaults.standard.object(forKey: "taskdock.optionDEnabledV1") as? Bool ?? true
+        guard enabled != minimizeShortcutEnabled else { return }
+        minimizeShortcutEnabled = enabled
+        if enabled { _ = minimizeHotKeyMonitor?.start() } else { minimizeHotKeyMonitor?.stop() }
+    }
+
     private func refresh() {
+        synchronizeMinimizeShortcut()
         // Avoid a full AX scan competing with the brief window animation.
         if windowService.isAnimatingPointerAvoidance { return }
         if recentAppPopoverState.isPresented { return }

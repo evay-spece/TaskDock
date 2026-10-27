@@ -157,6 +157,14 @@ struct OfflineLicenseSelfTest {
         betaRestart.refreshStatus()
         precondition(!betaRestart.isUnlocked && betaRestart.activatedLicenseCode.isEmpty)
         precondition(!license.activate(code: fixture).isSuccess, "Purchased licenses do not consume trial codes")
+        precondition(betaRestart.activate(code: "whosyourdaddy").isSuccess)
+        betaNow = beginning.addingTimeInterval(30 * 365 * 24 * 3600)
+        let permanentRestart = LicenseService(keychainService: betaServiceName, defaults: betaDefaults,
+            clock: { betaNow }, testingPublicKeyPEM: pem)
+        permanentRestart.start(scheduleTimer: false)
+        precondition(permanentRestart.hasPermanentTrial && permanentRestart.isUnlocked)
+        precondition(permanentRestart.activatedLicenseCode.isEmpty)
+        print("PERMANENT_TRIAL_OK expired-trial restart long-term no-purchase-token")
         print("BETA_COMPAT_OK invalid legacy-duplicate unicode-dashes seven-days restart expiry no-paid-entitlement")
         print("OFFLINE_LICENSE_OK trial-boundary rollback dock-restore mail-content no-send tamper other-device wrong-key multiline restart")
     }

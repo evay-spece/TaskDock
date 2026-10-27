@@ -15,7 +15,8 @@ struct LicensePopoverView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("TaskDock 授权").font(.headline)
-                Text("7 天完整试用 · ¥59 一次购买授权").font(.subheadline).foregroundStyle(.secondary)
+                Text(license.hasPermanentTrial ? "永久试用已开启" : "7 天完整试用 · ¥59 一次购买授权")
+                    .font(.subheadline).foregroundStyle(.secondary)
                 TextField("接收激活码的邮箱", text: $email)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()

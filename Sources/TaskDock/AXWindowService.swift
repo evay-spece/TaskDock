@@ -481,7 +481,8 @@ final class AXWindowService {
             // a stable frame before starting our own animation.
             if let candidate = pointerCandidateFrames[window.nativeWindowID],
                WindowSpaceReservationGeometry.approximatelyEqual(current, candidate.frame, tolerance: 2) {
-                guard Date().timeIntervalSince(candidate.since) >= 0.2 else { continue }
+                let delay = defaultLayout ? PointerWindowAvoidanceSettings.tiledDelay : 0
+                guard Date().timeIntervalSince(candidate.since) >= 0.2 + delay else { continue }
             } else {
                 pointerCandidateFrames[window.nativeWindowID] = (current, Date())
                 continue

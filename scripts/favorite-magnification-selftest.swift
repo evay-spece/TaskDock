@@ -281,6 +281,18 @@ struct FavoriteMagnificationSelfTest {
                 }
             }
         }
-        print("FAVORITE_MAGNIFICATION_OK")
+        let width: CGFloat = 324
+        for pointer in stride(from: CGFloat.zero, through: width * 1.4, by: 7) {
+            let layout = FavoriteMagnificationLayout(count: 11, pointerX: pointer,
+                sizeScale: 1.4, separatorIndices: [8], peakScale: 2.4)
+            let overflow = layout.horizontalOverflow(sizeScale: 1.4, contentWidth: width * 1.4)
+            for index in layout.scales.indices {
+                let item = layout.visualGeometry(at: index, sizeScale: 1.4, dragOffset: 0, isNoWindow: true)
+                let radius = 13 * 1.4 * layout.scales[index]
+                precondition(item.centerX - radius >= -overflow.leading)
+                precondition(item.centerX + radius <= width * 1.4 + overflow.trailing)
+            }
+        }
+        print("FAVORITE_MAGNIFICATION_OK background-covers-all-icons right-lane-clearance")
     }
 }

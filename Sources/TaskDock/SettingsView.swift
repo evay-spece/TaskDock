@@ -7,7 +7,6 @@ import TaskDockBrowserProtocol
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case taskbar
-    case feedback
     case dockCompanion
     case files
     case developer
@@ -21,7 +20,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .files: return "右键功能"
         case .taskbar: return "任务栏"
         case .dockCompanion: return "融合模式"
-        case .feedback: return "用户反馈"
         case .developer: return "开发者调试"
         case .about: return "关于"
         }
@@ -33,7 +31,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .files: return "doc.badge.plus"
         case .taskbar: return "rectangle.bottomthird.inset.filled"
         case .dockCompanion: return "dock.rectangle"
-        case .feedback: return "bubble.left.and.bubble.right"
         case .developer: return "hammer"
         case .about: return "info.circle"
         }
@@ -55,10 +52,8 @@ struct SettingsView: View {
     private var rightClickEntryVisible = false
     @AppStorage(DeveloperDebugSettings.entryVisibleKey) private var developerEntryVisible = false
     @AppStorage("fusionSettingsVisibleV1") private var fusionEntryVisible = false
-    @AppStorage("feedbackDraftTitle") private var feedbackTitle = ""
-    @AppStorage("feedbackDraftDetails") private var feedbackDetails = ""
-    @State private var feedbackOpenFailed = false
-    @State private var feedbackCopied = false
+    @AppStorage("taskdock.optionDEnabledV1") private var optionDEnabled = true
+    @AppStorage("taskdock.magnificationPushesTasksV1") private var magnificationPushesTasks = false
     @State private var browserBridgeMessage = ""
     let windows: [WindowModel]
     let onChanged: () -> Void
@@ -162,7 +157,6 @@ struct SettingsView: View {
                 case .taskbar: taskbarTab
                 case .dockCompanion:
                     if fusionEntryVisible { dockCompanionTab } else { generalTab }
-                case .feedback: feedbackTab
                 case .developer:
                     if developerEntryVisible { developerTab } else { generalTab }
                 case .about: aboutTab
@@ -214,6 +208,11 @@ struct SettingsView: View {
                 TaskbarBlackBackgroundSettingsView()
             }
             settingsSection(title: "任务项外观") { TaskbarItemHazeSettingsView() }
+            settingsSection(title: "收藏栏放大") {
+                Toggle("放大时将最近 App 和任务项整体右移", isOn: $magnificationPushesTasks)
+                Text("开启后保留最近 App，并为放大的收藏图标留出空间。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             settingsSection(title: "窗口避让") { PointerWindowAvoidanceSettingsView() }
             settingsSection(title: "浮动气泡窗口") { DeveloperDebugSettingsView() }
         }
@@ -320,90 +319,12 @@ struct SettingsView: View {
         fileTypeMessage = "已添加，Finder 菜单下次打开时生效。"
     }
 
-    private var feedbackTab: some View {
-        tabScrollView {
-            settingsSection(title: "提建议或报告问题", description: "通过腾讯问卷反馈建议或问题，也可以先在这里整理草稿。") {
-                VStack(alignment: .leading, spacing: 12) {
-                    if feedbackURL == nil {
-                        Label("反馈表单暂未开放", systemImage: "info.circle")
-                            .foregroundStyle(.secondary)
-                        Text("目前尚未配置腾讯问卷，暂时无法提交。你可以先保存草稿或复制内容。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("点击下方按钮在浏览器打开腾讯问卷，在问卷中填写并确认提交。这里的草稿不会自动上传，请按需复制粘贴。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text("反馈草稿（可选）")
-                    TextField("标题（最多 120 字）", text: $feedbackTitle)
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: feedbackTitle) { value in
-                            feedbackTitle = String(value.prefix(120))
-                            feedbackCopied = false
-                        }
-                    Text("详细内容")
-                    TextEditor(text: $feedbackDetails)
-                        .font(.body)
-                        .frame(minHeight: 150)
-                        .padding(4)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.15)))
-                        .accessibilityLabel("反馈详细内容")
-                        .onChange(of: feedbackDetails) { value in
-                            feedbackDetails = String(value.prefix(2000))
-                            feedbackCopied = false
-                        }
-                    Text("\(feedbackDetails.count)/2000 字")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("请勿填写密码、激活码或其他隐私信息。复制内容包含下方版本信息，方便定位问题。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(feedbackEnvironment)
-                        .font(.caption)
-                        .textSelection(.enabled)
-                        .foregroundStyle(.secondary)
-                    Text("草稿会保存在本机，关闭设置后可继续编辑。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button("打开腾讯问卷…") {
-                            guard let url = feedbackURL else { return }
-                            feedbackOpenFailed = !NSWorkspace.shared.open(url)
-                        }
-                        .disabled(feedbackURL == nil)
-                        Button(feedbackCopied ? "已复制" : "复制反馈内容") {
-                            let pasteboard = NSPasteboard.general
-                            pasteboard.clearContents()
-                            feedbackCopied = pasteboard.setString(FeedbackDraft.copyText(title: feedbackTitle, details: feedbackDetails, environment: feedbackEnvironment), forType: .string)
-                        }
-                    }
-                    if feedbackOpenFailed {
-                        Text("未能打开浏览器，请重试。当前填写的内容已保留。")
-                            .font(.callout)
-                            .foregroundStyle(.orange)
-                    }
-                }
-            }
-        }
-    }
-
-    private var feedbackURL: URL? {
-        FeedbackDraft.configuredFormURL
-    }
-
-    private var feedbackEnvironment: String {
-        FeedbackDraft.environment(
-            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知",
-            build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "未知",
-            systemVersion: ProcessInfo.processInfo.operatingSystemVersionString
-        )
-    }
-
     private var generalTab: some View {
         tabScrollView {
+            settingsSection(title: "快捷键") {
+                Toggle("⌥ Option + D 全部最小化／恢复", isOn: $optionDEnabled)
+                    .onChange(of: optionDEnabled) { _ in onChanged() }
+            }
             settingsSection(title: "浏览器下载进度", description: "Safari 自动读取本机下载记录；Chrome / Edge 安装配套扩展后，为每个下载建立独立任务项。") {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Safari 无需扩展。Chrome / Edge 仅在本机传输文件名和进度，不传输完整路径、网址或文件内容。")
@@ -561,6 +482,9 @@ struct SettingsView: View {
             }
 
             purchaseSettings
+            settingsSection(title: "联系方式") {
+                Link("email：tee@live.cn", destination: URL(string: "mailto:tee@live.cn")!)
+            }
             settingsSection(title: "软件更新") {
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -582,7 +506,7 @@ struct SettingsView: View {
     private var purchaseSettings: some View {
         settingsSection(title: "购买与激活", description: "7 天完整试用，¥59 一次购买授权；人工核款后通过邮件发码。") {
             HStack {
-                Text((license.activatedLicenseCode.isEmpty && !LicenseStatus.hasValidPurchase) ?
+                Text(license.hasPermanentTrial ? "永久试用" : (license.activatedLicenseCode.isEmpty && !LicenseStatus.hasValidPurchase) ?
                     (license.isUnlocked ? "试用剩余 \(license.remainingDays) 天" : "试用已结束") : "已购买授权")
                 Spacer()
                 Button("购买与激活…", action: onOpenLicense)
@@ -609,7 +533,7 @@ struct SettingsView: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $settings.taskbarBackgroundTransparency, in: 0...1, step: 0.01)
+                ReleaseTunedSlider(value: $settings.taskbarBackgroundTransparency, in: 0...1, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarBackgroundTransparency", fallback: 0))
                     .accessibilityLabel("任务栏背景透明度")
                     .onChange(of: settings.taskbarBackgroundTransparency) { _ in onVisualChanged() }
                 HStack {
@@ -632,36 +556,28 @@ struct SettingsView: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $settings.taskbarSideInset, in: SettingsStore.taskbarSideInsetRange, step: 1)
+                ReleaseTunedSlider(value: $settings.taskbarSideInset, in: SettingsStore.taskbarSideInsetRange, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarLeadingInset", fallback: 88))
                     .accessibilityLabel("任务栏两侧留白")
                     .onChange(of: settings.taskbarSideInset) { _ in onLayoutChanged() }
                 Text("向右拖动，两侧同步向内收缩；实时生效并自动保存。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                HStack {
-                    Label("任务栏高度", systemImage: "arrow.up.and.down")
-                    Spacer()
-                    Text("\(Int(settings.taskbarHeight.rounded())) pt")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 28) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("大小")
+                        ReleaseTunedSlider(value: $settings.taskbarHeight, in: SettingsStore.taskbarHeightRange, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarHeight", fallback: 50))
+                            .accessibilityLabel("任务栏高度")
+                            .onChange(of: settings.taskbarHeight) { _ in onLayoutChanged() }
+                        HStack { Text("小"); Spacer(); Text("大") }.font(.caption)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("放大")
+                        ReleaseTunedSlider(value: $settings.favoriteMagnificationScale, in: 1...2.4, defaultValue: ReleaseTunedSlider.preset("taskdock.favoriteMagnificationScale", fallback: 1.5))
+                            .accessibilityLabel("图标放大倍率")
+                            .onChange(of: settings.favoriteMagnificationScale) { _ in onLayoutChanged() }
+                        HStack { Text("关闭  小"); Spacer(); Text("大") }.font(.caption)
+                    }
                 }
-                Slider(value: $settings.taskbarHeight, in: SettingsStore.taskbarHeightRange, step: 2)
-                    .accessibilityLabel("任务栏高度")
-                    .onChange(of: settings.taskbarHeight) { _ in onLayoutChanged() }
-                Text("任务栏、图标和任务项同步调整；默认 50 pt。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    Label("图标放大倍率", systemImage: "arrow.up.left.and.arrow.down.right")
-                    Spacer()
-                    Text(String(format: "%.1f×", Double(settings.favoriteMagnificationScale)))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: $settings.favoriteMagnificationScale, in: 1.2...2.4, step: 0.1)
-                    .accessibilityLabel("图标放大倍率")
-                    .disabled(!settings.favoriteMagnificationEnabled)
-                    .onChange(of: settings.favoriteMagnificationScale) { _ in onLayoutChanged() }
                 HStack {
                     Label("任务项文字大小", systemImage: "textformat.size")
                     Spacer()
@@ -696,31 +612,6 @@ struct SettingsView: View {
                     .font(.caption)
             }
 
-            settingsSection(title: "任务项与动画", description: "只影响任务栏模式。") {
-                HStack {
-                    Text("任务项长度")
-                    Spacer()
-                    Picker("任务项长度", selection: $settings.taskbarItemWidthMode) {
-                        ForEach(TaskbarItemWidthMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .onChange(of: settings.taskbarItemWidthMode) { _ in onLayoutChanged() }
-                }
-                Text("固定长度：所有任务项等宽。自适应长度：按标题长短分配，最长不超过原固定长度。空间不足时先折叠同一 App 的窗口，仍不足时可横向滚动。")
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider()
-                settingsToggle(
-                    title: "同一 App 有 3 个及以上窗口时折叠",
-                    description: "空间充足时可预先折叠 3 个及以上的窗口；空间不足时也会自动折叠同一 App 的窗口。点击折叠项可选择具体窗口。",
-                    isOn: $settings.taskbarCollapseSameAppWindows
-                )
-                    .onChange(of: settings.taskbarCollapseSameAppWindows) { _ in onLayoutChanged() }
-            }
-
             settingsSection(title: "收藏栏来源", description: "选择 TaskDock 独立收藏，或与系统 Dock 的固定项目保持同步。") {
                 settingsToggle(
                     title: "收藏栏同步系统 Dock",
@@ -746,12 +637,6 @@ struct SettingsView: View {
                     }
                     Spacer()
                 }
-                settingsToggle(
-                    title: "收藏图标悬停反馈",
-                    description: "鼠标移到收藏图标上时弹性放大；关闭后保持固定大小。",
-                    isOn: $settings.favoriteMagnificationEnabled
-                )
-                    .onChange(of: settings.favoriteMagnificationEnabled) { _ in onVisualChanged() }
                 Text("运行中的 App 图标下方显示指示点，随系统明暗模式调整颜色，无论是否有窗口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)

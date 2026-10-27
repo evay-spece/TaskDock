@@ -20,27 +20,35 @@ struct PointerWindowAvoidanceSettingsView: View {
     private var animationDuration = PointerWindowAvoidanceSettings.defaultAnimationDuration
     @AppStorage(PointerWindowAvoidanceSettings.triggerDelayKey)
     private var triggerDelay = PointerWindowAvoidanceSettings.defaultTriggerDelay
+    @AppStorage(PointerWindowAvoidanceSettings.tiledDelayKey) private var tiledDelay = 0.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("抬脚动画时长")
-                Slider(value: $animationDuration, in: 0.08...0.6, step: 0.01)
+                ReleaseTunedSlider(value: $animationDuration, in: 0.08...0.6, defaultValue: ReleaseTunedSlider.preset(PointerWindowAvoidanceSettings.animationDurationKey, fallback: 0.24))
                     .accessibilityLabel("窗口抬脚动画时长")
                 Text(String(format: "%.2f 秒", animationDuration))
                     .monospacedDigit().frame(width: 72, alignment: .trailing)
             }
-            Text("数值越小，窗口抬起越快；默认 0.24 秒。")
+            Text("数值越小，窗口抬起越快；滑杆标记处为发布默认值。")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("触发延时")
-                Slider(value: $triggerDelay, in: 0...1.5, step: 0.05)
+                ReleaseTunedSlider(value: $triggerDelay, in: 0...1.5, defaultValue: ReleaseTunedSlider.preset(PointerWindowAvoidanceSettings.triggerDelayKey, fallback: 0))
                     .accessibilityLabel("窗口抬脚触发延时")
                 Text(String(format: "%.2f 秒", triggerDelay))
                     .monospacedDigit().frame(width: 72, alignment: .trailing)
             }
             Text("鼠标进入屏幕底部区域后等待的时间；0 秒立即检查。最大化窗口的自动避让不受此项影响。")
                 .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("最大化／半屏延时")
+                ReleaseTunedSlider(value: $tiledDelay, in: 0...2,
+                    defaultValue: ReleaseTunedSlider.preset(PointerWindowAvoidanceSettings.tiledDelayKey, fallback: 0))
+                    .accessibilityLabel("最大化和半屏窗口避让延时")
+                Text(String(format: "%.2f 秒", tiledDelay)).monospacedDigit().frame(width: 72, alignment: .trailing)
+            }
         }
     }
 }
@@ -52,7 +60,7 @@ struct TaskbarBlackBackgroundSettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("黑色底色透明度")
-                Slider(value: $transparency, in: 0...1, step: 0.01)
+                ReleaseTunedSlider(value: $transparency, in: 0...1, defaultValue: ReleaseTunedSlider.preset(TaskbarBlackBackgroundSettings.transparencyKey, fallback: 1))
                     .accessibilityLabel("任务栏黑色底色透明度")
                 Text("\(Int((transparency * 100).rounded()))%")
                     .monospacedDigit().frame(width: 44, alignment: .trailing)
@@ -70,7 +78,7 @@ struct TaskbarItemHazeSettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("胶囊底色强度")
-                Slider(value: $strength, in: 0...1, step: 0.01)
+                ReleaseTunedSlider(value: $strength, in: 0...1, defaultValue: ReleaseTunedSlider.preset(TaskbarItemHazeSettings.strengthKey, fallback: 1))
                     .accessibilityLabel("任务项胶囊底色强度")
                 Text("\(Int((strength * 100).rounded()))%")
                     .monospacedDigit().frame(width: 44, alignment: .trailing)
@@ -92,7 +100,7 @@ struct DeveloperDebugSettingsView: View {
                 .font(.callout).foregroundStyle(.secondary)
             HStack {
                 Text("背景透明度")
-                Slider(value: $transparency, in: 0...0.9, step: 0.01)
+                ReleaseTunedSlider(value: $transparency, in: 0...0.9, defaultValue: ReleaseTunedSlider.preset(DeveloperDebugSettings.bubbleTransparencyKey, fallback: 0))
                     .accessibilityLabel("浮动气泡窗口背景透明度")
                 Text("\(Int((transparency * 100).rounded()))%")
                     .monospacedDigit().frame(width: 44, alignment: .trailing)
@@ -109,18 +117,20 @@ struct DeveloperDebugSettingsView: View {
                     }.padding(16).frame(width: 300, alignment: .leading)
                 }.padding(24)
             }.frame(height: 160).clipShape(RoundedRectangle(cornerRadius: 12))
-            Button("恢复默认透明度") { transparency = 0 }
+            Button("恢复默认透明度") {
+                transparency = ReleaseTunedSlider.preset(DeveloperDebugSettings.bubbleTransparencyKey, fallback: 0)
+            }
             Divider()
             Text("小气泡").font(.headline)
             HStack {
                 Text("字号").frame(width: 110, alignment: .leading)
-                Slider(value: $smallBubbleFontSize, in: 9...20, step: 1)
+                ReleaseTunedSlider(value: $smallBubbleFontSize, in: 9...20, defaultValue: ReleaseTunedSlider.preset(DeveloperDebugSettings.smallBubbleFontSizeKey, fallback: 12))
                     .accessibilityLabel("小气泡字号")
                 numberInput("小气泡字号数值", value: $smallBubbleFontSize, range: 9...20)
             }
             HStack {
                 Text("距图标的距离").frame(width: 110, alignment: .leading)
-                Slider(value: $smallBubbleIconGap, in: 0...30, step: 1)
+                ReleaseTunedSlider(value: $smallBubbleIconGap, in: 0...30, defaultValue: ReleaseTunedSlider.preset(DeveloperDebugSettings.smallBubbleIconGapKey, fallback: 3))
                     .accessibilityLabel("小气泡距图标的距离")
                 numberInput("小气泡距离数值", value: $smallBubbleIconGap, range: 0...30)
             }
@@ -135,8 +145,8 @@ struct DeveloperDebugSettingsView: View {
                 Image(systemName: "app.fill").font(.system(size: 36)).foregroundStyle(.blue)
             }.frame(maxWidth: .infinity).frame(height: 130)
             Button("恢复小气泡默认值") {
-                smallBubbleFontSize = 12
-                smallBubbleIconGap = 3
+                smallBubbleFontSize = ReleaseTunedSlider.preset(DeveloperDebugSettings.smallBubbleFontSizeKey, fallback: 12)
+                smallBubbleIconGap = ReleaseTunedSlider.preset(DeveloperDebugSettings.smallBubbleIconGapKey, fallback: 3)
             }
         }
     }
@@ -182,7 +192,7 @@ struct ExperimentalTaskbarGlassSettingsView: View {
             HStack {
                 Text("通透度")
                 Text("磨砂").font(.caption).foregroundStyle(.secondary)
-                Slider(value: sliderValue, in: 0...1, step: 0.01)
+                ReleaseTunedSlider(value: sliderValue, in: 0...1, defaultValue: ReleaseTunedSlider.preset(TaskbarExperimentalGlass.clarityKey, fallback: 1))
                     .accessibilityLabel("任务栏玻璃通透度")
                 Text("通透").font(.caption).foregroundStyle(.secondary)
                 Text("\(Int((sliderValue.wrappedValue * 100).rounded()))%")

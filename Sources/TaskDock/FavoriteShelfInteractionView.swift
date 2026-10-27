@@ -498,7 +498,8 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
         private func droppedURLs(_ sender: NSDraggingInfo) -> [URL] {
             let objects = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
                 options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-            return FavoriteShelfDrop.supportedURLs(objects)
+            // Preserve aliases and symbolic links themselves when moving to Trash.
+            return objects.filter { $0.isFileURL && FileManager.default.fileExists(atPath: $0.path) }
         }
 
         override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -514,7 +515,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
                 else { endExternalDrag(); return [] }
             externalDragActive = true
             onExternalDragChanged?(true)
-            return .copy
+            return itemAt?(location) == "utility:trash" ? .move : .copy
         }
 
         override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
