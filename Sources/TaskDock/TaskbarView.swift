@@ -254,16 +254,18 @@ struct TaskbarView: View {
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("\(downloadsExpanded ? "收起" : "展开") \(downloadTasks.count) 个下载任务")
                                 .floatingBubbleWindow(isPresented: $downloadsExpanded) {
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        Text("下载任务（\(downloadTasks.count)）").font(.headline)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("下载任务（\(downloadTasks.count)）")
+                                            .font(.headline)
+                                            .padding(.bottom, 4)
                                         ScrollView {
-                                            VStack(spacing: 8) {
+                                            VStack(spacing: 4) {
                                                 ForEach(downloadTasks) { task in downloadPopoverRow(task) }
                                             }
                                         }.frame(height: min(420,
-                                            CGFloat(downloadTasks.count) * max(44, taskbarItemHeight)
-                                            + CGFloat(max(0, downloadTasks.count - 1)) * 8))
-                                    }.padding(16).frame(width: 380)
+                                            CGFloat(downloadTasks.count) * 32
+                                            + CGFloat(max(0, downloadTasks.count - 1)) * 4))
+                                    }.padding(12).frame(width: 355)
                                 }
                                 .onChange(of: downloadsExpanded) { onRecentPopoverVisibilityChanged($0) }
                                 .onChange(of: downloadTasks.count) { if $0 <= 3 { downloadsExpanded = false } }
@@ -502,9 +504,7 @@ struct TaskbarView: View {
     }
 
     private func downloadPopoverRow(_ task: BrowserDownloadTask) -> some View {
-        DownloadTaskItemView(task: task, width: 348, height: max(44, taskbarItemHeight), scale: taskbarContentScale,
-            fontSize: settings.taskbarItemFontSize, highlightStyle: settings.taskItemHighlightStyle,
-            transparency: settings.nonSelectedItemTransparency,
+        DownloadBubbleRow(task: task,
             onOpenDownloads: {
                 downloadsExpanded = false
                 onPerformWindowAction { BrowserDownloadNavigation.open(task.browser) }
@@ -525,7 +525,7 @@ struct TaskbarView: View {
                     }
                 }
             },
-            onClose: { windowProgress.dismissDownload(task) }, usesPopoverAppearance: true)
+            onClose: { windowProgress.dismissDownload(task) })
             .help("\(task.download.filename) · \(task.browser.label) · \(task.status)")
     }
 
@@ -1389,6 +1389,104 @@ private struct FusionCollapsedAppView: View {
     }
 }
 
+private struct DownloadBubbleRow: View {
+    let task: BrowserDownloadTask
+    let onOpenDownloads: () -> Void
+    let onOpenFile: (@escaping (Bool) -> Void) -> Void
+    let onRevealFile: (@escaping (Bool) -> Void) -> Void
+    let onClose: () -> Void
+    @State private var hovered = false
+    @State private var isOpening = false
+
+    private func open(reveal: Bool) {
+        guard !isOpening else { return }
+        isOpening = true
+        (reveal ? onRevealFile : onOpenFile) { _ in isOpening = false }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                if task.download.isComplete { open(reveal: false) }
+                else { onOpenDownloads() }
+            } label: {
+                HStack(spacing: 9) {
+                    if task.download.isComplete {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(Color.green)
+                            .frame(width: 26, height: 26)
+                    } else {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: task.download.filename))
+                            .resizable().scaledToFit()
+                            .frame(width: 26, height: 26)
+                    }
+                    Text(isOpening ? "正在打开…" : task.download.filename)
+                        .font(.system(size: 13, weight: .regular))
+                        .lineLimit(1)
+                        .foregroundStyle(hovered ? Color.white : Color.primary)
+                    Spacer(minLength: 0)
+                    if !task.download.isComplete {
+                        if task.download.paused {
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 11))
+                        } else if let progress = task.progress {
+                            Text("\(Int(progress * 100))%")
+                                .font(.system(size: 11, weight: .medium))
+                                .monospacedDigit()
+                        } else {
+                            ProgressView().controlSize(.mini)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .dockMenuFocusAppearance()
+            .disabled(isOpening)
+            .accessibilityLabel(task.download.isComplete
+                ? "打开文件：\(task.download.filename)" : "下载：\(task.download.filename)")
+
+            if task.download.isComplete {
+                Button { open(reveal: true) } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 22, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .dockMenuFocusAppearance()
+                .disabled(isOpening)
+                .accessibilityLabel("打开文件夹")
+                .help("打开文件夹并选中文件")
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 22, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .dockMenuFocusAppearance()
+                .accessibilityLabel("关闭下载任务")
+                .help("关闭下载任务，不删除文件")
+            }
+        }
+        .foregroundStyle(hovered ? Color.white : Color.secondary)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
+        .background {
+            if hovered {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.accentColor)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+}
+
 private struct DownloadTaskItemView: View {
     let task: BrowserDownloadTask
     let width: CGFloat
@@ -1401,7 +1499,6 @@ private struct DownloadTaskItemView: View {
     let onOpenFile: (@escaping (Bool) -> Void) -> Void
     let onRevealFile: (@escaping (Bool) -> Void) -> Void
     let onClose: () -> Void
-    var usesPopoverAppearance = false
     @State private var hovered = false
     @State private var isOpening = false
     private var highlight: Color { .accentColor }
@@ -1433,7 +1530,7 @@ private struct DownloadTaskItemView: View {
                         .accessibilityHidden(true)
                     }
                     Text(isOpening ? "正在打开…" : task.download.filename)
-                        .font(.system(size: (usesPopoverAppearance ? max(13, fontSize) : fontSize) * scale, weight: usesPopoverAppearance ? .semibold : .medium))
+                        .font(.system(size: fontSize * scale, weight: .medium))
                         .foregroundStyle(Color.primary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1441,12 +1538,7 @@ private struct DownloadTaskItemView: View {
                         if task.download.paused {
                             Image(systemName: "pause.fill").font(.system(size: 10 * scale))
                         } else if let progress = task.progress, width >= 105 * scale {
-                            if usesPopoverAppearance {
-                                Text("\(Int(progress * 100))%")
-                                    .font(.system(size: 12 * scale, weight: .semibold)).monospacedDigit()
-                            } else {
-                                TaskItemProgressLabel(value: progress, scale: scale)
-                            }
+                            TaskItemProgressLabel(value: progress, scale: scale)
                         } else { ProgressView().controlSize(.mini) }
                     }
                 }
@@ -1478,28 +1570,11 @@ private struct DownloadTaskItemView: View {
         .foregroundStyle(Color.primary)
         .frame(width: width, height: height)
         .background {
-            if usesPopoverAppearance {
-                RoundedRectangle(cornerRadius: 7 * scale)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                RoundedRectangle(cornerRadius: 7 * scale)
-                    .fill(Color.accentColor.opacity(hovered ? 0.10 : 0))
-                RoundedRectangle(cornerRadius: 7 * scale)
-                    .stroke(Color.primary.opacity(0.14), lineWidth: 1)
-                if let progress = task.progress {
-                    GeometryReader { geometry in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.accentColor)
-                            .frame(width: geometry.size.width * progress, height: 3)
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                    }
-                }
-            } else {
             TaskbarReadableItemSurface(cornerRadius: 7 * scale, isHovered: hovered, transparency: transparency)
             RoundedRectangle(cornerRadius: 7 * scale)
                 .fill(highlight.opacity(hovered ? (highlightStyle == .systemAccent ? 0.13 : 0.18) : 0))
             if let progress = task.progress {
                 TaskItemProgressFill(value: progress, cornerRadius: 7 * scale)
-            }
             RoundedRectangle(cornerRadius: 7 * scale)
                 .stroke(highlight.opacity(hovered ? 0.56 : task.progress == nil ? 0 : 0.14), lineWidth: 0.7)
             }
