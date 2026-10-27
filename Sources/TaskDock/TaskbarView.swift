@@ -2802,6 +2802,27 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
     final class DrawingView: NSView {
         private static func highResolutionIcon(for item: FavoriteShelfItem, date: Date) -> CGImage? {
             let image = item.icon(for: date)
+            if item.trashIsFull != nil,
+               let lightAppearance = NSAppearance(named: .aqua) {
+                var lightTrashIcon: CGImage?
+                lightAppearance.performAsCurrentDrawingAppearance {
+                    guard let bitmap = NSBitmapImageRep(
+                        bitmapDataPlanes: nil, pixelsWide: 256, pixelsHigh: 256,
+                        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                        isPlanar: false, colorSpaceName: .deviceRGB,
+                        bytesPerRow: 0, bitsPerPixel: 0
+                    ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+                        return
+                    }
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = context
+                    image.draw(in: NSRect(x: 0, y: 0, width: 256, height: 256))
+                    context.flushGraphics()
+                    NSGraphicsContext.restoreGraphicsState()
+                    lightTrashIcon = bitmap.cgImage
+                }
+                return lightTrashIcon
+            }
             var proposedRect = NSRect(x: 0, y: 0, width: 128, height: 128)
             return image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
         }
