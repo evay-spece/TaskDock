@@ -23,7 +23,8 @@ func reply(_ ok: Bool) throws {
 }
 let arguments = Array(CommandLine.arguments.dropFirst())
 let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
-if arguments.count == 2, ["--install", "--uninstall"].contains(arguments[0]), let browser = ProgressBrowser(rawValue: arguments[1]) {
+if arguments.count == 2, ["--install", "--uninstall"].contains(arguments[0]),
+   let browser = ProgressBrowser(rawValue: arguments[1]), ProgressBrowser.bridgeBrowsers.contains(browser) {
     do {
         if arguments[0] == "--install" { try BrowserBridgeRegistration.register(browser: browser, executable: executable) }
         else { try BrowserBridgeRegistration.unregister(browser: browser, executable: executable) }

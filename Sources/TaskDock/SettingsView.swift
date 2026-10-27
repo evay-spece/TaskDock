@@ -403,9 +403,11 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         tabScrollView {
-            settingsSection(title: "浏览器下载进度", description: "安装配套扩展后，为每个 Chrome / Edge 下载建立独立任务项，以文件名为标题。仅在本机传输文件名和进度，不传输完整路径、网址或文件内容。") {
+            settingsSection(title: "浏览器下载进度", description: "Safari 自动读取本机下载记录；Chrome / Edge 安装配套扩展后，为每个下载建立独立任务项。") {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(ProgressBrowser.allCases, id: \.rawValue) { browser in
+                    Text("Safari 无需扩展。Chrome / Edge 仅在本机传输文件名和进度，不传输完整路径、网址或文件内容。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(ProgressBrowser.bridgeBrowsers, id: \.rawValue) { browser in
                         HStack {
                             Text(browser.label)
                             Spacer()

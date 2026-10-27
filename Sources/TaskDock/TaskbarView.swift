@@ -1071,15 +1071,16 @@ private struct TaskItemProgressFill: View {
 private struct TaskItemProgressLabel: View {
     let value: Double
     let scale: CGFloat
+    private var percent: Int { min(99, max(0, Int((value * 100).rounded()))) }
 
     var body: some View {
-        Text("\(Int((value * 100).rounded()))%")
+        Text("\(percent)%")
             .font(.system(size: 11 * scale, weight: .semibold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(Color.primary)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .accessibilityLabel("进度 \(Int((value * 100).rounded()))%")
+            .accessibilityLabel("进度 \(percent)%")
     }
 }
 
@@ -1593,7 +1594,8 @@ private struct DownloadTaskItemView: View {
                 .contentShape(Rectangle())
             }
             .accessibilityLabel(task.download.isComplete ? "打开文件：\(task.download.filename)" : "下载：\(task.download.filename)")
-            .help(task.download.isComplete ? "打开文件：\(task.download.filename)" : "打开浏览器下载列表")
+            .help(task.download.isComplete ? "打开文件：\(task.download.filename)"
+                : task.browser == .safari ? "切换到 Safari 查看下载" : "打开浏览器下载列表")
             if task.download.isComplete {
                 Button { open(reveal: true) } label: {
                     Image(systemName: "folder")

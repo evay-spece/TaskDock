@@ -34,16 +34,12 @@ final class WindowProgressScanner: @unchecked Sendable {
         let grouped = Dictionary(grouping: candidates, by: \.pid)
         retainedByPID = retainedByPID.filter { grouped[$0.key] != nil }
         for (pid, targets) in grouped {
-            // Browser extension downloads are separate task items, never window overlays.
-            if targets[0].bundleIdentifier == "com.google.Chrome" || targets[0].bundleIdentifier == "com.microsoft.edgemac" { continue }
-            let targetIDs = Set(targets.map(\.id))
-            if let download = BrowserDownloadProgress.read(bundleIdentifier: targets[0].bundleIdentifier) {
-                let target = targets.first(where: \.isFocused) ?? targets[0]
-                result[target.id] = download
-                // A direct browser download snapshot is authoritative; don't mix
-                // it with an unrelated page's accessibility progress indicator.
-                if targets[0].bundleIdentifier == "com.google.Chrome" || targets[0].bundleIdentifier == "com.microsoft.edgemac" { continue }
+            // Browser downloads are separate task items, never window overlays.
+            if let bundleIdentifier = targets[0].bundleIdentifier,
+               ["com.google.Chrome", "com.microsoft.edgemac", "com.apple.Safari"].contains(bundleIdentifier) {
+                continue
             }
+            let targetIDs = Set(targets.map(\.id))
             let deadline = Date().addingTimeInterval(0.45)
             var retained = (retainedByPID[pid] ?? []).filter { targetIDs.contains($0.targetID) }
             retained.removeAll { item in

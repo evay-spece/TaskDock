@@ -1312,7 +1312,7 @@ final class TaskbarPanelController {
         let generation = progressPollGeneration
         let scanner = progressScanner
         progressPollQueue.async { [weak self] in
-            let downloads = BrowserProgressStore().tasks()
+            let downloads = BrowserProgressStore().tasks() + SafariDownloadStore().tasks()
             let progress = scanner.scan(candidates)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }

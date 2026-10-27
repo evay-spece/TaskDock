@@ -30,14 +30,14 @@ import Foundation
         try store.save(ended, session: session, now: now)
         precondition(store.fraction(browser: .chrome, now: now) == nil)
         var invalids = [[String: Any]]()
-        invalids += [object(profile: "../../escape"), object(browser: "firefox"), object(received: -1), object(received: 101), object(received: 0, total: 100, active: 0)]
+        invalids += [object(profile: "../../escape"), object(browser: "firefox"), object(browser: "safari"), object(received: -1), object(received: 101), object(received: 0, total: 100, active: 0)]
         var extra = object(); extra["url"] = "https://private.example"; invalids.append(extra)
         var version = object(); version["version"] = 2; invalids.append(version)
         var bool = object(); bool["receivedBytes"] = true; invalids.append(bool)
         for invalid in invalids { precondition((try? parse(invalid)) == nil) }
         let executable = URL(fileURLWithPath: "/usr/bin/true")
         let home = root.appendingPathComponent("home")
-        for browser in ProgressBrowser.allCases {
+        for browser in ProgressBrowser.bridgeBrowsers {
             let path = try BrowserBridgeRegistration.register(browser: browser, executable: executable, home: home)
             let data = try Data(contentsOf: path)
             let manifest = try JSONSerialization.jsonObject(with: data) as! [String: Any]

@@ -1,10 +1,29 @@
 import Foundation
 
 public enum ProgressBrowser: String, Codable, CaseIterable {
-    case chrome, edge
-    public var label: String { self == .chrome ? "Chrome" : "Edge" }
-    public var bundleIdentifier: String { self == .chrome ? "com.google.Chrome" : "com.microsoft.edgemac" }
-    public var supportDirectory: String { self == .chrome ? "Google/Chrome" : "Microsoft Edge" }
+    case chrome, edge, safari
+    public static let bridgeBrowsers: [ProgressBrowser] = [.chrome, .edge]
+    public var label: String {
+        switch self {
+        case .chrome: return "Chrome"
+        case .edge: return "Edge"
+        case .safari: return "Safari"
+        }
+    }
+    public var bundleIdentifier: String {
+        switch self {
+        case .chrome: return "com.google.Chrome"
+        case .edge: return "com.microsoft.edgemac"
+        case .safari: return "com.apple.Safari"
+        }
+    }
+    public var supportDirectory: String {
+        switch self {
+        case .chrome: return "Google/Chrome"
+        case .edge: return "Microsoft Edge"
+        case .safari: return "Safari"
+        }
+    }
 }
 
 public enum BrowserBridgeError: Error, LocalizedError {
@@ -36,7 +55,7 @@ public struct BrowserProgressSnapshot: Codable {
         if [2, 3].contains(object["version"] as? Int ?? 0) { keys.insert("downloads") }
         guard Set(object.keys) == keys else { throw BrowserBridgeError.invalidMessage }
         let snapshot = try JSONDecoder().decode(Self.self, from: data)
-        guard (1...3).contains(snapshot.version), snapshot.type == "snapshot",
+        guard (1...3).contains(snapshot.version), snapshot.type == "snapshot", snapshot.browser != .safari,
               let uuid = UUID(uuidString: snapshot.profile), uuid.uuidString.lowercased() == snapshot.profile,
               snapshot.receivedBytes >= 0, snapshot.totalBytes >= snapshot.receivedBytes,
               snapshot.totalBytes <= 9_007_199_254_740_991,

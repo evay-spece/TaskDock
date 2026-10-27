@@ -6,6 +6,7 @@ public enum BrowserBridgeRegistration {
     }
     @discardableResult
     public static func register(browser: ProgressBrowser, executable: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> URL {
+        guard ProgressBrowser.bridgeBrowsers.contains(browser) else { throw BrowserBridgeError.invalidMessage }
         guard executable.path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: executable.path) else { throw BrowserBridgeError.missingComponent }
         let target = manifestURL(browser: browser, home: home)
         let fm = FileManager.default
@@ -21,6 +22,7 @@ public enum BrowserBridgeRegistration {
         return target
     }
     public static func unregister(browser: ProgressBrowser, executable: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
+        guard ProgressBrowser.bridgeBrowsers.contains(browser) else { throw BrowserBridgeError.invalidMessage }
         let target = manifestURL(browser: browser, home: home)
         guard FileManager.default.fileExists(atPath: target.path) else { return }
         guard let object = try JSONSerialization.jsonObject(with: Data(contentsOf: target)) as? [String: Any],
