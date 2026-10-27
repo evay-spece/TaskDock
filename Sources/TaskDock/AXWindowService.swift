@@ -507,6 +507,7 @@ final class AXWindowService {
             let id = window.nativeWindowID
             let token = UUID()
             let original = pointerAvoidedFrames[id]?.original ?? current
+            let animationDuration = PointerWindowAvoidanceSettings.animationDuration
             pointerAvoidedFrames[id] = ReservedWindowFrame(window: window.axWindow,
                 original: original, applied: current)
             activePointerRetractions[id] = token
@@ -515,13 +516,14 @@ final class AXWindowService {
                 // Counting that scan as animation time would jump over the opening frames.
                 let startedAt = ProcessInfo.processInfo.systemUptime - 1.0 / 60.0
                 self?.advancePointerRetraction(id: id, token: token, start: current,
-                    target: target, startedAt: startedAt)
+                    target: target, startedAt: startedAt, duration: animationDuration)
             }
         }
     }
 
     private func advancePointerRetraction(id: String, token: UUID,
-                                           start: CGRect, target: CGRect, startedAt: TimeInterval) {
+                                           start: CGRect, target: CGRect, startedAt: TimeInterval,
+                                           duration: TimeInterval) {
         guard activePointerRetractions[id] == token else { return }
         guard var reservation = pointerAvoidedFrames[id],
               let current = windowFrame(reservation.window) else {
@@ -535,7 +537,7 @@ final class AXWindowService {
             return
         }
         let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-        let progress = PointerWindowAvoidanceGeometry.animationProgress(elapsed: elapsed)
+        let progress = PointerWindowAvoidanceGeometry.animationProgress(elapsed: elapsed, duration: duration)
         let next = PointerWindowAvoidanceGeometry.animationFrame(
             from: start, to: target, progress: progress)
         let updated: Bool
@@ -570,24 +572,24 @@ final class AXWindowService {
             }
             // Give the app a bounded settling period rather than treating one
             // delayed AX read as a permanent refusal to resize.
-            if elapsed >= PointerWindowAvoidanceGeometry.animationDuration + 0.35 {
+            if elapsed >= duration + 0.35 {
                 activePointerRetractions.removeValue(forKey: id)
                 suppressPointerAvoidance(id, frame: applied)
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
                 self?.advancePointerRetraction(id: id, token: token, start: start,
-                    target: target, startedAt: startedAt)
+                    target: target, startedAt: startedAt, duration: duration)
             }
             return
         }
         // AX round trips consume time. Schedule against the original clock instead
         // of adding a full delay after each reply; skip stale frames when an app is slow.
         let nowElapsed = ProcessInfo.processInfo.systemUptime - startedAt
-        let delay = PointerWindowAvoidanceGeometry.nextAnimationDelay(elapsed: nowElapsed)
+        let delay = PointerWindowAvoidanceGeometry.nextAnimationDelay(elapsed: nowElapsed, duration: duration)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.advancePointerRetraction(id: id, token: token, start: start,
-                target: target, startedAt: startedAt)
+                target: target, startedAt: startedAt, duration: duration)
         }
     }
 

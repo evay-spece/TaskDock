@@ -45,6 +45,8 @@ final class TaskbarPanelController {
     private var pointerAvoidanceTimer: Timer?
     private var lastPointerAvoidanceCheckAt = Date.distantPast
     private var pointerWasInAvoidanceRegion = false
+    private var pointerEnteredAvoidanceRegionAt: Date?
+    private var pointerAvoidanceTriggeredThisEntry = false
     private var progressTimer: Timer?
     private var progressPollInFlight = false
     private var progressPollGeneration = 0
@@ -321,6 +323,8 @@ final class TaskbarPanelController {
         if appliedLayoutMode != settings.layoutMode {
             windowService.clearWindowSpaceReservations(restore: true, windows: [])
             pointerWasInAvoidanceRegion = false
+            pointerEnteredAvoidanceRegionAt = nil
+            pointerAvoidanceTriggeredThisEntry = false
             appliedLayoutMode = settings.layoutMode
             (panel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
             (dockFinderPanel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
@@ -1347,10 +1351,23 @@ final class TaskbarPanelController {
         let justEnteredRegion = inside && !pointerWasInAvoidanceRegion
         pointerWasInAvoidanceRegion = inside
         let now = Date()
+        if justEnteredRegion {
+            pointerEnteredAvoidanceRegionAt = now
+            pointerAvoidanceTriggeredThisEntry = false
+        } else if !inside {
+            pointerEnteredAvoidanceRegionAt = nil
+            pointerAvoidanceTriggeredThisEntry = false
+        }
+        let pointerDelayElapsed = pointerEnteredAvoidanceRegionAt.map { now.timeIntervalSince($0) } ?? 0
+        let includeOrdinaryWindows = inside && PointerWindowAvoidanceGeometry.hasReachedTriggerDelay(
+            elapsed: pointerDelayElapsed, delay: PointerWindowAvoidanceSettings.triggerDelay)
+        let firstEligiblePointerCheck = includeOrdinaryWindows && !pointerAvoidanceTriggeredThisEntry
         guard NSEvent.pressedMouseButtons == 0,
               reorderRefreshPauseUntil.map({ $0 <= now }) ?? true,
               settingsRefreshPauseUntil.map({ $0 <= now }) ?? true else { return }
-        guard justEnteredRegion || now.timeIntervalSince(lastPointerAvoidanceCheckAt) >= 0.8 else { return }
+        guard justEnteredRegion || firstEligiblePointerCheck
+                || now.timeIntervalSince(lastPointerAvoidanceCheckAt) >= (inside ? 0.25 : 0.8) else { return }
+        if firstEligiblePointerCheck { pointerAvoidanceTriggeredThisEntry = true }
         lastPointerAvoidanceCheckAt = now
         let inset = settings.taskbarSideInset
         let bar = CGRect(x: panel.frame.minX + inset, y: panel.frame.minY + 4,
@@ -1360,7 +1377,7 @@ final class TaskbarPanelController {
             showHiddenApps: false, blacklistedAppKeys: [], blockedWindowRules: [])
         windowService.moveWindowsAboveTaskbar(visibleWindows, panelFrame: bar,
             screenFrame: screen.frame, visibleFrame: screen.visibleFrame, desktopTop: desktopTop,
-            includeOrdinaryWindows: inside)
+            includeOrdinaryWindows: includeOrdinaryWindows)
     }
 
     private func updateWindowSpaceReservations(force: Bool) {

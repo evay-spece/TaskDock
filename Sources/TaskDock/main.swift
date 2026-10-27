@@ -34,6 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         ReleaseDefaults101.applyIfNeeded()
         ReleaseDefaults170.applyIfNeeded()
+        ReleaseAppearanceDefaults.applyIfNeeded(
+            version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        )
         EasterEggSettingsEntryReset.applyIfNeeded(
             build: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
         )

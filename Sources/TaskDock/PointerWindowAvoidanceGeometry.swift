@@ -1,6 +1,27 @@
 import CoreGraphics
 import Foundation
 
+enum PointerWindowAvoidanceSettings {
+    static let animationDurationKey = "taskdock.pointerAvoidanceAnimationDurationV1"
+    static let triggerDelayKey = "taskdock.pointerAvoidanceTriggerDelayV1"
+    static let defaultAnimationDuration: TimeInterval = 0.24
+    static let defaultTriggerDelay: TimeInterval = 0
+
+    static var animationDuration: TimeInterval {
+        value(for: animationDurationKey, fallback: defaultAnimationDuration, range: 0.08...0.6)
+    }
+
+    static var triggerDelay: TimeInterval {
+        value(for: triggerDelayKey, fallback: defaultTriggerDelay, range: 0...1.5)
+    }
+
+    private static func value(for key: String, fallback: TimeInterval,
+                              range: ClosedRange<TimeInterval>) -> TimeInterval {
+        let stored = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.doubleValue ?? fallback
+        return stored.isFinite ? min(range.upperBound, max(range.lowerBound, stored)) : fallback
+    }
+}
+
 enum PointerWindowAvoidanceGeometry {
     static func isInTriggerRegion(pointer: CGPoint, screen: CGRect) -> Bool {
         screen.contains(pointer) && pointer.y <= screen.minY + screen.height / 3
@@ -86,15 +107,19 @@ enum PointerWindowAvoidanceGeometry {
         isDefault && elapsed >= 1 && retries < 2
     }
 
-    static let animationDuration: TimeInterval = 0.24
-
-    static func animationProgress(elapsed: TimeInterval) -> CGFloat {
-        CGFloat(min(1, max(0, elapsed / animationDuration)))
+    static func hasReachedTriggerDelay(elapsed: TimeInterval, delay: TimeInterval) -> Bool {
+        elapsed >= delay
     }
 
-    static func nextAnimationDelay(elapsed: TimeInterval) -> TimeInterval {
+    static func animationProgress(elapsed: TimeInterval,
+                                  duration: TimeInterval = PointerWindowAvoidanceSettings.defaultAnimationDuration) -> CGFloat {
+        CGFloat(min(1, max(0, elapsed / duration)))
+    }
+
+    static func nextAnimationDelay(elapsed: TimeInterval,
+                                   duration: TimeInterval = PointerWindowAvoidanceSettings.defaultAnimationDuration) -> TimeInterval {
         let nextTick = (floor(max(0, elapsed) * 60) + 1) / 60
-        return max(0, min(animationDuration, nextTick) - elapsed)
+        return max(0, min(duration, nextTick) - elapsed)
     }
 
     static func animationFrame(from start: CGRect, to target: CGRect, progress: CGFloat) -> CGRect {

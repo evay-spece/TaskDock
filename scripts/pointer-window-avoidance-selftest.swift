@@ -93,6 +93,10 @@ import CoreGraphics
         precondition(PointerWindowAvoidanceGeometry.animationProgress(elapsed: -0.1) == 0)
         precondition(PointerWindowAvoidanceGeometry.animationProgress(elapsed: 0.12) == 0.5)
         precondition(PointerWindowAvoidanceGeometry.animationProgress(elapsed: 0.30) == 1)
+        precondition(PointerWindowAvoidanceGeometry.animationProgress(elapsed: 0.12, duration: 0.48) == 0.25)
+        precondition(PointerWindowAvoidanceGeometry.animationProgress(elapsed: 0.12, duration: 0.12) == 1)
+        precondition(!PointerWindowAvoidanceGeometry.hasReachedTriggerDelay(elapsed: 0.14, delay: 0.15))
+        precondition(PointerWindowAvoidanceGeometry.hasReachedTriggerDelay(elapsed: 0.15, delay: 0.15))
         for elapsed in [0.0, 0.018, 0.053, 0.199, 0.235, 0.26] {
             let delay = PointerWindowAvoidanceGeometry.nextAnimationDelay(elapsed: elapsed)
             precondition(delay >= 0 && delay <= 1.0 / 60.0 + 0.000001)

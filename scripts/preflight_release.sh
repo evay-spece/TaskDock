@@ -8,6 +8,7 @@ OUTPUT_DIRECTORY="${TASKDOCK_OUTPUT_DIRECTORY:-$PROJECT_ROOT/dist}"
 ASSET="$OUTPUT_DIRECTORY/TaskDock-$VERSION-macOS-arm64.zip"
 [[ "$BUILD" == <-> ]] || { echo "Build number must be an integer" >&2; exit 1; }
 [[ ! -e "$ASSET" ]] || { echo "Refusing to replace existing asset: $ASSET" >&2; exit 1; }
+python3 "$PROJECT_ROOT/scripts/capture-release-appearance.py" --check
 
 SDK="${TASKDOCK_BUILD_SDK:-}"
 SWIFT_ARGS=(-c release --arch arm64)

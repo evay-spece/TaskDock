@@ -15,6 +15,36 @@ enum TaskbarBlackBackgroundSettings {
     static let transparencyKey = "taskbarBlackBackgroundTransparencyV1"
 }
 
+struct PointerWindowAvoidanceSettingsView: View {
+    @AppStorage(PointerWindowAvoidanceSettings.animationDurationKey)
+    private var animationDuration = PointerWindowAvoidanceSettings.defaultAnimationDuration
+    @AppStorage(PointerWindowAvoidanceSettings.triggerDelayKey)
+    private var triggerDelay = PointerWindowAvoidanceSettings.defaultTriggerDelay
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("抬脚动画时长")
+                Slider(value: $animationDuration, in: 0.08...0.6, step: 0.01)
+                    .accessibilityLabel("窗口抬脚动画时长")
+                Text(String(format: "%.2f 秒", animationDuration))
+                    .monospacedDigit().frame(width: 72, alignment: .trailing)
+            }
+            Text("数值越小，窗口抬起越快；默认 0.24 秒。")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("触发延时")
+                Slider(value: $triggerDelay, in: 0...1.5, step: 0.05)
+                    .accessibilityLabel("窗口抬脚触发延时")
+                Text(String(format: "%.2f 秒", triggerDelay))
+                    .monospacedDigit().frame(width: 72, alignment: .trailing)
+            }
+            Text("鼠标进入屏幕底部区域后等待的时间；0 秒立即检查。最大化窗口的自动避让不受此项影响。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct TaskbarBlackBackgroundSettingsView: View {
     @AppStorage(TaskbarBlackBackgroundSettings.transparencyKey) private var transparency = 1.0
 

@@ -214,6 +214,7 @@ struct SettingsView: View {
                 TaskbarBlackBackgroundSettingsView()
             }
             settingsSection(title: "任务项外观") { TaskbarItemHazeSettingsView() }
+            settingsSection(title: "窗口避让") { PointerWindowAvoidanceSettingsView() }
             settingsSection(title: "浮动气泡窗口") { DeveloperDebugSettingsView() }
         }
     }
