@@ -51,6 +51,29 @@ struct FavoriteMagnificationLayout {
     static let influenceExponent: CGFloat = 1.56
     static let gapGrowthPerScale: CGFloat = 1.25
     static let hoverLabelHeight: CGFloat = 31
+    // Integrate the fixed influence curve once. A discrete sum changes slightly
+    // with the pointer's position between slots and makes distant icons wobble.
+    private static let influenceArea: [CGFloat] = {
+        let samples = 256
+        let step = influenceRadius / CGFloat(samples)
+        var area = [CGFloat.zero]
+        func influence(_ distance: CGFloat) -> CGFloat {
+            pow(max(0, 1 - pow(distance / influenceRadius, 2)), influenceExponent)
+        }
+        for index in 1...samples {
+            let a = CGFloat(index - 1) * step
+            let b = CGFloat(index) * step
+            area.append(area[index - 1] + (influence(a) + influence(b)) * step / 2)
+        }
+        return area
+    }()
+
+    private static func integratedInfluence(to distance: CGFloat) -> CGFloat {
+        let position = min(1, max(0, distance / influenceRadius)) * CGFloat(influenceArea.count - 1)
+        let lower = Int(position)
+        let upper = min(lower + 1, influenceArea.count - 1)
+        return influenceArea[lower] + (influenceArea[upper] - influenceArea[lower]) * (position - CGFloat(lower))
+    }
     let scales: [CGFloat]
     let offsets: [CGFloat]
 
@@ -107,11 +130,12 @@ struct FavoriteMagnificationLayout {
             offsets = compactOffsets
             return
         }
-        let upper = centers.firstIndex(where: { $0 > pointerX }) ?? count - 1
-        let lower = max(0, upper - 1)
-        let interpolation = upper == lower ? 0
-            : min(max((pointerX - centers[lower]) / (centers[upper] - centers[lower]), 0), 1)
-        let anchor = cumulative[lower] + (cumulative[upper] - cumulative[lower]) * interpolation
+        // Once the pointer's influence clears the leading edge, this anchor is
+        // constant. Unaffected leading icons then stay exactly in place while
+        // the magnification wave travels through later icons.
+        let distanceFromLeadingIcon = (pointerX - centers[0]) / itemStep
+        let anchor = (Self.iconSize + Self.gapGrowthPerScale) * sizeScale
+            * (peakScale - 1) * Self.integratedInfluence(to: distanceFromLeadingIcon)
         let anchoredOffsets = cumulative.map { $0 - anchor }
         offsets = anchoredOffsets.enumerated().map {
             compactOffsets[$0.offset] + $0.element

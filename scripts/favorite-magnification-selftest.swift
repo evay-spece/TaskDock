@@ -192,7 +192,8 @@ struct FavoriteMagnificationSelfTest {
             let reducedScale = 1 + (recordedIconWidths[index] / 48 - 1) * 0.8
             precondition(abs(recording.scales[index] - reducedScale) < 0.035)
         }
-        precondition(centered.offsets[2] >= 0)
+        precondition(abs(centered.offsets[2]) < 2,
+                     "The smooth anchor must keep the hovered icon within two points: \(centered.offsets[2])")
         for index in 1..<9 {
             let centerSpacing = 32 + centered.offsets[index] - centered.offsets[index - 1]
             let meanExcess = (centered.scales[index - 1] + centered.scales[index] - 2) / 2
@@ -222,7 +223,22 @@ struct FavoriteMagnificationSelfTest {
         let finderAtRight = FavoriteMagnificationLayout(count: 9, pointerX: 8.5 * 32)
         precondition(finderAtLeft.offsets[0] > finderAtMiddle.offsets[0])
         precondition(finderAtMiddle.offsets[0] > finderAtRight.offsets[0],
-                     "Finder must follow the pointer instead of sticking to the left edge")
+                     "The leading icon can move only while the influence reaches the leading edge")
+        for count in [6, 11] {
+            for scale: CGFloat in [0.9, 1, 54.0 / 38, 64.0 / 38] {
+                for peak: CGFloat in [1.2, 1.5, 2, 2.4] {
+                    let reference = FavoriteMagnificationLayout(count: count, pointerX: 4.5 * 32 * scale,
+                        sizeScale: scale, separatorIndices: count == 11 ? [8] : [], peakScale: peak)
+                    for pointer in stride(from: 4 * 32 * scale, through: 6 * 32 * scale, by: 0.1 * scale) {
+                        let current = FavoriteMagnificationLayout(count: count, pointerX: pointer,
+                            sizeScale: scale, separatorIndices: count == 11 ? [8] : [], peakScale: peak)
+                        precondition(current.scales[0] == 1)
+                        precondition(current.offsets[0] == reference.offsets[0],
+                            "Icon 1 must remain stationary while crossing slots 5 and 6")
+                    }
+                }
+            }
+        }
 
         for sizeScale in [CGFloat(34.0 / 38), CGFloat(54.0 / 38), CGFloat(64.0 / 38)] {
             let step = 32 * sizeScale
