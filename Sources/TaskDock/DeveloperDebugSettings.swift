@@ -11,6 +11,28 @@ enum TaskbarItemHazeSettings {
     static let strengthKey = "taskbarItemHazeStrengthV1"
 }
 
+enum TaskbarBlackBackgroundSettings {
+    static let transparencyKey = "taskbarBlackBackgroundTransparencyV1"
+}
+
+struct TaskbarBlackBackgroundSettingsView: View {
+    @AppStorage(TaskbarBlackBackgroundSettings.transparencyKey) private var transparency = 1.0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("黑色底色透明度")
+                Slider(value: $transparency, in: 0...1, step: 0.01)
+                    .accessibilityLabel("任务栏黑色底色透明度")
+                Text("\(Int((transparency * 100).rounded()))%")
+                    .monospacedDigit().frame(width: 44, alignment: .trailing)
+            }
+            Text("在整条任务栏玻璃上叠加黑色。0% 为纯黑，100% 不显示黑色；只影响底色，自动保存并即时生效。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct TaskbarItemHazeSettingsView: View {
     @AppStorage(TaskbarItemHazeSettings.strengthKey) private var strength = 1.0
 

@@ -210,6 +210,8 @@ struct SettingsView: View {
             }
             settingsSection(title: "任务栏外观") {
                 ExperimentalTaskbarGlassSettingsView()
+                Divider()
+                TaskbarBlackBackgroundSettingsView()
             }
             settingsSection(title: "任务项外观") { TaskbarItemHazeSettingsView() }
             settingsSection(title: "浮动气泡窗口") { DeveloperDebugSettingsView() }
@@ -1036,17 +1038,22 @@ struct SettingsView: View {
     }
 
     private func tabScrollView<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(selectedTab.label)
-                    .font(.system(size: 24, weight: .bold))
-                    .padding(.bottom, 10)
-                content()
+        VStack(alignment: .leading, spacing: 0) {
+            Text(selectedTab.label)
+                .font(.system(size: 24, weight: .bold))
+                .padding(.horizontal, 30)
+                .padding(.top, 18)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    content()
+                }
+                .padding(.horizontal, 30)
+                .padding(.bottom, 30)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 30)
-            .padding(.top, 18)
-            .padding(.bottom, 30)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

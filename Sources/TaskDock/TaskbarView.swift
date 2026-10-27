@@ -18,6 +18,7 @@ final class RecentAppPopoverState: ObservableObject {
 struct TaskbarView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(TaskbarBlackBackgroundSettings.transparencyKey) private var blackBackgroundTransparency = 1.0
     let windows: [WindowModel]
     let recentApplications: [FavoriteApp]
     let recentAppPopoverState: RecentAppPopoverState
@@ -484,9 +485,15 @@ struct TaskbarView: View {
             if settings.layoutMode != .dockCompanion || settings.dockCompanionShowsBottomBar {
                 Group {
                     if settings.layoutMode == .taskbar {
-                        TaskbarGlassSurface(
-                            cornerRadius: min(18, taskbarBaseHeight * 0.34),
-                            opacity: 1 - settings.taskbarBackgroundTransparency)
+                        let cornerRadius = min(18, taskbarBaseHeight * 0.34)
+                        ZStack {
+                            TaskbarGlassSurface(
+                                cornerRadius: cornerRadius,
+                                opacity: 1 - settings.taskbarBackgroundTransparency)
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .fill(Color.black.opacity(1 - blackBackgroundTransparency))
+                                .allowsHitTesting(false)
+                        }
                     } else {
                         FusionDockTileSurface(
                             cornerRadius: 14 * min(taskbarContentScale, 1.3),
