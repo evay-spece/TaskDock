@@ -39,3 +39,43 @@ enum TaskbarItemSizing {
         }
     }
 }
+
+struct TaskbarOverflowGroup {
+    let id: String
+    let expandedWidth: CGFloat
+    let collapsedWidth: CGFloat
+    let isAlreadyCollapsed: Bool
+    let containsFocusedWindow: Bool
+}
+
+enum TaskbarOverflowLayout {
+    static func additionalCollapsedIDs(
+        groups: [TaskbarOverflowGroup], precedingItemWidths: [CGFloat],
+        availableWidth: CGFloat, spacing: CGFloat, leadingPadding: CGFloat = 0
+    ) -> Set<String> {
+        guard availableWidth.isFinite, availableWidth > 0 else { return [] }
+        let itemCount = groups.count + precedingItemWidths.count
+        var requiredWidth = leadingPadding + precedingItemWidths.reduce(0, +)
+            + groups.reduce(0) { $0 + ($1.isAlreadyCollapsed ? $1.collapsedWidth : $1.expandedWidth) }
+            + CGFloat(max(itemCount - 1, 0)) * spacing
+        guard requiredWidth > availableWidth else { return [] }
+
+        let candidates = groups.enumerated().filter {
+            !$0.element.isAlreadyCollapsed && $0.element.collapsedWidth < $0.element.expandedWidth
+        }.sorted { lhs, rhs in
+            if lhs.element.containsFocusedWindow != rhs.element.containsFocusedWindow {
+                return !lhs.element.containsFocusedWindow
+            }
+            let lhsSaving = lhs.element.expandedWidth - lhs.element.collapsedWidth
+            let rhsSaving = rhs.element.expandedWidth - rhs.element.collapsedWidth
+            return lhsSaving == rhsSaving ? lhs.offset < rhs.offset : lhsSaving > rhsSaving
+        }
+        var collapsed = Set<String>()
+        for candidate in candidates {
+            collapsed.insert(candidate.element.id)
+            requiredWidth -= candidate.element.expandedWidth - candidate.element.collapsedWidth
+            if requiredWidth <= availableWidth { break }
+        }
+        return collapsed
+    }
+}

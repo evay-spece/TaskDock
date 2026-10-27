@@ -709,12 +709,12 @@ struct SettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .onChange(of: settings.taskbarItemWidthMode) { _ in onLayoutChanged() }
                 }
-                Text("固定长度：所有任务项等宽。自适应长度：按标题长短分配，最长不超过原固定长度。空间不足时可横向滚动。")
+                Text("固定长度：所有任务项等宽。自适应长度：按标题长短分配，最长不超过原固定长度。空间不足时先折叠同一 App 的窗口，仍不足时可横向滚动。")
                     .font(.caption).foregroundStyle(.secondary)
                 Divider()
                 settingsToggle(
                     title: "同一 App 有 3 个及以上窗口时折叠",
-                    description: "点击折叠的任务项可选择具体窗口；1–2 个窗口仍分别显示。",
+                    description: "空间充足时可预先折叠 3 个及以上的窗口；空间不足时也会自动折叠同一 App 的窗口。点击折叠项可选择具体窗口。",
                     isOn: $settings.taskbarCollapseSameAppWindows
                 )
                     .onChange(of: settings.taskbarCollapseSameAppWindows) { _ in onLayoutChanged() }

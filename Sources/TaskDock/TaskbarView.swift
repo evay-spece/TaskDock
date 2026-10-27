@@ -62,6 +62,7 @@ struct TaskbarView: View {
     @State private var hoveredWindowID: String?
     @State private var downloadsExpanded = false
     @State private var downloadButtonHovered = false
+    @State private var taskItemLaneWidth: CGFloat = .infinity
 
     private var reducesTaskbarMotion: Bool {
         settings.layoutMode == .taskbar && systemReduceMotion
@@ -71,12 +72,16 @@ struct TaskbarView: View {
         settings.layoutMode == .taskbar ? 4 : 0
     }
 
-    private func isCollapsed(_ group: AppWindowGroup) -> Bool {
+    private func isCollapsed(_ group: AppWindowGroup, autoCollapsed: Set<String> = []) -> Bool {
         if settings.layoutMode == .dockCompanion {
             return group.windows.count >= settings.dockCompanionCollapseThreshold
         }
-        return settings.layoutMode == .taskbar && settings.taskbarCollapseSameAppWindows
-            && group.windows.count >= 3
+        return settings.layoutMode == .taskbar
+            && (autoCollapsed.contains(group.id) || baseTaskbarCollapse(group))
+    }
+
+    private func baseTaskbarCollapse(_ group: AppWindowGroup) -> Bool {
+        settings.taskbarCollapseSameAppWindows && group.windows.count >= 3
     }
 
     var body: some View {
@@ -237,8 +242,10 @@ struct TaskbarView: View {
                     if windows.isEmpty && downloadTasks.isEmpty && showsEmptyState {
                         Spacer(minLength: 0)
                     } else if !windows.isEmpty || !downloadTasks.isEmpty {
+                        let autoCollapsed = autoCollapsedAppKeys(for: taskItemLaneWidth)
                         let itemWidths = taskItemWidths(for: geometry.size.width
-                            - (settings.layoutMode == .taskbar ? 2 * settings.taskbarSideInset : 0))
+                            - (settings.layoutMode == .taskbar ? 2 * settings.taskbarSideInset : 0),
+                            autoCollapsed: autoCollapsed)
                         taskItemLane {
                         HStack(spacing: taskbarItemSpacing) {
                             if downloadTasks.count > 3 {
@@ -338,7 +345,7 @@ struct TaskbarView: View {
                             ForEach(appGroups) { group in
                                 let itemWidth = itemWidths[group.windows[0].id] ?? 0
                                 HStack(spacing: taskbarItemSpacing) {
-                                    if settings.layoutMode == .dockCompanion, isCollapsed(group) {
+                                    if settings.layoutMode == .dockCompanion, isCollapsed(group, autoCollapsed: autoCollapsed) {
                                         FusionCollapsedAppView(
                                             windows: group.windows,
                                             availableWidth: itemWidth,
@@ -349,8 +356,9 @@ struct TaskbarView: View {
                                             onSelect: onSelect
                                         )
                                         .frame(width: itemWidth, height: taskbarItemHeight)
-                                        .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidths: itemWidths))
-                                    } else if settings.layoutMode == .taskbar, isCollapsed(group) {
+                                        .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidths: itemWidths,
+                                            autoCollapsed: autoCollapsed))
+                                    } else if settings.layoutMode == .taskbar, isCollapsed(group, autoCollapsed: autoCollapsed) {
                                         TaskbarCollapsedAppView(
                                             windows: group.windows,
                                             availableWidth: itemWidth,
@@ -364,7 +372,8 @@ struct TaskbarView: View {
                                             onSelect: onSelect
                                         )
                                         .frame(width: itemWidth, height: taskbarBaseHeight)
-                                        .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidths: itemWidths))
+                                        .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidths: itemWidths,
+                                            autoCollapsed: autoCollapsed))
                                     } else {
                                     ForEach(group.windows) { window in
                                         let itemWidth = itemWidths[window.id] ?? 0
@@ -402,7 +411,8 @@ struct TaskbarView: View {
                                             ? taskbarBaseHeight : taskbarItemHeight)
                                         .background(Color.black.opacity(settings.layoutMode == .taskbar ? 0.001 : 0))
                                         .contentShape(Rectangle())
-                                        .simultaneousGesture(taskbarReorderGesture(for: window, itemWidths: itemWidths))
+                                        .simultaneousGesture(taskbarReorderGesture(for: window, itemWidths: itemWidths,
+                                            autoCollapsed: autoCollapsed))
                                         .floatingBubbleContextMenu(actions: [
                                             FavoriteShelfMenuAction(title: favoriteMenuTitle(for: window), symbol: "star", perform: { toggleFavorite(window) }),
                                             .separator,
@@ -538,6 +548,17 @@ struct TaskbarView: View {
                 content().fixedSize(horizontal: true, vertical: false)
             }
             .frame(minWidth: 0, maxWidth: .infinity)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: TaskItemLaneWidthPreferenceKey.self,
+                        value: geometry.size.width)
+                }
+            }
+            .onPreferenceChange(TaskItemLaneWidthPreferenceKey.self) { width in
+                if width > 0 && abs(taskItemLaneWidth - width) > 0.5 {
+                    taskItemLaneWidth = width
+                }
+            }
         } else {
             content()
         }
@@ -569,21 +590,61 @@ struct TaskbarView: View {
             .help("\(task.download.filename) · \(task.browser.label) · \(task.status)")
     }
 
-    private func taskItemWidths(for totalWidth: CGFloat) -> [String: CGFloat] {
+    private func autoCollapsedAppKeys(for availableWidth: CGFloat) -> Set<String> {
+        guard settings.layoutMode == .taskbar, !appGroups.isEmpty else { return [] }
+        let scale = taskbarPanelScale
+        let precedingWidths: [CGFloat]
+        if downloadTasks.count > 3 {
+            let title = "下载 · \(downloadTasks.count)" as NSString
+            let font = NSFont.systemFont(ofSize: max(9.5, settings.taskbarItemFontSize) * taskbarContentScale,
+                weight: .medium)
+            let titleWidth = title.size(withAttributes: [.font: font]).width
+            precedingWidths = [58 * taskbarContentScale + titleWidth]
+        } else {
+            precedingWidths = downloadTasks.map(downloadItemWidth)
+        }
+        let groups = appGroups.map { group in
+            let widths = group.windows.map { window in
+                taskbarWindowWidth(title: TaskbarItemSizing.displayTitle(window.title,
+                    bundleIdentifier: window.bundleIdentifier))
+            }
+            return TaskbarOverflowGroup(
+                id: group.id,
+                expandedWidth: widths.reduce(0, +)
+                    + CGFloat(max(widths.count - 1, 0)) * taskbarItemSpacing,
+                collapsedWidth: taskbarWindowWidth(title:
+                    "\(group.windows[0].applicationName) (\(group.windows.count))"),
+                isAlreadyCollapsed: baseTaskbarCollapse(group),
+                containsFocusedWindow: group.windows.contains(where: \.isFocused)
+            )
+        }
+        return TaskbarOverflowLayout.additionalCollapsedIDs(
+            groups: groups, precedingItemWidths: precedingWidths,
+            availableWidth: availableWidth, spacing: taskbarItemSpacing,
+            leadingPadding: showsFavorites || !recentApplications.isEmpty ? 0 : 8 * scale
+        )
+    }
+
+    private func taskbarWindowWidth(title: String) -> CGFloat {
+        if settings.taskbarItemWidthMode == .fixed {
+            return TaskbarItemSizing.defaultFixedWidth * taskbarPanelScale
+        }
+        return TaskbarItemSizing.adaptiveWidth(title: title,
+            fontSize: settings.taskbarItemFontSize, scale: taskbarPanelScale)
+    }
+
+    private func taskItemWidths(for totalWidth: CGFloat, autoCollapsed: Set<String>) -> [String: CGFloat] {
         let fusionWidth = settings.layoutMode == .dockCompanion ? taskbarItemWidth(for: totalWidth) : 0
         return Dictionary(uniqueKeysWithValues: appGroups.flatMap { group in
             group.windows.map { window in
                 let width: CGFloat
                 if settings.layoutMode == .dockCompanion {
                     width = fusionWidth
-                } else if settings.taskbarItemWidthMode == .fixed {
-                    width = TaskbarItemSizing.defaultFixedWidth * taskbarPanelScale
                 } else {
-                    let title = isCollapsed(group)
+                    let title = isCollapsed(group, autoCollapsed: autoCollapsed)
                         ? "\(window.applicationName) (\(group.windows.count))"
                         : TaskbarItemSizing.displayTitle(window.title, bundleIdentifier: window.bundleIdentifier)
-                    width = TaskbarItemSizing.adaptiveWidth(title: title,
-                        fontSize: settings.taskbarItemFontSize, scale: taskbarPanelScale)
+                    width = taskbarWindowWidth(title: title)
                 }
                 return (window.id, width)
             }
@@ -721,14 +782,15 @@ struct TaskbarView: View {
         return result
     }
 
-    private func taskbarReorderGesture(for window: WindowModel, itemWidths: [String: CGFloat]) -> some Gesture {
+    private func taskbarReorderGesture(for window: WindowModel, itemWidths: [String: CGFloat],
+                                       autoCollapsed: Set<String>) -> some Gesture {
         // A slightly larger threshold keeps normal clicks with small hand motion
         // from being interpreted as app-reordering drags.
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { value in
                 guard !isSettlingAppDrag, !NSEvent.modifierFlags.contains(.option) else { return }
                 if draggedAppKey == nil {
-                    let groups = taskbarAppGroupLayout(itemWidths: itemWidths)
+                    let groups = taskbarAppGroupLayout(itemWidths: itemWidths, autoCollapsed: autoCollapsed)
                     guard groups.keys.contains(window.appKey) else { return }
                     draggedAppKey = window.appKey
                     dragStartAppKeys = groups.keys
@@ -744,7 +806,9 @@ struct TaskbarView: View {
             }
             .onEnded { _ in
                 guard draggedAppKey == window.appKey else { return }
-                finishAppReorder(in: dragStartGroupLayout ?? taskbarAppGroupLayout(itemWidths: itemWidths), spacing: taskbarItemSpacing)
+                finishAppReorder(in: dragStartGroupLayout
+                    ?? taskbarAppGroupLayout(itemWidths: itemWidths, autoCollapsed: autoCollapsed),
+                    spacing: taskbarItemSpacing)
             }
     }
 
@@ -891,10 +955,11 @@ struct TaskbarView: View {
         draggedAppKey != nil && appKey == hoverTargetAppKey && appKey != draggedAppKey
     }
 
-    private func taskbarAppGroupLayout(itemWidths: [String: CGFloat]) -> AppGroupLayout {
+    private func taskbarAppGroupLayout(itemWidths: [String: CGFloat], autoCollapsed: Set<String>) -> AppGroupLayout {
         let groups = appGroups
         let widths = groups.map { group in
-            let displayed = isCollapsed(group) ? Array(group.windows.prefix(1)) : group.windows
+            let displayed = isCollapsed(group, autoCollapsed: autoCollapsed)
+                ? Array(group.windows.prefix(1)) : group.windows
             return displayed.map { itemWidths[$0.id] ?? 0 }
         }
         let frames = TaskbarItemSizing.groupFrames(widths: widths, spacing: taskbarItemSpacing)
@@ -906,6 +971,13 @@ struct TaskbarView: View {
 private struct AppWindowGroup: Identifiable {
     let id: String
     let windows: [WindowModel]
+}
+
+private struct TaskItemLaneWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
 
 private enum AppDragDirection: Equatable {
@@ -1459,10 +1531,7 @@ private struct DownloadBubbleRow: View {
             } label: {
                 HStack(spacing: 9) {
                     if task.download.isComplete {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 22))
-                            .foregroundStyle(Color.green)
-                            .frame(width: 26, height: 26)
+                        CompletedDownloadIcon(size: 26)
                     } else {
                         Image(nsImage: NSWorkspace.shared.icon(forFile: task.download.filename))
                             .resizable().scaledToFit()
@@ -1534,6 +1603,24 @@ private struct DownloadBubbleRow: View {
     }
 }
 
+private struct CompletedDownloadIcon: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: "arrow.down.to.line")
+            .font(.system(size: size * 0.68, weight: .medium))
+            .foregroundStyle(Color.primary)
+            .frame(width: size, height: size)
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: size * 0.46, weight: .semibold))
+                    .foregroundStyle(Color.green)
+                    .offset(x: size * 0.08, y: -size * 0.08)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
 private struct DownloadTaskItemView: View {
     let task: BrowserDownloadTask
     let width: CGFloat
@@ -1565,11 +1652,7 @@ private struct DownloadTaskItemView: View {
             } label: {
                 HStack(spacing: 7 * scale) {
                     if task.download.isComplete {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 18 * scale))
-                            .foregroundStyle(Color.green)
-                            .frame(width: 18 * scale, height: 18 * scale)
-                            .accessibilityHidden(true)
+                        CompletedDownloadIcon(size: 18 * scale)
                     } else {
                         Image(nsImage: NSWorkspace.shared.icon(forFile: task.download.localPath ?? task.download.filename))
                         .resizable().scaledToFit()

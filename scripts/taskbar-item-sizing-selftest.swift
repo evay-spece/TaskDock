@@ -19,6 +19,24 @@ struct TaskbarItemSizingSelfTest {
         precondition(frames[1].minX == 300 && frames[1].maxX == 400)
         precondition(frames[2].minX == 404 && frames[2].maxX == 644)
         precondition(TaskbarItemSizing.groupFrames(widths: [], spacing: 4).isEmpty)
-        print("TASKBAR_ITEM_SIZING_OK titles scale bounds variable-width-group-geometry")
+        let groups = [
+            TaskbarOverflowGroup(id: "focused", expandedWidth: 300, collapsedWidth: 148,
+                isAlreadyCollapsed: false, containsFocusedWindow: true),
+            TaskbarOverflowGroup(id: "other", expandedWidth: 300, collapsedWidth: 148,
+                isAlreadyCollapsed: false, containsFocusedWindow: false),
+            TaskbarOverflowGroup(id: "single", expandedWidth: 148, collapsedWidth: 148,
+                isAlreadyCollapsed: false, containsFocusedWindow: false)
+        ]
+        func collapsed(_ available: CGFloat, preceding: [CGFloat] = []) -> Set<String> {
+            TaskbarOverflowLayout.additionalCollapsedIDs(groups: groups,
+                precedingItemWidths: preceding, availableWidth: available, spacing: 4)
+        }
+        precondition(collapsed(760).isEmpty)
+        precondition(collapsed(700) == ["other"])
+        precondition(collapsed(520) == ["focused", "other"])
+        precondition(collapsed(760, preceding: [120]) == ["other"])
+        precondition(TaskbarOverflowLayout.additionalCollapsedIDs(groups: [groups[2]],
+            precedingItemWidths: [], availableWidth: 50, spacing: 4).isEmpty)
+        print("TASKBAR_ITEM_SIZING_OK titles scale bounds group-geometry overflow-collapse")
     }
 }
