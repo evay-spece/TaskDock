@@ -252,15 +252,17 @@ struct TaskbarView: View {
                                     .background(RoundedRectangle(cornerRadius: 7 * taskbarContentScale).fill(Color.primary.opacity(0.05)))
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel("展开 \(downloadTasks.count) 个下载任务")
-                                .popover(isPresented: $downloadsExpanded, arrowEdge: .bottom) {
+                                .accessibilityLabel("\(downloadsExpanded ? "收起" : "展开") \(downloadTasks.count) 个下载任务")
+                                .floatingBubbleWindow(isPresented: $downloadsExpanded) {
                                     VStack(alignment: .leading, spacing: 12) {
                                         Text("下载任务（\(downloadTasks.count)）").font(.headline)
                                         ScrollView {
                                             VStack(spacing: 8) {
                                                 ForEach(downloadTasks) { task in downloadPopoverRow(task) }
                                             }
-                                        }.frame(maxHeight: 420)
+                                        }.frame(height: min(420,
+                                            CGFloat(downloadTasks.count) * max(44, taskbarItemHeight)
+                                            + CGFloat(max(0, downloadTasks.count - 1)) * 8))
                                     }.padding(16).frame(width: 380)
                                 }
                                 .onChange(of: downloadsExpanded) { onRecentPopoverVisibilityChanged($0) }
