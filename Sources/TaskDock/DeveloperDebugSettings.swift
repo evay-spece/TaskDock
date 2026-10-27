@@ -45,7 +45,7 @@ struct TaskbarItemHazeSettingsView: View {
                 Text("\(Int((strength * 100).rounded()))%")
                     .monospacedDigit().frame(width: 44, alignment: .trailing)
             }
-            Text("调整任务栏中激活项的凹陷底色和鼠标悬停项的高光。0% 为无底色，100% 为完整效果；自动保存并即时生效。")
+            Text("调整任务栏中激活项和鼠标悬停项的平面底色。0% 为无底色，100% 为完整效果；自动保存并即时生效。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

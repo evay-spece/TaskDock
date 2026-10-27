@@ -1163,35 +1163,12 @@ private struct TaskbarReadableItemSurface: View {
             if usesSubtleHoverPill {
                 if isFocused || isHovered {
                     if reduceTransparency {
-                        shape.fill(Color(white: isFocused ? 0.22 : 0.36))
-                    } else if isFocused {
-                        shape.fill(LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.30 * hazeStrength),
-                                Color.black.opacity(0.16 * hazeStrength)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ))
+                        shape.fill(Color(white: isFocused ? 0.25 : 0.36))
                     } else {
-                        shape.fill(LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.11 * hazeStrength),
-                                Color.white.opacity(0.05 * hazeStrength)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ))
+                        shape.fill(isFocused
+                            ? Color.black.opacity(0.24 * hazeStrength)
+                            : Color.white.opacity(0.08 * hazeStrength))
                     }
-                    shape.strokeBorder(LinearGradient(
-                        colors: isFocused
-                            ? [Color.black.opacity(0.52 * hazeStrength),
-                               Color.white.opacity(0.24 * hazeStrength)]
-                            : [Color.white.opacity(0.16 * hazeStrength),
-                               Color.white.opacity(0.08 * hazeStrength)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ), lineWidth: isFocused ? 1.1 : 0.8)
                 }
             } else if isFocused {
                 shape.fill(colorScheme == .dark
