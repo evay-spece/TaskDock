@@ -1160,16 +1160,27 @@ private struct TaskbarReadableItemSurface: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         ZStack {
-            if isFocused {
+            if usesSubtleHoverPill {
+                if isFocused || isHovered {
+                    if reduceTransparency {
+                        shape.fill(Color(white: 0.36))
+                    } else {
+                        shape.fill(LinearGradient(
+                            colors: [
+                                Color.white.opacity((isFocused ? 0.20 : 0.11) * hazeStrength),
+                                Color.white.opacity((isFocused ? 0.10 : 0.05) * hazeStrength)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
+                    }
+                    shape.strokeBorder(Color.white.opacity(
+                        (isFocused ? 0.28 : 0.16) * hazeStrength), lineWidth: 0.8)
+                }
+            } else if isFocused {
                 shape.fill(colorScheme == .dark
                     ? Color(white: 0.30).opacity((reduceTransparency ? 1 : 0.96) * hazeStrength)
                     : Color.white.opacity((reduceTransparency ? 1 : 0.96) * hazeStrength))
-            } else if usesSubtleHoverPill {
-                if isHovered {
-                    shape.fill(colorScheme == .dark
-                        ? Color(white: 0.30).opacity((reduceTransparency ? 0.78 : 0.62) * hazeStrength)
-                        : Color.white.opacity((reduceTransparency ? 0.78 : 0.62) * hazeStrength))
-                }
             } else if reduceTransparency {
                 shape.fill(Color(nsColor: .controlBackgroundColor))
             } else {
@@ -1177,10 +1188,9 @@ private struct TaskbarReadableItemSurface: View {
                 shape.fill(Color(nsColor: .controlBackgroundColor)
                     .opacity(isHovered ? 0.18 : 0.06))
             }
-            if isFocused || !usesSubtleHoverPill || isHovered {
+            if !usesSubtleHoverPill {
                 shape.strokeBorder(Color.primary.opacity(
-                    (isFocused ? 0.20 : isHovered ? 0.10 : 0.035)
-                    * (usesSubtleHoverPill ? hazeStrength : 1)), lineWidth: 0.7)
+                    isFocused ? 0.20 : isHovered ? 0.10 : 0.035), lineWidth: 0.7)
             }
         }
         .opacity(reduceTransparency || isFocused ? 1 : 1 - transparency * 0.4)
