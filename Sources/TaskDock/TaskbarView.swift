@@ -1163,19 +1163,35 @@ private struct TaskbarReadableItemSurface: View {
             if usesSubtleHoverPill {
                 if isFocused || isHovered {
                     if reduceTransparency {
-                        shape.fill(Color(white: 0.36))
+                        shape.fill(Color(white: isFocused ? 0.27 : 0.36))
+                    } else if isFocused {
+                        shape.fill(LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.21 * hazeStrength),
+                                Color.black.opacity(0.10 * hazeStrength)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
                     } else {
                         shape.fill(LinearGradient(
                             colors: [
-                                Color.white.opacity((isFocused ? 0.20 : 0.11) * hazeStrength),
-                                Color.white.opacity((isFocused ? 0.10 : 0.05) * hazeStrength)
+                                Color.white.opacity(0.11 * hazeStrength),
+                                Color.white.opacity(0.05 * hazeStrength)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
                         ))
                     }
-                    shape.strokeBorder(Color.white.opacity(
-                        (isFocused ? 0.28 : 0.16) * hazeStrength), lineWidth: 0.8)
+                    shape.strokeBorder(LinearGradient(
+                        colors: isFocused
+                            ? [Color.black.opacity(0.31 * hazeStrength),
+                               Color.white.opacity(0.13 * hazeStrength)]
+                            : [Color.white.opacity(0.16 * hazeStrength),
+                               Color.white.opacity(0.08 * hazeStrength)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ), lineWidth: 0.8)
                 }
             } else if isFocused {
                 shape.fill(colorScheme == .dark
@@ -1801,7 +1817,7 @@ struct WindowTaskItemView: View {
             guard isHovered || window.isFocused else { return .clear }
             switch highlightStyle {
             case .systemAccent:
-                return Color.accentColor.opacity(isHovered ? (window.isFocused ? 0.23 : 0.13) : 0.16)
+                return window.isFocused ? .clear : Color.accentColor.opacity(isHovered ? 0.06 : 0)
             case .white:
                 return window.isFocused ? .clear : Color.primary.opacity(isHovered ? 0.08 * hazeStrength : 0)
             }
