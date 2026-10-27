@@ -60,6 +60,7 @@ struct TaskbarView: View {
     @State private var favoriteMagnificationActive = false
     @State private var hoveredWindowID: String?
     @State private var downloadsExpanded = false
+    @State private var downloadButtonHovered = false
 
     private var reducesTaskbarMotion: Bool {
         settings.layoutMode == .taskbar && systemReduceMotion
@@ -241,17 +242,33 @@ struct TaskbarView: View {
                         HStack(spacing: taskbarItemSpacing) {
                             if downloadTasks.count > 3 {
                                 Button { downloadsExpanded.toggle() } label: {
-                                    HStack(spacing: 7 * taskbarContentScale) {
-                                        Image(systemName: downloadTasks.allSatisfy { $0.download.isComplete } ? "checkmark.circle.fill" : "arrow.down.circle")
+                                    HStack(spacing: 5 * taskbarContentScale) {
+                                        Image(systemName: downloadTasks.allSatisfy { $0.download.isComplete }
+                                            ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                                            .font(.system(size: 15 * taskbarContentScale))
+                                            .foregroundStyle(downloadTasks.allSatisfy { $0.download.isComplete }
+                                                ? Color.green : Color.primary)
                                         Text("下载 · \(downloadTasks.count)")
-                                        Image(systemName: "chevron.up").font(.caption)
+                                            .font(.system(size: max(9.5, settings.taskbarItemFontSize) * taskbarContentScale,
+                                                weight: .medium))
+                                            .lineLimit(1)
+                                        Image(systemName: "chevron.up")
+                                            .font(.system(size: 9 * taskbarContentScale, weight: .semibold))
+                                            .foregroundStyle(Color.secondary)
                                     }
-                                    .font(.system(size: settings.taskbarItemFontSize * taskbarContentScale, weight: .medium))
                                     .foregroundStyle(Color.primary)
-                                    .frame(width: 158 * taskbarContentScale, height: taskbarItemHeight)
-                                    .background(RoundedRectangle(cornerRadius: 7 * taskbarContentScale).fill(Color.primary.opacity(0.05)))
+                                    .padding(.horizontal, 9 * taskbarContentScale)
+                                    .frame(height: taskbarItemHeight)
+                                    .background {
+                                        RoundedRectangle(cornerRadius: 8 * taskbarContentScale)
+                                            .fill(Color.primary.opacity(downloadsExpanded ? 0.13
+                                                : downloadButtonHovered ? 0.08 : 0))
+                                    }
+                                    .contentShape(RoundedRectangle(cornerRadius: 8 * taskbarContentScale))
                                 }
                                 .buttonStyle(.plain)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .onHover { downloadButtonHovered = $0 }
                                 .accessibilityLabel("\(downloadsExpanded ? "收起" : "展开") \(downloadTasks.count) 个下载任务")
                                 .floatingBubbleWindow(isPresented: $downloadsExpanded) {
                                     VStack(alignment: .leading, spacing: 4) {
@@ -269,7 +286,11 @@ struct TaskbarView: View {
                                 }
                                 .onChange(of: downloadsExpanded) { onRecentPopoverVisibilityChanged($0) }
                                 .onChange(of: downloadTasks.count) { if $0 <= 3 { downloadsExpanded = false } }
-                                .onDisappear { downloadsExpanded = false; onRecentPopoverVisibilityChanged(false) }
+                                .onDisappear {
+                                    downloadsExpanded = false
+                                    downloadButtonHovered = false
+                                    onRecentPopoverVisibilityChanged(false)
+                                }
                                 .frame(height: taskbarBaseHeight)
                                 .offset(y: -taskbarVisualLift)
                             }
