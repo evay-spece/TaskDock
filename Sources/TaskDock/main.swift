@@ -117,7 +117,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        panelController?.restoreFromDock()
+        if license.isUnlocked || LicenseStatus.hasValidPurchase {
+            panelController?.restoreFromDock()
+        } else {
+            openLicense()
+        }
         return true
     }
 

@@ -1174,6 +1174,7 @@ final class TaskbarPanelController {
         synchronizeSystemDockVisibility()
         lastRenderedWindowSignature = ""
         refresh()
+        if !hasLicenseAccess { onOpenLicense() }
     }
 
     private func toggleTaskbarVisibility() {
