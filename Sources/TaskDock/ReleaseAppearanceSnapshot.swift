@@ -3,7 +3,7 @@
 import Foundation
 
 enum ReleaseAppearanceSnapshot {
-    static let version = "1.8.2"
+    static let version = "1.9.0"
     static let values: [String: Any] = [
         "floatingBubbleBackgroundTransparencyV1": 0.1,
         "smallBubbleFontSizeV1": 16.0,
@@ -11,12 +11,17 @@ enum ReleaseAppearanceSnapshot {
         "taskbarBlackBackgroundTransparencyV1": 0.85,
         "taskbarItemHazeStrengthV1": 0.9,
         "taskdock.customGlassClarityV1": 0.0,
+        "taskdock.dockCompanionCollapseThreshold": 3,
+        "taskdock.dockCompanionMinimumWindowCount": 1,
+        "taskdock.dockCompanionOverlayEnabled": false,
+        "taskdock.dockCompanionShowsBottomBar": false,
+        "taskdock.dockCompanionShowsRecentWindows": true,
         "taskdock.experimentalActiveGlassV1": true,
         "taskdock.favoriteMagnificationEnabled": true,
-        "taskdock.favoriteMagnificationScale": 1.9,
+        "taskdock.favoriteMagnificationScale": 1.5,
         "taskdock.layoutMode": "taskbar",
         "taskdock.mode.dockCompanion.nonSelectedItemTransparency": 0.35,
-        "taskdock.pointerAvoidanceAnimationDurationV1": 0.24,
+        "taskdock.pointerAvoidanceAnimationDurationV1": 0.3,
         "taskdock.pointerAvoidanceTriggerDelayV1": 0.0,
         "taskdock.taskItemHighlightStyle": "systemAccent",
         "taskdock.taskbarBackgroundTransparency": 0.07,
