@@ -1163,12 +1163,12 @@ private struct TaskbarReadableItemSurface: View {
             if usesSubtleHoverPill {
                 if isFocused || isHovered {
                     if reduceTransparency {
-                        shape.fill(Color(white: isFocused ? 0.27 : 0.36))
+                        shape.fill(Color(white: isFocused ? 0.22 : 0.36))
                     } else if isFocused {
                         shape.fill(LinearGradient(
                             colors: [
-                                Color.black.opacity(0.21 * hazeStrength),
-                                Color.black.opacity(0.10 * hazeStrength)
+                                Color.black.opacity(0.30 * hazeStrength),
+                                Color.black.opacity(0.16 * hazeStrength)
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -1185,13 +1185,13 @@ private struct TaskbarReadableItemSurface: View {
                     }
                     shape.strokeBorder(LinearGradient(
                         colors: isFocused
-                            ? [Color.black.opacity(0.31 * hazeStrength),
-                               Color.white.opacity(0.13 * hazeStrength)]
+                            ? [Color.black.opacity(0.52 * hazeStrength),
+                               Color.white.opacity(0.24 * hazeStrength)]
                             : [Color.white.opacity(0.16 * hazeStrength),
                                Color.white.opacity(0.08 * hazeStrength)],
                         startPoint: .top,
                         endPoint: .bottom
-                    ), lineWidth: 0.8)
+                    ), lineWidth: isFocused ? 1.1 : 0.8)
                 }
             } else if isFocused {
                 shape.fill(colorScheme == .dark
