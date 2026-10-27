@@ -31,24 +31,26 @@ struct FavoriteShelfInsertion: Equatable {
     static func target(pointerX: CGFloat, appTotal: Int, folderTotal: Int,
                        hasUtilities: Bool, incomingApps: Int, incomingFolders: Int,
                        preview: Self?) -> Self {
+        let step = FavoriteMagnificationLayout.itemStep
+        let separatorWidth = step - 28
         var x = pointerX
         // Map the expanded preview back to the original slots to avoid oscillating targets.
         if let preview {
-            let appGapStart = CGFloat(preview.appIndex) * 32
-            let folderStart = CGFloat(appTotal + preview.appCount) * 32
-                + (appTotal + preview.appCount > 0 && hasUtilities ? 4 : 0)
-            let folderGapStart = folderStart + CGFloat(preview.folderIndex) * 32
+            let appGapStart = CGFloat(preview.appIndex) * step
+            let folderStart = CGFloat(appTotal + preview.appCount) * step
+                + (appTotal + preview.appCount > 0 && hasUtilities ? separatorWidth : 0)
+            let folderGapStart = folderStart + CGFloat(preview.folderIndex) * step
             if x >= folderGapStart {
-                x -= min(CGFloat(preview.folderCount) * 32, x - folderGapStart)
+                x -= min(CGFloat(preview.folderCount) * step, x - folderGapStart)
             }
             if x >= appGapStart {
-                x -= min(CGFloat(preview.appCount) * 32, x - appGapStart)
+                x -= min(CGFloat(preview.appCount) * step, x - appGapStart)
             }
-            if appTotal == 0 && preview.appCount > 0 && hasUtilities, x > 0 { x = max(0, x - 4) }
+            if appTotal == 0 && preview.appCount > 0 && hasUtilities, x > 0 { x = max(0, x - separatorWidth) }
         }
-        let folderStart = CGFloat(appTotal) * 32 + (appTotal > 0 && hasUtilities ? 4 : 0)
-        return Self(appIndex: min(appTotal, max(0, Int((x / 32).rounded()))),
-                    folderIndex: min(folderTotal, max(0, Int(((x - folderStart) / 32).rounded()))),
+        let folderStart = CGFloat(appTotal) * step + (appTotal > 0 && hasUtilities ? separatorWidth : 0)
+        return Self(appIndex: min(appTotal, max(0, Int((x / step).rounded()))),
+                    folderIndex: min(folderTotal, max(0, Int(((x - folderStart) / step).rounded()))),
                     appCount: incomingApps, folderCount: incomingFolders)
     }
 }

@@ -40,7 +40,7 @@ enum TaskbarFavoriteLaneLayout {
         let hasUtilities = showsTrash || folderCount > 0
         let separatorCount = appCount > 0 && hasUtilities ? 1 : 0
         let itemCount = appCount + folderCount + (showsTrash ? 1 : 0) + separatorCount
-        return CGFloat(itemCount * 32 - separatorCount * 28)
+        return CGFloat(itemCount) * FavoriteMagnificationLayout.itemStep - CGFloat(separatorCount * 28)
     }
 }
 
@@ -52,9 +52,9 @@ struct FavoriteVisualGeometry {
     let indicatorHeight: CGFloat
 }
 
-/// Dock-style visual positions. Hit targets remain in their original 32-point slots.
+/// Dock-style visual positions. Hit targets remain in their compact slots.
 struct FavoriteMagnificationLayout {
-    static let itemStep: CGFloat = 32
+    static let itemStep: CGFloat = 30
     static let iconSize: CGFloat = 26
     static let indicatorDiameter: CGFloat = 4
     static let maximumScale: CGFloat = 2.0

@@ -2349,7 +2349,7 @@ private struct FavoriteDockView: View {
     @State private var externalInsertion: FavoriteShelfInsertion?
     @State private var calendarIconDate = Date()
 
-    private var itemStep: CGFloat { 32 * sizeScale }
+    private var itemStep: CGFloat { FavoriteMagnificationLayout.itemStep * sizeScale }
     private var buttonSize: CGFloat { 30 * sizeScale }
     private var hoverSafetyWidth: CGFloat {
         FavoriteMagnificationLayout.sideClearance(for: sizeScale)
@@ -3683,7 +3683,7 @@ private struct FavoriteDockVisualView: NSViewRepresentable {
             let contentWidth = CGFloat(favoriteIDs.count) * FavoriteMagnificationLayout.itemStep * sizeScale
                 - CGFloat(favoriteIDs.filter { $0 == "utility:separator" }.count) * 28 * sizeScale
             let leading = left.isFinite ? max(0, 2 * sizeScale - left) : 0
-            let trailing = right.isFinite ? max(0, right - (contentWidth - 4 * sizeScale)) : 0
+            let trailing = right.isFinite ? max(0, right - (contentWidth - (FavoriteMagnificationLayout.itemStep - 28) * sizeScale)) : 0
             if let previous = lastReportedBounds,
                abs(previous.0 - leading) < 0.01, abs(previous.1 - trailing) < 0.01 { return }
             lastReportedBounds = (leading, trailing)
