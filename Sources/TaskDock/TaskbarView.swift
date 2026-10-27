@@ -241,13 +241,25 @@ struct TaskbarView: View {
                         taskItemLane {
                         HStack(spacing: taskbarItemSpacing) {
                             if downloadTasks.count > 3 {
+                                let allDownloadsComplete = downloadTasks.allSatisfy { $0.download.isComplete }
                                 Button { downloadsExpanded.toggle() } label: {
                                     HStack(spacing: 5 * taskbarContentScale) {
-                                        Image(systemName: downloadTasks.allSatisfy { $0.download.isComplete }
-                                            ? "checkmark.circle.fill" : "arrow.down.circle.fill")
-                                            .font(.system(size: 15 * taskbarContentScale))
-                                            .foregroundStyle(downloadTasks.allSatisfy { $0.download.isComplete }
-                                                ? Color.green : Color.primary)
+                                        Image(systemName: "arrow.down.to.line")
+                                            .font(.system(size: 16 * taskbarContentScale, weight: .semibold))
+                                            .foregroundStyle(Color.primary)
+                                            .frame(width: 21 * taskbarContentScale,
+                                                height: 21 * taskbarContentScale)
+                                            .overlay(alignment: .topTrailing) {
+                                                if allDownloadsComplete {
+                                                    Image(systemName: "checkmark.circle.fill")
+                                                        .font(.system(size: 10 * taskbarContentScale,
+                                                            weight: .bold))
+                                                        .foregroundStyle(Color.green)
+                                                        .background(Circle().fill(Color.white))
+                                                        .offset(x: 3 * taskbarContentScale,
+                                                            y: -3 * taskbarContentScale)
+                                                }
+                                            }
                                         Text("下载 · \(downloadTasks.count)")
                                             .font(.system(size: max(9.5, settings.taskbarItemFontSize) * taskbarContentScale,
                                                 weight: .medium))
