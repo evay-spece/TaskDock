@@ -209,6 +209,7 @@ struct SettingsView: View {
                 }
             }
             settingsSection(title: "任务栏外观") { ExperimentalTaskbarGlassSettingsView() }
+            settingsSection(title: "任务项外观") { TaskbarItemHazeSettingsView() }
             settingsSection(title: "浮动气泡窗口") { DeveloperDebugSettingsView() }
         }
     }
@@ -1049,26 +1050,23 @@ struct SettingsView: View {
 
     private func modeVisualSettings(for mode: TaskDockLayoutMode) -> some View {
         Group {
-            settingsSection(
-                title: mode == .taskbar ? "任务项淡化" : "任务项透明度",
-                description: mode == .taskbar
-                    ? "非选中项直接显示在任务栏上，可轻微淡化图标和文字。"
-                    : "仅影响当前模式的任务项。"
-            ) {
-                HStack {
-                    Text(mode == .taskbar ? "非选中项淡化强度" : "非选中项透明度")
-                    Spacer()
-                    Picker(mode == .taskbar ? "非选中项淡化强度" : "非选中项透明度", selection: Binding(
-                        get: { Int((settings.transparency(in: mode) * 100).rounded()) },
-                        set: { settings.setTransparency(Double($0) / 100, in: mode); onVisualChanged() }
-                    )) {
-                        ForEach(Array(stride(from: 0, through: 70, by: 5)), id: \.self) { percent in
-                            Text("\(percent)%").tag(percent)
+            if mode == .dockCompanion {
+                settingsSection(title: "任务项透明度", description: "仅影响融合模式的任务项。") {
+                    HStack {
+                        Text("非选中项透明度")
+                        Spacer()
+                        Picker("非选中项透明度", selection: Binding(
+                            get: { Int((settings.transparency(in: mode) * 100).rounded()) },
+                            set: { settings.setTransparency(Double($0) / 100, in: mode); onVisualChanged() }
+                        )) {
+                            ForEach(Array(stride(from: 0, through: 70, by: 5)), id: \.self) { percent in
+                                Text("\(percent)%").tag(percent)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .fixedSize(horizontal: true, vertical: false)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
 

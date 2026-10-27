@@ -156,7 +156,7 @@ final class SettingsStore: ObservableObject {
             (mode, ModePreferenceStorage.load(mode: mode.rawValue, defaults: storedDefaults))
         })
         transparencyByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
-            (mode, loadedPreferences[mode]!.transparency)
+            (mode, mode == .taskbar ? 0 : loadedPreferences[mode]!.transparency)
         })
         hiddenAppsByMode = Dictionary(uniqueKeysWithValues: TaskDockLayoutMode.allCases.map { mode in
             (mode, loadedPreferences[mode]!.showHiddenApps)
@@ -512,6 +512,7 @@ final class SettingsStore: ObservableObject {
     }
 
     func setTransparency(_ value: Double, in mode: TaskDockLayoutMode) {
+        guard mode == .dockCompanion else { return }
         let clamped = min(max(value, 0), 0.7)
         guard transparencyByMode[mode] != clamped else { return }
         transparencyByMode[mode] = clamped

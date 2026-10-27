@@ -26,7 +26,6 @@ enum ReleaseDefaults101 {
             "taskdock.dockCompanionShowsRecentWindows": true,
             "taskdock.dockCompanionShowsBottomBar": false,
             "taskdock.dockCompanionOverlayEnabled": false,
-            "taskdock.mode.taskbar.nonSelectedItemTransparency": 0.3,
             "taskdock.mode.taskbar.showHiddenApps": true,
             "taskdock.mode.taskbar.finderTabsAsWindows": true,
             "taskdock.mode.dockCompanion.nonSelectedItemTransparency": 0.35,

@@ -20,7 +20,6 @@ enum ReleaseDefaults170 {
             "taskdock.favoriteMagnificationEnabled": true,
             "taskdock.favoriteMagnificationScale": 1.8,
             "taskdock.dockFavoritesSyncEnabled": false,
-            "taskdock.mode.taskbar.nonSelectedItemTransparency": 0.5,
             "taskdock.mode.taskbar.showHiddenApps": true,
             "taskdock.mode.taskbar.finderTabsAsWindows": true,
             "taskdock.experimentalActiveGlassV1": true,

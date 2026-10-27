@@ -1148,19 +1148,20 @@ private struct TaskbarReadableItemSurface: View {
     var transparency: Double = 0
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(TaskbarItemHazeSettings.strengthKey) private var hazeStrength = 1.0
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         ZStack {
             if isFocused {
                 shape.fill(colorScheme == .dark
-                    ? Color(white: 0.30).opacity(reduceTransparency ? 1 : 0.96)
-                    : Color.white.opacity(reduceTransparency ? 1 : 0.96))
+                    ? Color(white: 0.30).opacity((reduceTransparency ? 1 : 0.96) * hazeStrength)
+                    : Color.white.opacity((reduceTransparency ? 1 : 0.96) * hazeStrength))
             } else if usesSubtleHoverPill {
                 if isHovered {
                     shape.fill(colorScheme == .dark
-                        ? Color(white: 0.30).opacity(reduceTransparency ? 0.78 : 0.62)
-                        : Color.white.opacity(reduceTransparency ? 0.78 : 0.62))
+                        ? Color(white: 0.30).opacity((reduceTransparency ? 0.78 : 0.62) * hazeStrength)
+                        : Color.white.opacity((reduceTransparency ? 0.78 : 0.62) * hazeStrength))
                 }
             } else if reduceTransparency {
                 shape.fill(Color(nsColor: .controlBackgroundColor))
@@ -1170,7 +1171,9 @@ private struct TaskbarReadableItemSurface: View {
                     .opacity(isHovered ? 0.18 : 0.06))
             }
             if isFocused || !usesSubtleHoverPill || isHovered {
-                shape.strokeBorder(Color.primary.opacity(isFocused ? 0.20 : isHovered ? 0.10 : 0.035), lineWidth: 0.7)
+                shape.strokeBorder(Color.primary.opacity(
+                    (isFocused ? 0.20 : isHovered ? 0.10 : 0.035)
+                    * (usesSubtleHoverPill ? hazeStrength : 1)), lineWidth: 0.7)
             }
         }
         .opacity(reduceTransparency || isFocused ? 1 : 1 - transparency * 0.4)
@@ -1631,6 +1634,7 @@ private struct DownloadTaskButtonStyle: ButtonStyle {
 }
 
 struct WindowTaskItemView: View {
+    @AppStorage(TaskbarItemHazeSettings.strengthKey) private var hazeStrength = 1.0
     let window: WindowModel
     let availableWidth: CGFloat
     let isDockCompanion: Bool
@@ -1782,7 +1786,7 @@ struct WindowTaskItemView: View {
             case .systemAccent:
                 return Color.accentColor.opacity(isHovered ? (window.isFocused ? 0.23 : 0.13) : 0.16)
             case .white:
-                return window.isFocused ? .clear : Color.primary.opacity(isHovered ? 0.08 : 0)
+                return window.isFocused ? .clear : Color.primary.opacity(isHovered ? 0.08 * hazeStrength : 0)
             }
         }
         if isHovered || window.isFocused {

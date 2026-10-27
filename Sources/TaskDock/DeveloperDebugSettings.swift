@@ -7,6 +7,28 @@ enum DeveloperDebugSettings {
     static let smallBubbleIconGapKey = "smallBubbleIconGapV1"
 }
 
+enum TaskbarItemHazeSettings {
+    static let strengthKey = "taskbarItemHazeStrengthV1"
+}
+
+struct TaskbarItemHazeSettingsView: View {
+    @AppStorage(TaskbarItemHazeSettings.strengthKey) private var strength = 1.0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("胶囊底色强度")
+                Slider(value: $strength, in: 0...1, step: 0.01)
+                    .accessibilityLabel("任务项胶囊底色强度")
+                Text("\(Int((strength * 100).rounded()))%")
+                    .monospacedDigit().frame(width: 44, alignment: .trailing)
+            }
+            Text("调整任务栏中激活项和鼠标悬停项的灰白色底层。0% 为无底色，100% 为当前效果；自动保存并即时生效。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct DeveloperDebugSettingsView: View {
     @AppStorage(DeveloperDebugSettings.bubbleTransparencyKey) private var transparency = 0.0
     @AppStorage(DeveloperDebugSettings.smallBubbleFontSizeKey) private var smallBubbleFontSize = 12.0
