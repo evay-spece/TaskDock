@@ -190,20 +190,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         minimizeItem.target = self
         statusMenu.addItem(minimizeItem)
 
-        let modeItem = NSMenuItem(title: "显示模式", action: nil, keyEquivalent: "")
-        modeItem.image = NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: nil)
-        let modeMenu = NSMenu(title: "显示模式")
-        for mode in TaskDockLayoutMode.allCases {
-            let item = NSMenuItem(title: mode.label, action: #selector(selectLayoutMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = mode.rawValue
-            item.image = NSImage(systemSymbolName: mode.systemImage, accessibilityDescription: nil)
-            item.state = panelController?.currentLayoutMode == mode ? .on : .off
-            modeMenu.addItem(item)
-        }
-        modeItem.submenu = modeMenu
-        statusMenu.addItem(modeItem)
-
         let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
         settingsItem.target = self
@@ -267,12 +253,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleAllApplications() {
         panelController?.toggleAllApplications()
-    }
-
-    @objc private func selectLayoutMode(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let mode = TaskDockLayoutMode(rawValue: rawValue) else { return }
-        panelController?.setLayoutMode(mode)
     }
 
     @objc private func openSettings() {
