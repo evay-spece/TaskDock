@@ -29,32 +29,6 @@ struct TaskbarItemHazeSettingsView: View {
     }
 }
 
-struct TaskbarBaseStrengthSettingsView: View {
-    @ObservedObject var settings: SettingsStore
-    let onVisualChanged: () -> Void
-
-    private var strength: Binding<Double> {
-        Binding(
-            get: { 1 - settings.taskbarBackgroundTransparency },
-            set: { settings.taskbarBackgroundTransparency = 1 - $0; onVisualChanged() }
-        )
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("任务栏底座强度")
-                Slider(value: strength, in: 0...1, step: 0.01)
-                    .accessibilityLabel("任务栏底座强度")
-                Text("\(Int((strength.wrappedValue * 100).rounded()))%")
-                    .monospacedDigit().frame(width: 44, alignment: .trailing)
-            }
-            Text("调整整条任务栏的玻璃底座。0% 为无底座，100% 为完整玻璃；与任务栏页面的“背景透明度”同步，不影响图标和文字。")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-}
-
 struct DeveloperDebugSettingsView: View {
     @AppStorage(DeveloperDebugSettings.bubbleTransparencyKey) private var transparency = 0.0
     @AppStorage(DeveloperDebugSettings.smallBubbleFontSizeKey) private var smallBubbleFontSize = 12.0

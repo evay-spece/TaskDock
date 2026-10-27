@@ -210,8 +210,6 @@ struct SettingsView: View {
             }
             settingsSection(title: "任务栏外观") {
                 ExperimentalTaskbarGlassSettingsView()
-                Divider()
-                TaskbarBaseStrengthSettingsView(settings: settings, onVisualChanged: onVisualChanged)
             }
             settingsSection(title: "任务项外观") { TaskbarItemHazeSettingsView() }
             settingsSection(title: "浮动气泡窗口") { DeveloperDebugSettingsView() }
