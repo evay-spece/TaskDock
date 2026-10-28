@@ -1,46 +1,107 @@
 import AppKit
 
 /// Keeps an app-level snapshot so showing the desktop never changes AXMinimized.
+@MainActor
 final class ApplicationVisibilityToggle {
-    private var hiddenApplications: [NSRunningApplication] = []
-    private var previousFrontmost: NSRunningApplication?
-    private var requestedAt = Date.distantPast
+    struct Target {
+        let pid: pid_t
+        let isHidden: () -> Bool
+        let isTerminated: () -> Bool
+        let hide: () -> Void
+        let unhide: () -> Void
+    }
+
+    private var hiddenApplications: [Target] = []
+    private var restoreFrontmost: (() -> Void)?
+    private var generation = 0
+    private var hideSettlesAt: TimeInterval = 0
+    private let now: () -> TimeInterval
+    private let schedule: (TimeInterval, @escaping () -> Void) -> Void
+
+    init(now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         schedule: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, action in
+             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { action() }
+         }) {
+        self.now = now
+        self.schedule = schedule
+    }
 
     var canRestore: Bool { !hiddenApplications.isEmpty }
-    var hiddenPIDs: Set<pid_t> { Set(hiddenApplications.filter { !$0.isTerminated }.map(\.processIdentifier)) }
+    func shouldRestore(hasVisibleWindows: Bool) -> Bool {
+        canRestore && (now() < hideSettlesAt || !hasVisibleWindows)
+    }
+    var hiddenPIDs: Set<pid_t> {
+        Set(hiddenApplications.filter { !$0.isTerminated() }.map(\.pid))
+    }
 
     func synchronize() {
         hiddenApplications = hiddenApplications.filter {
-            !$0.isTerminated && ($0.isHidden || Date().timeIntervalSince(requestedAt) < 0.5)
+            !$0.isTerminated() && ($0.isHidden() || now() < hideSettlesAt)
         }
-        if hiddenApplications.isEmpty { previousFrontmost = nil }
+        if hiddenApplications.isEmpty { restoreFrontmost = nil }
     }
 
     func hide(applications: [NSRunningApplication] = NSWorkspace.shared.runningApplications,
               frontmost: NSRunningApplication? = NSWorkspace.shared.frontmostApplication) {
-        guard hiddenApplications.isEmpty else { return }
-        requestedAt = Date()
-        hiddenApplications = applications.filter { app in
-            guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
-                  app.activationPolicy == .regular, !app.isHidden, !app.isTerminated else { return false }
-            // hide() may report false even when the asynchronous request takes effect.
-            // Record the initially visible app, then reconcile against isHidden.
-            _ = app.hide()
-            return true
+        let visible = applications.filter {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier &&
+                $0.activationPolicy == .regular && !$0.isHidden && !$0.isTerminated
         }
-        if let frontmost, hiddenApplications.contains(where: { $0 == frontmost }) {
-            previousFrontmost = frontmost
+        // Hide the frontmost app last, avoiding focus changes mid-batch.
+        let ordered = visible.filter { $0 != frontmost } + visible.filter { $0 == frontmost }
+        let targets = ordered.map { app in
+            Target(pid: app.processIdentifier, isHidden: { app.isHidden },
+                   isTerminated: { app.isTerminated }, hide: { _ = app.hide() },
+                   unhide: { _ = app.unhide() })
+        }
+        let restoreFocus: (() -> Void)? = frontmost.flatMap { app in
+            guard visible.contains(app) else { return nil }
+            return { if !app.isTerminated { _ = app.activate(options: [.activateIgnoringOtherApps]) } }
+        }
+        hide(targets: targets, restoreFocus: restoreFocus)
+    }
+
+    func hide(targets: [Target], restoreFocus: (() -> Void)? = nil) {
+        generation += 1
+        let operation = generation
+        hideSettlesAt = now() + 1.15
+        let existingPIDs = hiddenPIDs
+        hiddenApplications += targets.filter {
+            !existingPIDs.contains($0.pid) && !$0.isTerminated() && !$0.isHidden()
+        }
+        restoreFrontmost = restoreFocus
+        for target in hiddenApplications { target.hide() }
+        // AppKit requests are asynchronous. Verify state instead of trusting hide()'s return value.
+        for delay in [0.08, 0.22, 0.5, 0.9] {
+            schedule(delay) { [weak self] in
+                guard let self, self.generation == operation else { return }
+                for target in self.hiddenApplications where !target.isTerminated() && !target.isHidden() {
+                    target.hide()
+                }
+            }
+        }
+        schedule(1.16) { [weak self] in
+            guard let self, self.generation == operation else { return }
+            self.synchronize()
         }
     }
 
     func restore() {
+        generation += 1 // Cancels all pending hide retries before any window is restored.
+        let operation = generation
         let applications = hiddenApplications
-        for app in applications where !app.isTerminated { _ = app.unhide() }
-        if let frontmost = previousFrontmost, !frontmost.isTerminated,
-           applications.contains(where: { $0 == frontmost }) {
-            _ = frontmost.activate(options: [.activateIgnoringOtherApps])
-        }
+        let focus = restoreFrontmost
         hiddenApplications = []
-        previousFrontmost = nil
+        restoreFrontmost = nil
+        for target in applications where !target.isTerminated() { target.unhide() }
+        focus?()
+        for delay in [0.08, 0.22, 0.5] {
+            schedule(delay) { [weak self] in
+                guard self?.generation == operation else { return }
+                for target in applications where !target.isTerminated() && target.isHidden() {
+                    target.unhide()
+                }
+            }
+        }
     }
 }

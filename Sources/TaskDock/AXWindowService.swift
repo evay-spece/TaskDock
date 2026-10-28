@@ -262,6 +262,21 @@ final class AXWindowService {
         topmostScreenWindow(for: pid) != nil
     }
 
+    func onscreenApplicationPIDs() -> Set<pid_t> {
+        let entries = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] ?? []
+        return Set(entries.compactMap { entry in
+            guard (entry[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
+                  let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds),
+                  frame.width > 1, frame.height > 1,
+                  let pid = entry[kCGWindowOwnerPID as String] as? NSNumber else { return nil }
+            return pid_t(pid.int32Value)
+        })
+    }
+
     private func currentAXWindow(for window: WindowModel, among candidates: [AXUIElement]) -> AXUIElement? {
         if let exact = candidates.first(where: { CFEqual($0, window.axWindow) }) { return exact }
         guard !window.rawTitle.isEmpty else { return nil }

@@ -1,4 +1,5 @@
 import Carbon
+import AppKit
 
 /// Keeps Option+D available even when TaskDock is hidden or another layout is selected.
 @MainActor
@@ -8,6 +9,7 @@ final class GlobalMinimizeHotKeyMonitor {
     private var eventHandler: EventHandlerRef?
     private var hotKey: EventHotKeyRef?
     private var isPressed = false
+    private var releaseTimer: Timer?
 
     init(onTrigger: @escaping () -> Void) {
         self.onTrigger = onTrigger
@@ -67,13 +69,31 @@ final class GlobalMinimizeHotKeyMonitor {
         guard hotKey != nil else { return }
         if kind == UInt32(kEventHotKeyReleased) {
             isPressed = false
+            releaseTimer?.invalidate()
+            releaseTimer = nil
         } else if kind == UInt32(kEventHotKeyPressed), !isPressed {
             isPressed = true
+            releaseTimer?.invalidate()
+            let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    // Carbon can miss release when Option is released before D.
+                    if !CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(kVK_ANSI_D)) {
+                        self.isPressed = false
+                        self.releaseTimer?.invalidate()
+                        self.releaseTimer = nil
+                    }
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            releaseTimer = timer
             onTrigger()
         }
     }
 
     func stop() {
+        releaseTimer?.invalidate()
+        releaseTimer = nil
         if let hotKey { UnregisterEventHotKey(hotKey) }
         hotKey = nil
         if let eventHandler { RemoveEventHandler(eventHandler) }

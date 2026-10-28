@@ -870,7 +870,13 @@ final class TaskbarPanelController {
     }
     private func toggleAllAppVisibility() {
         synchronizeBulkVisibilityState()
-        if bulkVisibility.canRestore {
+        let visiblePIDs = windowService.onscreenApplicationPIDs()
+        let hasVisibleWindows = NSWorkspace.shared.runningApplications.contains {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier &&
+                $0.activationPolicy == .regular && !$0.isHidden && !$0.isTerminated &&
+                visiblePIDs.contains($0.processIdentifier)
+        }
+        if bulkVisibility.shouldRestore(hasVisibleWindows: hasVisibleWindows) {
             let restoredPIDs = bulkVisibility.hiddenPIDs
             bulkVisibility.restore()
             taskbarHiddenPIDs.subtract(restoredPIDs)
