@@ -1153,12 +1153,7 @@ private struct TaskItemProgressFill: View {
     var body: some View {
         GeometryReader { geometry in
             Rectangle()
-                .fill(LinearGradient(
-                    colors: [Color(red: 0.20, green: 0.54, blue: 0.25).opacity(0.78),
-                             Color(red: 0.27, green: 0.68, blue: 0.30).opacity(0.78)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                ))
+                .fill(Color(red: 0.20, green: 0.65, blue: 0.28))
                 .frame(width: geometry.size.width * CGFloat(min(max(value, 0), 1)))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
