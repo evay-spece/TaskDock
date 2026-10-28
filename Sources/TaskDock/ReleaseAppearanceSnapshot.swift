@@ -3,7 +3,7 @@
 import Foundation
 
 enum ReleaseAppearanceSnapshot {
-    static let version = "1.9.0"
+    static let version = "1.10.1"
     static let values: [String: Any] = [
         "floatingBubbleBackgroundTransparencyV1": 0.04,
         "smallBubbleFontSizeV1": 16.0,
