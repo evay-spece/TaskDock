@@ -1,9 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Continuous system slider with the release preset marked and lightly snapped.
+/// Uses the system SwiftUI slider, including the current macOS glass treatment.
+/// Only the preset marker and light snapping are app-specific.
 struct ReleaseTunedSlider: View {
     @Binding var value: Double
+    @State private var snapped = false
     let range: ClosedRange<Double>
     let defaultValue: Double
 
@@ -17,56 +19,37 @@ struct ReleaseTunedSlider: View {
         (ReleaseAppearanceSnapshot.values[key] as? NSNumber)?.doubleValue ?? fallback
     }
 
+    private var sliderValue: Binding<Double> {
+        Binding(get: { value }, set: { proposed in
+            let near = abs(proposed - defaultValue) <= (range.upperBound - range.lowerBound) * 0.012
+            if near && !snapped {
+                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+            }
+            snapped = near
+            value = near ? defaultValue : proposed
+        })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            NativeSlider(value: $value, range: range, preset: defaultValue)
-                .frame(height: 24)
+            Slider(value: sliderValue, in: range, onEditingChanged: { editing in
+                if !editing { snapped = false }
+            })
+            .controlSize(.regular)
+            .frame(minHeight: 28)
+
             GeometryReader { geometry in
-                let x = 9 + (geometry.size.width - 18)
+                let x = 12 + max(0, geometry.size.width - 24)
                     * (defaultValue - range.lowerBound) / (range.upperBound - range.lowerBound)
                 VStack(spacing: 1) {
                     Circle().fill(Color.secondary.opacity(0.5)).frame(width: 3, height: 3)
                     Text("默认").font(.system(size: 9)).foregroundStyle(.secondary)
                 }
                 .position(x: min(max(x, 14), geometry.size.width - 14), y: 8)
-            }.frame(height: 18)
-        }
-    }
-
-    private struct NativeSlider: NSViewRepresentable {
-        @Binding var value: Double
-        let range: ClosedRange<Double>
-        let preset: Double
-        func makeCoordinator() -> Coordinator { Coordinator(self) }
-        func makeNSView(context: Context) -> NSSlider {
-            let slider = NSSlider(value: value, minValue: range.lowerBound,
-                maxValue: range.upperBound, target: context.coordinator,
-                action: #selector(Coordinator.changed(_:)))
-            slider.isContinuous = true
-            slider.numberOfTickMarks = 0
-            slider.controlSize = .regular
-            return slider
-        }
-        func updateNSView(_ slider: NSSlider, context: Context) {
-            context.coordinator.owner = self
-            slider.isEnabled = context.environment.isEnabled
-            slider.doubleValue = value
-        }
-        final class Coordinator: NSObject {
-            var owner: NativeSlider
-            var snapped = false
-            init(_ owner: NativeSlider) { self.owner = owner }
-            @objc func changed(_ sender: NSSlider) {
-                let near = abs(sender.doubleValue - owner.preset)
-                    <= (owner.range.upperBound - owner.range.lowerBound) * 0.012
-                if near && !snapped {
-                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
-                }
-                snapped = near
-                let result = near ? owner.preset : sender.doubleValue
-                sender.doubleValue = result
-                owner.value = result
             }
+            .frame(height: 18)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 }

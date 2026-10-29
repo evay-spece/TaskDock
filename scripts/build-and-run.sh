@@ -9,10 +9,12 @@ DETECTED_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk 
 SIGNING_IDENTITY="${TASKDOCK_SIGNING_IDENTITY:-${DETECTED_IDENTITY:--}}"
 
 cd "$PROJECT_ROOT"
-BUILD_SDK_ARGS=()
-if [[ -n "${TASKDOCK_BUILD_SDK:-}" ]]; then
-  BUILD_SDK_ARGS=(--sdk "$TASKDOCK_BUILD_SDK")
+if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer ]]; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
+BUILD_SDK="${TASKDOCK_BUILD_SDK:-$(xcrun --sdk macosx --show-sdk-path)}"
+BUILD_SDK_VERSION="$(xcrun --sdk "$BUILD_SDK" --show-sdk-version)"
+BUILD_SDK_ARGS=(--sdk "$BUILD_SDK" -Xlinker -platform_version -Xlinker macos -Xlinker 12.0 -Xlinker "$BUILD_SDK_VERSION")
 BUILD_CONFIGURATION="${TASKDOCK_BUILD_CONFIGURATION:-debug}"
 if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
   echo "不支持的构建配置：$BUILD_CONFIGURATION" >&2

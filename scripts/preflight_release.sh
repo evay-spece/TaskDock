@@ -10,12 +10,19 @@ ASSET="$OUTPUT_DIRECTORY/TaskDock-$VERSION-macOS-arm64.zip"
 [[ ! -e "$ASSET" ]] || { echo "Refusing to replace existing asset: $ASSET" >&2; exit 1; }
 python3 "$PROJECT_ROOT/scripts/capture-release-appearance.py" --check
 
-SDK="${TASKDOCK_BUILD_SDK:-}"
+if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer ]]; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
+SDK="${TASKDOCK_BUILD_SDK:-$(xcrun --sdk macosx --show-sdk-path)}"
 SWIFT_ARGS=(-c release --arch arm64)
 if [[ -n "$SDK" ]]; then
   [[ -d "$SDK" ]] || { echo "SDK does not exist: $SDK" >&2; exit 1; }
   SWIFT_ARGS+=(--sdk "$SDK")
 fi
+# Record the actual SDK so system controls adopt its current design, while
+# retaining the package's macOS 12 deployment target.
+SDK_VERSION="$(xcrun --sdk "$SDK" --show-sdk-version)"
+SWIFT_ARGS+=(-Xlinker -platform_version -Xlinker macos -Xlinker 12.0 -Xlinker "$SDK_VERSION")
 cd "$PROJECT_ROOT"
 swift build "${SWIFT_ARGS[@]}"
 BIN="$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)/TaskDock"
