@@ -35,6 +35,13 @@ final class TaskDockFinderExtension: FIFinderSync {
             cut.target = self
             menu.addItem(cut)
         }
+        if !ClipboardCutter.cutFiles().isEmpty {
+            let paste = NSMenuItem(title: "粘贴并移动  ⌘V", action: #selector(pasteAndMove(_:)), keyEquivalent: "v")
+            paste.keyEquivalentModifierMask = [.command]
+            paste.target = self
+            paste.representedObject = folder.path
+            menu.addItem(paste)
+        }
         let parent = NSMenuItem(title: "新建文件", action: nil, keyEquivalent: "")
         parent.image = menuIcon("doc.badge.plus", description: "新建文件")
         let submenu = NSMenu(title: "新建文件")
@@ -52,13 +59,6 @@ final class TaskDockFinderExtension: FIFinderSync {
         }
         parent.submenu = submenu
         if !submenu.items.isEmpty { menu.addItem(parent) }
-        if !ClipboardCutter.cutFiles().isEmpty {
-            let paste = NSMenuItem(title: "粘贴并移动  ⌘V", action: #selector(pasteAndMove(_:)), keyEquivalent: "v")
-            paste.keyEquivalentModifierMask = [.command]
-            paste.target = self
-            paste.representedObject = folder.path
-            menu.addItem(paste)
-        }
         return menu
     }
 

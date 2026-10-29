@@ -20,6 +20,7 @@ final class AXWindowService {
     private let logger = Logger(subsystem: "com.taskdock.app", category: "accessibility")
     private var windowOrder: [String: Int] = [:]
     private var nextWindowOrder = 0
+    private let notesTitleReader = NotesWindowTitleReader()
     private var knownFinderDocumentWindows: [AXUIElement] = []
     private var hasEnumeratedFinderWindows = false
     private var windowEvidence: [String: MinimizedWindowEvidence] = [:]
@@ -128,6 +129,8 @@ final class AXWindowService {
             var appWindows: [(order: Int, tabIndex: Int, model: WindowModel)] = []
             for axWindow in displayableWindows {
                 let title = (copyAttribute(axWindow, kAXTitleAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let selectedNoteTitle = app.bundleIdentifier == "com.apple.Notes"
+                    ? notesTitleReader.title(in: axWindow) : nil
                 let role = copyAttribute(axWindow, kAXRoleAttribute) as? String ?? ""
                 let subrole = copyAttribute(axWindow, kAXSubroleAttribute) as? String
 
@@ -164,7 +167,9 @@ final class AXWindowService {
                         applicationName: applicationName,
                         applicationIcon: app.icon,
                         rawTitle: itemTitle,
-                        title: itemTitle.isEmpty ? applicationName : itemTitle,
+                        title: WindowDisplayTitle.resolve(rawTitle: itemTitle,
+                            applicationName: applicationName, bundleIdentifier: app.bundleIdentifier,
+                            selectedNoteTitle: selectedNoteTitle),
                         accessibilityRole: role,
                         accessibilitySubrole: subrole,
                         isMinimized: minimized || (app.isHidden && taskbarHiddenPIDs.contains(pid)),
