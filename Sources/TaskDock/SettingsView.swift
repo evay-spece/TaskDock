@@ -38,6 +38,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    @AppStorage(RecentAppHoverBehavior.settingsKey) private var recentAppHoverBehavior = RecentAppHoverBehavior.nameBubble.rawValue
     @ObservedObject var settings: SettingsStore
     @ObservedObject var license: LicenseService
     @ObservedObject private var updateChecker = UpdateChecker.shared
@@ -601,6 +602,17 @@ struct SettingsView: View {
                 Text("仅调整任务栏任务项文字，共 5 档；默认 8 pt。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            settingsSection(title: "最近程序", description: "选择光标移到时钟图标上时的显示方式。") {
+                Picker("悬停显示", selection: $recentAppHoverBehavior) {
+                    Text("名称小气泡").tag(RecentAppHoverBehavior.nameBubble.rawValue)
+                    Text("程序列表大气泡").tag(RecentAppHoverBehavior.programList.rawValue)
+                }
+                Text(recentAppHoverBehavior == RecentAppHoverBehavior.programList.rawValue
+                    ? "光标移上去即可展开最近运行过的程序列表。"
+                    : "显示“最近运行过程序”；点击图标展开程序列表。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             settingsSection(title: "快捷键", description: "任务栏显示期间可直接使用；按下 Option 显示对应提示。") {

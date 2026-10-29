@@ -1,3 +1,9 @@
+enum RecentAppHoverBehavior: String, CaseIterable {
+    static let settingsKey = "taskdock.recentAppHoverBehaviorV1"
+    case nameBubble
+    case programList
+}
+
 enum RecentAppDisplayPolicy {
     static func visible<App>(
         from history: [App],

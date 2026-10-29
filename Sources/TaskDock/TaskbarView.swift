@@ -2074,6 +2074,7 @@ private struct TaskbarEdgeHitButton: NSViewRepresentable {
 }
 
 private struct RecentApplicationDockView: View {
+    @AppStorage(RecentAppHoverBehavior.settingsKey) private var hoverBehavior = RecentAppHoverBehavior.nameBubble.rawValue
     let applications: [FavoriteApp]
     @ObservedObject var popoverState: RecentAppPopoverState
     let runningApplicationIDs: Set<String>
@@ -2089,13 +2090,28 @@ private struct RecentApplicationDockView: View {
     @State private var isButtonHovered = false
     @State private var hoveredApplicationID: String?
     @State private var pointerLocationWhenOpened: NSPoint?
+    @State private var hoverDismissTask: DispatchWorkItem?
+
+    private func openList() {
+        hoverDismissTask?.cancel()
+        guard !popoverState.isPresented else { return }
+        popoverState.open(applications: applications)
+        pointerLocationWhenOpened = NSEvent.mouseLocation
+        hoveredApplicationID = nil
+    }
+
+    private func scheduleHoverDismissal() {
+        guard hoverBehavior == RecentAppHoverBehavior.programList.rawValue else { return }
+        hoverDismissTask?.cancel()
+        let task = DispatchWorkItem { popoverState.isPresented = false }
+        hoverDismissTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: task)
+    }
 
     var body: some View {
         Button {
             if !popoverState.isPresented {
-                popoverState.open(applications: applications)
-                pointerLocationWhenOpened = NSEvent.mouseLocation
-                hoveredApplicationID = nil
+                openList()
             } else {
                 popoverState.isPresented = false
             }
@@ -2123,9 +2139,23 @@ private struct RecentApplicationDockView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isButtonHovered = $0 }
-        .help("最近打开的 App")
-        .accessibilityLabel("最近打开的 App；点击展开列表")
+        .onHover { hovered in
+            isButtonHovered = hovered
+            if hovered {
+                hoverDismissTask?.cancel()
+                if hoverBehavior == RecentAppHoverBehavior.programList.rawValue { openList() }
+            } else { scheduleHoverDismissal() }
+        }
+        .overlay(alignment: .bottom) {
+            if isButtonHovered, !popoverState.isPresented,
+               hoverBehavior != RecentAppHoverBehavior.programList.rawValue {
+                RecentApplicationNameHint()
+                    .offset(y: -(SettingsStore.layoutReferenceTaskbarHeight * sizeScale / 2
+                        + 13.5 * sizeScale + visualLift + SmallBubbleMetrics.iconGap))
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityLabel("最近运行过程序；点击展开列表")
         .floatingBubbleWindow(isPresented: $popoverState.isPresented) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("最近打开的 App")
@@ -2235,6 +2265,19 @@ private struct RecentApplicationDockView: View {
                 }
             }
             .padding(12)
+            .onHover { hovered in
+                if hovered { hoverDismissTask?.cancel() }
+                else { scheduleHoverDismissal() }
+            }
+        }
+        .onChange(of: hoverBehavior) { _ in
+            hoverDismissTask?.cancel()
+            popoverState.isPresented = false
+            isButtonHovered = false
+        }
+        .onDisappear {
+            hoverDismissTask?.cancel()
+            popoverState.isPresented = false
         }
         .onChange(of: popoverState.isPresented) { isShowing in
             onPopoverVisibilityChanged(isShowing)
@@ -2242,6 +2285,30 @@ private struct RecentApplicationDockView: View {
                 hoveredApplicationID = nil
                 pointerLocationWhenOpened = nil
             }
+        }
+    }
+}
+
+private struct RecentApplicationNameHint: View {
+    private let title = "最近运行过程序"
+    private var width: CGFloat {
+        ceil((title as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: SmallBubbleMetrics.fontSize)]).width) + 28
+    }
+    var body: some View {
+        Hint(title: title, width: width)
+            .frame(width: width, height: SmallBubbleMetrics.height)
+    }
+    private struct Hint: NSViewRepresentable {
+        let title: String
+        let width: CGFloat
+        func makeNSView(context: Context) -> FloatingBubbleHintView {
+            FloatingBubbleHintView(title: title, width: width,
+                fontSize: SmallBubbleMetrics.fontSize, arrowX: width / 2)
+        }
+        func updateNSView(_ view: FloatingBubbleHintView, context: Context) {
+            view.update(title: title, width: width,
+                fontSize: SmallBubbleMetrics.fontSize, arrowX: width / 2)
         }
     }
 }
