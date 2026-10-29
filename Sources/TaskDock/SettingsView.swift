@@ -38,6 +38,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    @StateObject private var launchAtLogin = LaunchAtLoginSettings()
     @AppStorage(RecentAppHoverBehavior.settingsKey) private var recentAppHoverBehavior = RecentAppHoverBehavior.nameBubble.rawValue
     @ObservedObject var settings: SettingsStore
     @ObservedObject var license: LicenseService
@@ -168,10 +169,14 @@ struct SettingsView: View {
         }
         .frame(minWidth: 850, minHeight: 620)
         .onAppear {
+            launchAtLogin.refresh()
             if UserDefaults.standard.object(forKey: "fusionSettingsVisibleV1") == nil,
                rightClickEntryVisible || developerEntryVisible {
                 fusionEntryVisible = true
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .taskDockOpenFileSettings)) { _ in
             guard rightClickEntryVisible else { return }
@@ -322,6 +327,18 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         tabScrollView {
+            settingsSection(title: "启动") {
+                Toggle("开机启动", isOn: Binding(
+                    get: { launchAtLogin.isOn }, set: { launchAtLogin.setEnabled($0) }))
+                    .disabled(!launchAtLogin.isSupported)
+                Text(launchAtLogin.detail).font(.caption).foregroundStyle(.secondary)
+                if launchAtLogin.state == .requiresApproval {
+                    Button("打开系统登录项") { launchAtLogin.openSystemSettings() }
+                }
+                if let message = launchAtLogin.errorMessage {
+                    Text(message).font(.caption).foregroundStyle(.red)
+                }
+            }
             settingsSection(title: "快捷键") {
                 Toggle("⌥ Option + D 全部最小化／恢复", isOn: $optionDEnabled)
                     .onChange(of: optionDEnabled) { _ in onChanged() }
