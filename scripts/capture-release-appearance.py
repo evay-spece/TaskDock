@@ -25,6 +25,7 @@ APPEARANCE_DEFAULTS = {
     "taskdock.pointerAvoidanceTriggerDelayV1": 0.0,
     "taskdock.tiledAvoidanceTriggerDelayV1": 0.0,
     "taskdock.magnificationPushesTasksV1": False,
+    "taskdock.recentAppHoverBehaviorV1": "nameBubble",
     "taskdock.customGlassClarityV1": 1.0,
     "taskdock.dockCompanionCollapseThreshold": 3,
     "taskdock.dockCompanionMinimumWindowCount": 2,

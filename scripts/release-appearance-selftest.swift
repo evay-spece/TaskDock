@@ -14,6 +14,10 @@ struct ReleaseAppearanceSelfTest {
         precondition(defaults.double(forKey: "taskbarItemHazeStrengthV1") == 0.33)
 
         ReleaseAppearanceDefaults.applyIfNeeded(version: ReleaseAppearanceSnapshot.version, to: defaults, finderDefaults: nil)
+        for (key, expected) in ReleaseAppearanceSnapshot.values {
+            precondition((defaults.object(forKey: key) as? NSObject)?.isEqual(expected) == true,
+                "Release preset was not applied: \(key)")
+        }
         precondition(defaults.double(forKey: "taskbarItemHazeStrengthV1") ==
                      ReleaseAppearanceSnapshot.values["taskbarItemHazeStrengthV1"] as? Double)
         precondition(defaults.string(forKey: "taskdock.favoriteApps") == "personal-favorite")
