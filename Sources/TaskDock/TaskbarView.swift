@@ -66,7 +66,7 @@ struct TaskbarView: View {
     @State private var taskItemLaneWidth: CGFloat = .infinity
     @State private var pendingFocusWindowID: String?
     @State private var favoriteLeadingExtension: CGFloat = 0
-    @State private var favoriteTrailingExtension: CGFloat = 0
+    @State private var favoriteHoverTrailingSpace: CGFloat = 0
 
     private func selectImmediately(_ window: WindowModel) {
         let target = window.isFocused ? "" : window.id
@@ -206,14 +206,25 @@ struct TaskbarView: View {
                             onMagnificationChange: { active in
                                 if favoriteMagnificationActive != active {
                                     favoriteMagnificationActive = active
+                                    let reservation = active && magnificationPushesTasks ? TaskbarFavoriteLaneLayout.hoverTrailingSpace(
+                                        appCount: shelfApps.count,
+                                        folderCount: showsControls ? settings.favoriteFolders.count : 0,
+                                        showsTrash: showsControls, sizeScale: taskbarPanelScale,
+                                        peakScale: reducesTaskbarMotion
+                                            ? min(settings.favoriteMagnificationScale, 1.35)
+                                            : settings.favoriteMagnificationScale) : 0
+                                    withAnimation(reducesTaskbarMotion ? nil : .easeOut(duration: active
+                                        ? FavoriteMagnificationTiming.entryDuration
+                                        : FavoriteMagnificationTiming.exitDuration)) {
+                                        favoriteHoverTrailingSpace = reservation
+                                    }
                                 }
                             },
-                            onMagnificationBoundsChange: { leading, trailing in
+                            onMagnificationBoundsChange: { leading, _ in
                                 var transaction = Transaction(animation: nil)
                                 transaction.disablesAnimations = true
                                 withTransaction(transaction) {
                                     favoriteLeadingExtension = leading
-                                    favoriteTrailingExtension = trailing
                                 }
                             }
                         )
@@ -223,7 +234,7 @@ struct TaskbarView: View {
                                 appCount: shelfApps.count,
                                 folderCount: showsControls ? settings.favoriteFolders.count : 0,
                                 showsTrash: showsControls) * taskbarPanelScale
-                                + (magnificationPushesTasks ? favoriteTrailingExtension : 0)
+                                + (magnificationPushesTasks ? favoriteHoverTrailingSpace : 0)
                             : nil, alignment: .leading)
                         .padding(.leading, settings.layoutMode == .taskbar
                             ? 5 * taskbarPanelScale : 0)
@@ -2349,7 +2360,10 @@ private struct FavoriteDockView: View {
     private var hoverSafetyWidth: CGFloat {
         FavoriteMagnificationLayout.sideClearance(for: sizeScale)
     }
-    private var peakScale: CGFloat { reducesMotion ? min(configuredPeakScale, 1.35) : configuredPeakScale }
+    private var peakScale: CGFloat {
+        guard hoverFeedbackEnabled else { return 1 }
+        return reducesMotion ? min(configuredPeakScale, 1.35) : configuredPeakScale
+    }
     private var items: [FavoriteShelfItem] {
         var apps = favorites.map(FavoriteShelfItem.app)
         var folderItems = folders.map(FavoriteShelfItem.folder)
@@ -2446,8 +2460,9 @@ private struct FavoriteDockView: View {
                     let isHovered = location != nil
                     let isMagnifying = hoverFeedbackEnabled && draggedFavoriteID == nil && isHovered
                     if isPointerInside != isMagnifying { isPointerInside = isMagnifying }
-                    onHoverActivity(hoverFeedbackEnabled && draggedFavoriteID == nil && isHovered)
-                    guard hoverFeedbackEnabled, draggedFavoriteID == nil, let location else {
+                    onHoverActivity(isMagnifying)
+                    // Pointer tracking also drives the name bubble when magnification is off.
+                    guard let location else {
                         visualController.updatePointer(nil)
                         onMagnificationChange(false)
                         return
@@ -2459,7 +2474,7 @@ private struct FavoriteDockView: View {
                         separatorCount: items.filter(\.isSeparator).count
                     )
                     visualController.updatePointer(pointerX)
-                    onMagnificationChange(true)
+                    onMagnificationChange(isMagnifying)
                 },
                 itemAt: { location in
                     visualController.view?.itemID(at: CGPoint(

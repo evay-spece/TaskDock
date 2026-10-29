@@ -18,6 +18,37 @@ struct FavoriteMagnificationSelfTest {
             }
         }
         let idle = FavoriteMagnificationLayout(count: 9, pointerX: nil)
+        for appCount in [0, 1, 6, 13] {
+            for peak: CGFloat in [1.5, 2.4] {
+                let folderCount = 2
+                let separators: Set<Int> = appCount > 0 ? [appCount] : []
+                let count = appCount + folderCount + 1 + separators.count
+                let width = TaskbarFavoriteLaneLayout.contentWidth(appCount: appCount,
+                    folderCount: folderCount, showsTrash: true)
+                let reserved = TaskbarFavoriteLaneLayout.hoverTrailingSpace(appCount: appCount,
+                    folderCount: folderCount, showsTrash: true, sizeScale: 1, peakScale: peak)
+                for pointer in stride(from: CGFloat.zero, through: width, by: 0.5) {
+                    let wave = FavoriteMagnificationLayout(count: count, pointerX: pointer,
+                        separatorIndices: separators, peakScale: peak)
+                    for index in 0..<count where !separators.contains(index) {
+                        let right = (CGFloat(index) + 0.5) * step + wave.offsets[index]
+                            + FavoriteMagnificationLayout.iconSize * wave.scales[index] / 2
+                        precondition(right <= width - (step - 28) + reserved,
+                            "One fixed reservation must cover every pointer position")
+                    }
+                }
+            }
+        }
+        // Tracking the pointer for names must not move or enlarge disabled icons.
+        for index in 0..<9 {
+            let pointer = (CGFloat(index) + 0.5) * step
+            let namesOnly = FavoriteMagnificationLayout(count: 9, pointerX: pointer, peakScale: 1)
+            precondition(namesOnly.scales.allSatisfy { $0 == 1 })
+            precondition(namesOnly.offsets == idle.offsets)
+            precondition(FavoriteMagnificationLayout.hoveredItemIndex(
+                pointerX: pointer, count: 9, sizeScale: 1,
+                separatorIndices: [], excludedIndices: []) == index)
+        }
         let reduced = FavoriteMagnificationLayout(count: 9, pointerX: step / 2, peakScale: 1.2)
         let enlarged = FavoriteMagnificationLayout(count: 9, pointerX: step / 2, peakScale: 2.4)
         precondition(abs(reduced.scales[0] - 1.2) < 0.001)

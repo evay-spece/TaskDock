@@ -35,6 +35,32 @@ enum FavoriteShelfReorderTarget {
 }
 
 enum TaskbarFavoriteLaneLayout {
+    /// Reserve one envelope for the entire hover session instead of following
+    /// the wave's small, pointer-dependent changes on every frame.
+    static func hoverTrailingSpace(appCount: Int, folderCount: Int, showsTrash: Bool,
+                                   sizeScale: CGFloat, peakScale: CGFloat) -> CGFloat {
+        guard peakScale > 1, sizeScale > 0 else { return 0 }
+        let hasSeparator = appCount > 0 && (showsTrash || folderCount > 0)
+        let count = appCount + folderCount + (showsTrash ? 1 : 0) + (hasSeparator ? 1 : 0)
+        guard count > 0 else { return 0 }
+        let separators: Set<Int> = hasSeparator ? [appCount] : []
+        let width = contentWidth(appCount: appCount, folderCount: folderCount,
+                                 showsTrash: showsTrash) * sizeScale
+        let rightLimit = width - (FavoriteMagnificationLayout.itemStep - 28) * sizeScale
+        var maximum: CGFloat = 0
+        for pointer in stride(from: CGFloat.zero, through: width, by: sizeScale) {
+            let layout = FavoriteMagnificationLayout(count: count, pointerX: pointer,
+                sizeScale: sizeScale, separatorIndices: separators, peakScale: peakScale)
+            for index in 0..<count where !separators.contains(index) {
+                let center = (CGFloat(index) + 0.5) * FavoriteMagnificationLayout.itemStep * sizeScale
+                    + layout.offsets[index]
+                let right = center + FavoriteMagnificationLayout.iconSize * sizeScale * layout.scales[index] / 2
+                maximum = max(maximum, right - rightLimit)
+            }
+        }
+        return ceil(maximum + sizeScale)
+    }
+
     static func contentWidth(appCount: Int, folderCount: Int,
                              showsTrash: Bool = true) -> CGFloat {
         let hasUtilities = showsTrash || folderCount > 0

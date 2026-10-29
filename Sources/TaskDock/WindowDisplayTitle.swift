@@ -20,7 +20,7 @@ enum WindowDisplayTitle {
         } else if bundleIdentifier == "com.microsoft.edgemac" {
             // Strip only Edge's trailing performance annotation, never arbitrary page text.
             title = title.replacingOccurrences(
-                of: #"\s*[-–—|·]\s*(?:内存使用量高|内存使用量|内存占用高|High memory usage|Memory usage)(?:\s*[:：\-–—]\s*|\s+)?(?:\d+(?:[.,]\d+)?\s*[KMGT]i?B)?\s*(?:\.{3}|…)?(?:\s*[-–—]\s*Microsoft Edge)?\s*$"#,
+                of: #"\s*[-–—|·]\s*(?:内存使用量高|内存使用量|内存占用高|High memory usage|Memory usage)(?:\s*[:：\-–—]\s*|\s+)?(?:\d+(?:[.,]\d+)?\s*[KMGT]i?B)?(?:[ \t]*(?:\.{3}|…))?(?=\s*[-–—]\s*[^\r\n]+$|$)"#,
                 with: "", options: [.regularExpression, .caseInsensitive])
         }
         return title.isEmpty ? applicationName : title
