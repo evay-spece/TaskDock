@@ -2139,12 +2139,16 @@ private struct RecentApplicationDockView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovered in
-            isButtonHovered = hovered
-            if hovered {
-                hoverDismissTask?.cancel()
-                if hoverBehavior == RecentAppHoverBehavior.programList.rawValue { openList() }
-            } else { scheduleHoverDismissal() }
+        .background {
+            if !blurredByFavorites {
+                TaskbarPointerHoverTracker { hovered in
+                    isButtonHovered = hovered
+                    if hovered {
+                        hoverDismissTask?.cancel()
+                        if hoverBehavior == RecentAppHoverBehavior.programList.rawValue { openList() }
+                    } else { scheduleHoverDismissal() }
+                }
+            }
         }
         .overlay(alignment: .bottom) {
             if isButtonHovered, !popoverState.isPresented,
@@ -2265,9 +2269,11 @@ private struct RecentApplicationDockView: View {
                 }
             }
             .padding(12)
-            .onHover { hovered in
-                if hovered { hoverDismissTask?.cancel() }
-                else { scheduleHoverDismissal() }
+            .background {
+                TaskbarPointerHoverTracker { hovered in
+                    if hovered { hoverDismissTask?.cancel() }
+                    else { scheduleHoverDismissal() }
+                }
             }
         }
         .onChange(of: hoverBehavior) { _ in
