@@ -3,7 +3,7 @@
 import Foundation
 
 enum ReleaseAppearanceSnapshot {
-    static let version = "1.10.2"
+    static let version = "1.10.3"
     static let values: [String: Any] = [
         "floatingBubbleBackgroundTransparencyV1": 0.04,
         "smallBubbleFontSizeV1": 16.0,
@@ -26,7 +26,7 @@ enum ReleaseAppearanceSnapshot {
         "taskdock.pointerAvoidanceTriggerDelayV1": 0.0,
         "taskdock.recentAppHoverBehaviorV1": "nameBubble",
         "taskdock.taskItemHighlightStyle": "systemAccent",
-        "taskdock.taskbarBackgroundTransparency": 0.07,
+        "taskdock.taskbarBackgroundTransparency": 0.05717522504091654,
         "taskdock.taskbarCollapseSameAppWindows": false,
         "taskdock.taskbarHeight": 54.0,
         "taskdock.taskbarItemFontSize": 8.0,
