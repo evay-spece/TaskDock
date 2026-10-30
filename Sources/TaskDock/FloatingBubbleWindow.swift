@@ -10,6 +10,51 @@ extension View {
     }
 }
 
+/// Shared window rows for collapsed groups in both taskbar layouts.
+struct FloatingBubbleWindowChoiceRow: View {
+    let title: String
+    let isMinimized: Bool
+    let isFocused: Bool
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(action: onSelect) {
+                HStack(spacing: 8) {
+                    Text(title).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if isMinimized { Image(systemName: "minus.circle") }
+                    if isFocused { Image(systemName: "checkmark") }
+                }
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+            }
+            .help(title)
+            .accessibilityLabel("切换到窗口：\(title)")
+            Button(action: onClose) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(isHovered ? Color.white : Color.secondary)
+                    .frame(width: 24, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .help("关闭窗口")
+            .accessibilityLabel("关闭窗口：\(title)")
+        }
+        .buttonStyle(.plain)
+        .dockMenuFocusAppearance()
+        .padding(.horizontal, 9)
+        .foregroundStyle(isHovered ? Color.white : Color.primary)
+        .background(RoundedRectangle(cornerRadius: 6)
+            .fill(isHovered ? Color.accentColor : .clear))
+        .contentShape(Rectangle())
+        .background(TaskbarPointerHoverTracker { isHovered = $0 })
+        .onHover { isHovered = $0 }
+    }
+}
+
 private struct FloatingBubbleContextAnchor: NSViewRepresentable {
     let actions: [FavoriteShelfMenuAction]
     let iconCenterX: CGFloat?

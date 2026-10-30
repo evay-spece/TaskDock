@@ -38,6 +38,7 @@ struct TaskbarView: View {
     let onShowAppWindows: (WindowModel) -> Void
     let onBlockWindowType: (WindowModel) -> Void
     let onClose: (WindowModel) -> Void
+    let onCloseGroup: ([WindowModel]) -> Void
     let onOpenFavorite: (FavoriteApp) -> Void
     let onPerformWindowAction: (@escaping () -> Void) -> Void
     let onQuitRecentApp: (FavoriteApp) -> Void
@@ -390,7 +391,10 @@ struct TaskbarView: View {
                                             contentScale: taskbarContentScale,
                                             nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
                                             shortcutLabel: shortcutLabel(for: group.windows.first(where: \.isFocused) ?? group.windows[0]),
-                                            onSelect: selectImmediately
+                                            onSelect: selectImmediately,
+                                            onClose: onClose,
+                                            contextMenuActions: collapsedGroupMenuActions(group),
+                                            onContextMenuVisibilityChanged: onRecentPopoverVisibilityChanged
                                         )
                                         .frame(width: itemWidth, height: taskbarItemHeight)
                                         .simultaneousGesture(taskbarReorderGesture(for: group.windows[0], itemWidths: itemWidths,
@@ -407,6 +411,9 @@ struct TaskbarView: View {
                                             nonSelectedItemTransparency: settings.nonSelectedItemTransparency,
                                             progress: group.windows.compactMap { windowProgress.values[$0.nativeWindowID] }.max(),
                                             onSelect: selectImmediately,
+                                            onClose: onClose,
+                                            contextMenuActions: collapsedGroupMenuActions(group),
+                                            onContextMenuVisibilityChanged: onRecentPopoverVisibilityChanged,
                                             focusOverride: pendingFocusWindowID.map { id in group.windows.contains { $0.id == id } }
                                         )
                                         .frame(width: itemWidth, height: taskbarBaseHeight)
@@ -613,6 +620,21 @@ struct TaskbarView: View {
             },
             onClose: { windowProgress.dismissDownload(task) })
             .help("\(task.download.filename) · \(task.browser.label) · \(task.status)")
+    }
+
+    private func collapsedGroupMenuActions(_ group: AppWindowGroup) -> [FavoriteShelfMenuAction] {
+        let representative = group.windows.first(where: \.isFocused) ?? group.windows[0]
+        return [
+            FavoriteShelfMenuAction(title: favoriteMenuTitle(for: representative), symbol: "star", perform: {
+                toggleFavorite(representative)
+            }),
+            .separator,
+            FavoriteShelfMenuAction(title: "显示该 App 的所有窗口", perform: { onShowAppWindows(representative) }),
+            .separator,
+            FavoriteShelfMenuAction(title: "屏蔽此类窗口", perform: { onBlockWindowType(representative) }),
+            .separator,
+            FavoriteShelfMenuAction(title: "关闭该窗口组", perform: { onCloseGroup(group.windows) })
+        ]
     }
 
     private func autoCollapsedAppKeys(for availableWidth: CGFloat) -> Set<String> {
@@ -1171,7 +1193,7 @@ private struct TaskItemProgressLabel: View {
 
 /// Polls the actual pointer position because nonactivating taskbar panels can miss
 /// SwiftUI hover transitions when another application owns the key window.
-private struct TaskbarPointerHoverTracker: NSViewRepresentable {
+struct TaskbarPointerHoverTracker: NSViewRepresentable {
     let onHover: (Bool) -> Void
 
     func makeNSView(context: Context) -> HoverView {
@@ -1300,6 +1322,9 @@ private struct TaskbarCollapsedAppView: View {
     let nonSelectedItemTransparency: Double
     let progress: Double?
     let onSelect: (WindowModel) -> Void
+    let onClose: (WindowModel) -> Void
+    let contextMenuActions: [FavoriteShelfMenuAction]
+    let onContextMenuVisibilityChanged: (Bool) -> Void
     var focusOverride: Bool? = nil
     private var isFocused: Bool { focusOverride ?? windows.contains(where: \.isFocused) }
     @State private var isShowingWindows = false
@@ -1337,10 +1362,10 @@ private struct TaskbarCollapsedAppView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("\(windows.count)")
                         .font(.system(size: 10 * contentScale, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.secondary)
+                        .foregroundStyle(Color.primary.opacity(0.82))
                         .padding(.horizontal, 5 * contentScale)
                         .padding(.vertical, 2 * contentScale)
-                        .background(Color.white.opacity(0.12), in: Capsule())
+                        .background(Color.white.opacity(0.18), in: Capsule())
                     if let progress, availableWidth >= 125 * contentScale {
                         TaskItemProgressLabel(value: progress, scale: contentScale)
                     }
@@ -1389,25 +1414,27 @@ private struct TaskbarCollapsedAppView: View {
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口，点击选择")
         .accessibilityValue(isFocused ? "当前焦点窗口"
             : isHovered ? "鼠标悬停" : "非焦点窗口")
+        .floatingBubbleContextMenu(actions: contextMenuActions,
+            iconCenterX: availableWidth < 72 * contentScale ? availableWidth / 2 : 17 * contentScale,
+            onVisibilityChange: { isOpen in
+                if isOpen { isShowingWindows = false }
+                onContextMenuVisibilityChanged(isOpen)
+            })
         .floatingBubbleWindow(isPresented: $isShowingWindows) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(representative.applicationName).font(.headline)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(windows) { window in
-                            Button {
-                                isShowingWindows = false
-                                onSelect(window)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Text(window.title).lineLimit(1)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    if window.isMinimized { Image(systemName: "minus.circle") }
-                                    if window.isFocused { Image(systemName: "checkmark") }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                            .buttonStyle(.plain)
+                            FloatingBubbleWindowChoiceRow(
+                                title: window.title,
+                                isMinimized: window.isMinimized,
+                                isFocused: window.isFocused,
+                                onSelect: {
+                                    isShowingWindows = false
+                                    onSelect(window)
+                                },
+                                onClose: { onClose(window) })
                         }
                     }
                 }
@@ -1427,6 +1454,9 @@ private struct FusionCollapsedAppView: View {
     let nonSelectedItemTransparency: Double
     let shortcutLabel: String?
     let onSelect: (WindowModel) -> Void
+    let onClose: (WindowModel) -> Void
+    let contextMenuActions: [FavoriteShelfMenuAction]
+    let onContextMenuVisibilityChanged: (Bool) -> Void
     @State private var isShowingWindows = false
     @State private var isHovered = false
 
@@ -1468,10 +1498,10 @@ private struct FusionCollapsedAppView: View {
                 if !compact {
                     Text("\(windows.count)")
                         .font(.system(size: 10 * contentScale, weight: .bold, design: .rounded))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.primary.opacity(0.82))
                         .padding(.horizontal, 5 * contentScale)
                         .padding(.vertical, 2 * contentScale)
-                        .background(Color.primary.opacity(0.08), in: Capsule())
+                        .background(Color.primary.opacity(0.12), in: Capsule())
                 }
             }
             .padding(.horizontal, (compact ? 2 : 7) * contentScale)
@@ -1495,6 +1525,12 @@ private struct FusionCollapsedAppView: View {
         .onHover { isHovered = $0 }
         .help("\(representative.applicationName)：\(windows.count) 个窗口，点击展开")
         .accessibilityLabel("\(representative.applicationName)，\(windows.count) 个窗口")
+        .floatingBubbleContextMenu(actions: contextMenuActions,
+            iconCenterX: availableWidth < 72 * contentScale ? availableWidth / 2 : 17 * contentScale,
+            onVisibilityChange: { isOpen in
+                if isOpen { isShowingWindows = false }
+                onContextMenuVisibilityChanged(isOpen)
+            })
         .floatingBubbleWindow(isPresented: $isShowingWindows) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(representative.applicationName)
@@ -1503,27 +1539,15 @@ private struct FusionCollapsedAppView: View {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(windows) { window in
-                            Button {
-                                isShowingWindows = false
-                                onSelect(window)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Text(window.title)
-                                        .lineLimit(1)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    if window.isMinimized {
-                                        Image(systemName: "minus.circle")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    if window.isFocused {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(.tint)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                            .buttonStyle(.plain)
-                            .help(window.title)
+                            FloatingBubbleWindowChoiceRow(
+                                title: window.title,
+                                isMinimized: window.isMinimized,
+                                isFocused: window.isFocused,
+                                onSelect: {
+                                    isShowingWindows = false
+                                    onSelect(window)
+                                },
+                                onClose: { onClose(window) })
                         }
                     }
                 }

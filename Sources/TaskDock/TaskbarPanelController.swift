@@ -285,6 +285,7 @@ final class TaskbarPanelController {
             onShowAppWindows: { [weak self] window in self?.performTrialAction { self?.showAppWindows(for: window) } },
             onBlockWindowType: { [weak self] window in self?.performTrialAction { self?.blockWindowType(window) } },
             onClose: { [weak self] window in self?.performTrialAction { self?.close(window) } },
+            onCloseGroup: { [weak self] windows in self?.performTrialAction { self?.closeGroup(windows) } },
             onOpenFavorite: { [weak self] favorite in self?.performTrialAction { self?.openFavorite(favorite) } },
             onPerformWindowAction: { [weak self] action in self?.performTrialAction(action) },
             onQuitRecentApp: { [weak self] favorite in self?.performTrialAction { self?.quitRecentApp(favorite) } },
@@ -949,6 +950,11 @@ final class TaskbarPanelController {
     }
     private func close(_ window: WindowModel) {
         _ = windowService.close(window)
+        refresh()
+    }
+    private func closeGroup(_ windows: [WindowModel]) {
+        // Use a snapshot so refreshing the window list cannot skip remaining members.
+        for window in windows { _ = windowService.close(window) }
         refresh()
     }
     private func openFavorite(_ favorite: FavoriteApp) {

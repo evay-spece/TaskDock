@@ -707,6 +707,13 @@ final class AXWindowService {
                   }) else { return false }
             return performAction(closeButton, kAXPressAction)
         }
+        // Standard AppKit windows expose the close button rather than AXClose.
+        // Pressing it also preserves the app's native unsaved-changes prompt.
+        if let closeButton = copyAttribute(window.axWindow, kAXCloseButtonAttribute),
+           CFGetTypeID(closeButton) == AXUIElementGetTypeID(),
+           performAction(closeButton as! AXUIElement, kAXPressAction) {
+            return true
+        }
         return performAction(window.axWindow, "AXClose")
     }
 
