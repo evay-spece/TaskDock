@@ -42,6 +42,7 @@ enum TaskbarItemSizing {
 
 struct TaskbarOverflowGroup {
     let id: String
+    let windowCount: Int
     let expandedWidth: CGFloat
     let collapsedWidth: CGFloat
     let isAlreadyCollapsed: Bool
@@ -53,7 +54,7 @@ enum TaskbarOverflowLayout {
         groups: [TaskbarOverflowGroup], precedingItemWidths: [CGFloat],
         availableWidth: CGFloat, spacing: CGFloat, leadingPadding: CGFloat = 0
     ) -> Set<String> {
-        guard availableWidth.isFinite, availableWidth > 0 else { return [] }
+        guard availableWidth.isFinite else { return [] }
         let itemCount = groups.count + precedingItemWidths.count
         var requiredWidth = leadingPadding + precedingItemWidths.reduce(0, +)
             + groups.reduce(0) { $0 + ($1.isAlreadyCollapsed ? $1.collapsedWidth : $1.expandedWidth) }
@@ -61,7 +62,8 @@ enum TaskbarOverflowLayout {
         guard requiredWidth > availableWidth else { return [] }
 
         let candidates = groups.enumerated().filter {
-            !$0.element.isAlreadyCollapsed && $0.element.collapsedWidth < $0.element.expandedWidth
+            $0.element.windowCount > 1 && !$0.element.isAlreadyCollapsed
+                && $0.element.collapsedWidth < $0.element.expandedWidth
         }.sorted { lhs, rhs in
             if lhs.element.containsFocusedWindow != rhs.element.containsFocusedWindow {
                 return !lhs.element.containsFocusedWindow

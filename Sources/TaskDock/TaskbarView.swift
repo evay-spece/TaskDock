@@ -63,7 +63,6 @@ struct TaskbarView: View {
     @State private var hoveredWindowID: String?
     @State private var downloadsExpanded = false
     @State private var downloadButtonHovered = false
-    @State private var taskItemLaneWidth: CGFloat = .infinity
     @State private var pendingFocusWindowID: String?
     @State private var favoriteLeadingExtension: CGFloat = 0
     @State private var favoriteHoverTrailingSpace: CGFloat = 0
@@ -280,11 +279,11 @@ struct TaskbarView: View {
                     if windows.isEmpty && downloadTasks.isEmpty && showsEmptyState {
                         Spacer(minLength: 0)
                     } else if !windows.isEmpty || !downloadTasks.isEmpty {
-                        let autoCollapsed = autoCollapsedAppKeys(for: taskItemLaneWidth)
+                        taskItemLane { availableWidth in
+                        let autoCollapsed = autoCollapsedAppKeys(for: availableWidth)
                         let itemWidths = taskItemWidths(for: geometry.size.width
                             - (settings.layoutMode == .taskbar ? 2 * settings.taskbarSideInset : 0),
                             autoCollapsed: autoCollapsed)
-                        taskItemLane {
                         HStack(spacing: taskbarItemSpacing) {
                             if downloadTasks.count > 3 {
                                 let allDownloadsComplete = downloadTasks.allSatisfy { $0.download.isComplete }
@@ -582,25 +581,11 @@ struct TaskbarView: View {
     }
 
     @ViewBuilder
-    private func taskItemLane<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func taskItemLane<Content: View>(@ViewBuilder content: @escaping (CGFloat) -> Content) -> some View {
         if settings.layoutMode == .taskbar {
-            ScrollView(.horizontal, showsIndicators: false) {
-                content().fixedSize(horizontal: true, vertical: false)
-            }
-            .frame(minWidth: 0, maxWidth: .infinity)
-            .background {
-                GeometryReader { geometry in
-                    Color.clear.preference(key: TaskItemLaneWidthPreferenceKey.self,
-                        value: geometry.size.width)
-                }
-            }
-            .onPreferenceChange(TaskItemLaneWidthPreferenceKey.self) { width in
-                if width > 0 && abs(taskItemLaneWidth - width) > 0.5 {
-                    taskItemLaneWidth = width
-                }
-            }
+            TaskbarItemLane(content: content)
         } else {
-            content()
+            content(.infinity)
         }
     }
 
@@ -649,7 +634,7 @@ struct TaskbarView: View {
                     bundleIdentifier: window.bundleIdentifier))
             }
             return TaskbarOverflowGroup(
-                id: group.id,
+                id: group.id, windowCount: group.windows.count,
                 expandedWidth: widths.reduce(0, +)
                     + CGFloat(max(widths.count - 1, 0)) * taskbarItemSpacing,
                 collapsedWidth: taskbarWindowWidth(title:
@@ -1011,13 +996,6 @@ struct TaskbarView: View {
 private struct AppWindowGroup: Identifiable {
     let id: String
     let windows: [WindowModel]
-}
-
-private struct TaskItemLaneWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
 }
 
 private enum AppDragDirection: Equatable {
