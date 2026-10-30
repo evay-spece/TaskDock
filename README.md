@@ -14,8 +14,8 @@ macOS 原生窗口切换工具：可在任务栏与 Dock 融合栏之间切换�
 - 最大化及左右半屏默认动画收起窗口底边；普通窗口仅处理小幅重叠，明显出屏时跳过。
 - 补强最小化窗口保留、单窗口原生最小化及右下角屏幕边缘点击热区。
 - 本地收费流程回归：`zsh scripts/sale-readiness-selftest.sh`。测试使用临时钥匙串、临时时钟及内存临时密钥，不修改生产公钥。
-- 发布前在主力机调整好外观参数，更新版本号后运行 `python3 scripts/capture-release-appearance.py --write`，检查生成的 `Sources/TaskDock/ReleaseAppearanceSnapshot.swift`，将它随源码提交。新版本首次启动时覆盖外观参数，保留收藏、文件夹、历史记录、授权和功能开关；同版本后续启动保留用户再次调整的数值。
-- 发布打包：`zsh scripts/preflight_release.sh`。预检会确认外观快照与主力机当前设置、版本号一致；可用 `TASKDOCK_OUTPUT_DIRECTORY` 指定输出位置；解包后自动核验授权资源与签名。
+- 从 1.11.0 起，更新保留用户已有设置；已提交的外观快照仅作为缺少设置时的默认值。发布时不再自动采集主力机参数，也不强制覆盖用户设置。涉及较大的外观或机制调整时，先询问用户是否同步，再执行单独获准的迁移。
+- 发布打包：`zsh scripts/preflight_release.sh`，可用 `TASKDOCK_OUTPUT_DIRECTORY` 指定输出位置；解包后核验授权资源与签名。交接发布任务前阅读 `docs/release-policy.md`。
 
 ## 安装
 

@@ -32,8 +32,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             UpdateSupport.archiveLegacyBackups()
         }
-        ReleaseDefaults101.applyIfNeeded()
-        ReleaseDefaults170.applyIfNeeded()
         ReleaseAppearanceDefaults.applyIfNeeded(
             version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         )
