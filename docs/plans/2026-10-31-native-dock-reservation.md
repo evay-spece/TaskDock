@@ -35,3 +35,14 @@
   screenshots alone cannot fully establish desktop compositing. Native full-screen
   spaces and cross-display Dock movement are not validated. Secondary display had
   no reserved inset; TaskDock currently occupies the primary display only.
+
+## Layer correction — local Build 176
+
+The first experiment retained NSWindow.Level.floating (runtime layer 3), allowing
+the native Dock to cover it. Reservation mode now selects .statusBar, while normal
+mode remains .floating. Applied at panel creation, reposition, and mode sync so
+neither refresh nor a settings toggle can revert the layer. Runtime inspection
+confirmed the installed taskbar at layer 25 and the reservation still at 60 pt.
+The favorite context menu opened successfully above the bar. Build/signature
+verification completed. This fixes window ordering; native tooltip conflicts or
+icons bleeding through translucent material remain separate experimental limits.

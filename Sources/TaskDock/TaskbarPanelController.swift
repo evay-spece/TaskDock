@@ -34,6 +34,12 @@ final class TaskbarPanelController {
         NativeDockReservationSettings.isEnabled && settings.layoutMode == .taskbar
             && hasLicenseAccess && !isHiddenInDock
     }
+    // The native Dock is a higher-level window than ordinary floating panels.
+    // Only the reservation overlay needs to cover it; menus remain above us.
+    private var taskbarPanelLevel: NSWindow.Level {
+        usesNativeDockReservation ? .statusBar : .floating
+    }
+
     private let trashStatus = TrashStatusService()
     private let favoriteBadges = FavoriteBadgeStore()
     private let windowProgress = WindowProgressStore()
@@ -250,7 +256,7 @@ final class TaskbarPanelController {
     private func makePanel(contentView: NSView) -> NSPanel {
         let panel = TaskbarExperimentalGlass.makePanel()
         (panel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
-        panel.level = .floating
+        panel.level = taskbarPanelLevel
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -350,8 +356,8 @@ final class TaskbarPanelController {
             return
         }
         dockFinderPanel?.orderOut(nil)
-        panel?.level = .floating
-        dockFinderPanel?.level = .floating
+        panel?.level = taskbarPanelLevel
+        dockFinderPanel?.level = taskbarPanelLevel
 
         let scale = settings.taskbarHeight / SettingsStore.layoutReferenceTaskbarHeight
         // Keep the transparent side margins inside the window so magnified
@@ -1180,6 +1186,10 @@ final class TaskbarPanelController {
 
     private func synchronizeSystemDockVisibility() {
         let reserve = usesNativeDockReservation
+        if settings.layoutMode == .taskbar {
+            panel?.level = taskbarPanelLevel
+            dockFinderPanel?.level = taskbarPanelLevel
+        }
         if reserve && !nativeReservationWasActive {
             windowService.clearWindowSpaceReservations(restore: true, windows: windows)
         }
