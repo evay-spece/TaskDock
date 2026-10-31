@@ -219,7 +219,11 @@ struct SettingsView: View {
                 Text("开启后保留最近 App，并为放大的收藏图标留出空间。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            settingsSection(title: "窗口避让") { PointerWindowAvoidanceSettingsView() }
+            settingsSection(title: "窗口避让") {
+                NativeDockReservationSettingsView(onChanged: onLayoutChanged)
+                Divider()
+                PointerWindowAvoidanceSettingsView()
+            }
             settingsSection(title: "浮动气泡窗口") { DeveloperDebugSettingsView() }
         }
     }

@@ -29,6 +29,11 @@ final class TaskbarPanelController {
     private var lastDockFavoritesSnapshot: DockFavoritesSyncService.Snapshot?
     private var pendingDockFavoritesPush: DispatchWorkItem?
     private let systemDockVisibility = SystemDockVisibilityController()
+    private var nativeReservationWasActive = false
+    private var usesNativeDockReservation: Bool {
+        NativeDockReservationSettings.isEnabled && settings.layoutMode == .taskbar
+            && hasLicenseAccess && !isHiddenInDock
+    }
     private let trashStatus = TrashStatusService()
     private let favoriteBadges = FavoriteBadgeStore()
     private let windowProgress = WindowProgressStore()
@@ -1174,8 +1179,22 @@ final class TaskbarPanelController {
     }
 
     private func synchronizeSystemDockVisibility() {
+        let reserve = usesNativeDockReservation
+        if reserve && !nativeReservationWasActive {
+            windowService.clearWindowSpaceReservations(restore: true, windows: windows)
+        }
+        nativeReservationWasActive = reserve
         if isHiddenInDock {
             systemDockVisibility.restore()
+        } else if reserve {
+            let screen = panel?.screen ?? NSScreen.screens.first
+            let inset = screen.map { $0.visibleFrame.minY - $0.frame.minY }
+            let target = settings.taskbarHeight + 6
+            systemDockVisibility.synchronizeReservation(height: target, measuredInset: inset)
+            let status = "目标 \(Int(target)) pt · 系统当前预留 \(Int((inset ?? 0).rounded())) pt"
+            if UserDefaults.standard.string(forKey: NativeDockReservationSettings.statusKey) != status {
+                UserDefaults.standard.set(status, forKey: NativeDockReservationSettings.statusKey)
+            }
         } else {
             systemDockVisibility.synchronize(
                 hidden: settings.layoutMode == .taskbar, accessAllowed: hasLicenseAccess)
@@ -1363,7 +1382,7 @@ final class TaskbarPanelController {
     }
 
     private func checkPointerWindowAvoidance() {
-        guard !windowService.isAnimatingPointerAvoidance else { return }
+        guard !usesNativeDockReservation, !windowService.isAnimatingPointerAvoidance else { return }
         guard settings.layoutMode == .taskbar, hasLicenseAccess, permissionService.isTrusted,
               !isHiddenInDock, let panel, panel.isVisible,
               let screen = panel.screen ?? NSScreen.screens.first,
