@@ -27,3 +27,15 @@ Goal: retire native Dock reservation for this trial and replace pointer-triggere
 - Image capture failed while the disk had ~206 MB free. Removed only regenerable
   SDK/module caches from this experiment worktree; the next check reported 5.4 GB
   available and image capture recovered. Source, app backups and user files retained.
+
+## Completed foreground-window verification
+
+After the human activated the probe, the full window changed from Cocoa
+(0,0,2048,1122) to (0,60,2048,1062). The screen visibleFrame remained
+(0,0,2048,1122), confirming this was the one-shot AX path, not native Dock reservation.
+Native Left produced (0,0,1025,1122) while the probe was background; switching to
+it through the actual TaskDock task button activated it and produced
+(0,60,1025,1062). Native Right then produced (1024,60,1024,1062). Ten samples over
+three seconds were identical. Pure-state regressions still pass. The disposable
+probe was quit, its exact-path recent entry removed, and TaskDock restarted for
+normal use. No public release and no edits to WorkBuddy's release checkout.
