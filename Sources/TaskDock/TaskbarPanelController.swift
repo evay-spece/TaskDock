@@ -1397,38 +1397,14 @@ final class TaskbarPanelController {
               !isHiddenInDock, let panel, panel.isVisible,
               let screen = panel.screen ?? NSScreen.screens.first,
               let desktopTop = NSScreen.screens.first?.frame.maxY else { return }
-        let inside = PointerWindowAvoidanceGeometry.isInTriggerRegion(
-            pointer: NSEvent.mouseLocation, screen: screen.frame)
-        let justEnteredRegion = inside && !pointerWasInAvoidanceRegion
-        pointerWasInAvoidanceRegion = inside
-        let now = Date()
-        if justEnteredRegion {
-            pointerEnteredAvoidanceRegionAt = now
-            pointerAvoidanceTriggeredThisEntry = false
-        } else if !inside {
-            pointerEnteredAvoidanceRegionAt = nil
-            pointerAvoidanceTriggeredThisEntry = false
-        }
-        let pointerDelayElapsed = pointerEnteredAvoidanceRegionAt.map { now.timeIntervalSince($0) } ?? 0
-        let includeOrdinaryWindows = inside && PointerWindowAvoidanceGeometry.hasReachedTriggerDelay(
-            elapsed: pointerDelayElapsed, delay: PointerWindowAvoidanceSettings.triggerDelay)
-        let firstEligiblePointerCheck = includeOrdinaryWindows && !pointerAvoidanceTriggeredThisEntry
-        guard NSEvent.pressedMouseButtons == 0,
-              reorderRefreshPauseUntil.map({ $0 <= now }) ?? true,
-              settingsRefreshPauseUntil.map({ $0 <= now }) ?? true else { return }
-        guard justEnteredRegion || firstEligiblePointerCheck
-                || now.timeIntervalSince(lastPointerAvoidanceCheckAt) >= (inside ? 0.25 : 0.8) else { return }
-        if firstEligiblePointerCheck { pointerAvoidanceTriggeredThisEntry = true }
-        lastPointerAvoidanceCheckAt = now
+        guard StandardLayoutAvoidanceSettings.isEnabled,
+              reorderRefreshPauseUntil.map({ $0 <= Date() }) ?? true,
+              settingsRefreshPauseUntil.map({ $0 <= Date() }) ?? true else { return }
         let inset = settings.taskbarSideInset
         let bar = CGRect(x: panel.frame.minX + inset, y: panel.frame.minY + 4,
             width: max(0, panel.frame.width - 2 * inset), height: settings.taskbarHeight)
-        let visibleWindows = windowService.enumerateWindows(
-            excludingPID: ProcessInfo.processInfo.processIdentifier,
-            showHiddenApps: false, blacklistedAppKeys: [], blockedWindowRules: [])
-        windowService.moveWindowsAboveTaskbar(visibleWindows, panelFrame: bar,
-            screenFrame: screen.frame, visibleFrame: screen.visibleFrame, desktopTop: desktopTop,
-            includeOrdinaryWindows: includeOrdinaryWindows)
+        windowService.adjustStandardLayoutsOnce(windows, panelFrame: bar,
+            screenFrame: screen.frame, visibleFrame: screen.visibleFrame, desktopTop: desktopTop)
     }
 
     private func updateWindowSpaceReservations(force: Bool) {

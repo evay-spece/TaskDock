@@ -220,9 +220,7 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             settingsSection(title: "窗口避让") {
-                NativeDockReservationSettingsView(onChanged: onLayoutChanged)
-                Divider()
-                PointerWindowAvoidanceSettingsView()
+                StandardLayoutAvoidanceSettingsView()
             }
             settingsSection(title: "浮动气泡窗口") { DeveloperDebugSettingsView() }
         }

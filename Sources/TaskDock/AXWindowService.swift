@@ -4,6 +4,11 @@ import Carbon
 import os.log
 
 final class AXWindowService {
+    init() {
+        // Bound this client's AX calls: a stalled third-party app must not freeze TaskDock.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.5)
+    }
+
     private struct ReservedWindowFrame {
         let window: AXUIElement
         let original: CGRect
@@ -52,6 +57,8 @@ final class AXWindowService {
         windowEvidence[key] = evidence
         return result
     }
+    private var standardLayoutPolicy = StandardLayoutAdjustmentPolicy()
+    private var standardAdjustedFrames: [String: ReservedWindowFrame] = [:]
     private var pointerAvoidedFrames: [String: ReservedWindowFrame] = [:]
     private var pointerSuppressedFrames: [String: CGRect] = [:]
     private var pointerSuppressedAt: [String: Date] = [:]
@@ -438,6 +445,36 @@ final class AXWindowService {
         }
     }
 
+    func adjustStandardLayoutsOnce(_ windows: [WindowModel], panelFrame: CGRect,
+                                   screenFrame: CGRect, visibleFrame: CGRect, desktopTop: CGFloat) {
+        let ids = Set(windows.map(\.nativeWindowID))
+        standardLayoutPolicy.retain(ids)
+        standardAdjustedFrames = standardAdjustedFrames.filter { ids.contains($0.key) }
+        var seen = Set<CFHashCode>()
+        for window in windows where !window.isMinimized {
+            guard seen.insert(CFHash(window.axWindow)).inserted,
+                  let current = windowFrame(window.axWindow) else { continue }
+            let eligible = window.isFocused
+                && (window.accessibilitySubrole == kAXStandardWindowSubrole || (window.accessibilitySubrole ?? "").isEmpty)
+                && NSRunningApplication(processIdentifier: window.pid)?.isHidden == false
+                && (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) != true
+            let proposed = eligible ? StandardLayoutAdjustmentPolicy.target(window: current,
+                screen: screenFrame, visible: visibleFrame, panel: panelFrame, desktopTop: desktopTop) : nil
+            guard let target = standardLayoutPolicy.adjustment(id: window.nativeWindowID,
+                frame: current, proposed: proposed, dragging: NSEvent.pressedMouseButtons != 0,
+                now: Date.timeIntervalSinceReferenceDate,
+                settleDelay: StandardLayoutAvoidanceSettings.settleDelay) else { continue }
+            var settable: DarwinBoolean = false
+            guard AXUIElementIsAttributeSettable(window.axWindow, kAXSizeAttribute as CFString,
+                &settable) == .success, settable.boolValue else { continue }
+            // One size write, no movement animation and no pointer-triggered retries.
+            if setWindowFrame(window.axWindow, frame: target) {
+                standardAdjustedFrames[window.nativeWindowID] = ReservedWindowFrame(
+                    window: window.axWindow, original: current, applied: target)
+            }
+        }
+    }
+
     func moveWindowsAboveTaskbar(_ windows: [WindowModel], panelFrame: CGRect,
                                 screenFrame: CGRect, visibleFrame: CGRect, desktopTop: CGFloat,
                                 includeOrdinaryWindows: Bool) {
@@ -659,6 +696,15 @@ final class AXWindowService {
     }
 
     func clearWindowSpaceReservations(restore: Bool, windows _: [WindowModel]) {
+        if restore {
+            for prior in standardAdjustedFrames.values {
+                guard let current = windowFrame(prior.window),
+                      StandardLayoutAdjustmentPolicy.same(current, prior.applied) else { continue }
+                _ = setWindowFrame(prior.window, frame: prior.original)
+            }
+        }
+        standardAdjustedFrames.removeAll()
+        standardLayoutPolicy = StandardLayoutAdjustmentPolicy()
         activeWindowLifts.removeAll()
         liftSuppressedFrames.removeAll()
         if restore {
