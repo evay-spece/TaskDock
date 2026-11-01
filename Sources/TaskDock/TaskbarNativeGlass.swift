@@ -14,16 +14,12 @@ enum TaskbarExperimentalGlass {
     static func normalizedClarity(_ value: Double) -> Double {
         value.isFinite ? min(1, max(0, value)) : 1
     }
-    private static var didCaptureOriginal = false
-    private static var originalArgumentTint: Any?
     private static var appliedManualTint: Double?
-    private static var didApply = false
-    private static var observedSystemTint: Double?
     private static var preferenceObserver: NSObjectProtocol?
     private static let systemTintKey = "NSGlassTintAmount"
 
-    /// Volatile argument-domain override is confined to this process. Never write
-    /// global defaults or persist Apple's private key in the application's domain.
+    /// Override only this process; the saved slider is authoritative even when an
+    /// older installation still has the retired follow-system preference.
     static func installPreferenceIsolation() {
         synchronizePreferenceIsolation()
         guard preferenceObserver == nil else { return }
@@ -35,32 +31,13 @@ enum TaskbarExperimentalGlass {
     static func synchronizePreferenceIsolation() {
         guard isSupported else { return }
         let defaults = UserDefaults.standard
-        let custom = defaults.bool(forKey: preferenceKey)
         let clarity = (defaults.object(forKey: clarityKey) as? NSNumber)?.doubleValue ?? 1
-        let manualTint: Double? = custom ? 1 - normalizedClarity(clarity) : nil
-        if didApply && manualTint == appliedManualTint {
-            // Following mode must also invalidate the cached native material when
-            // System Settings changes its value during this process's lifetime.
-            let resolved = defaults.double(forKey: systemTintKey)
-            if manualTint == nil && observedSystemTint != resolved {
-                observedSystemTint = resolved
-                refreshNativeMaterial()
-            }
-            return
-        }
+        let tint = 1 - normalizedClarity(clarity)
+        guard appliedManualTint != tint else { return }
+        appliedManualTint = tint
         var domain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-        if !didCaptureOriginal {
-            originalArgumentTint = domain[systemTintKey]
-            didCaptureOriginal = true
-        }
-        // Commit before setting defaults; notifications can re-enter this method.
-        appliedManualTint = manualTint
-        didApply = true
-        if let manualTint { domain[systemTintKey] = manualTint }
-        else if let originalArgumentTint { domain[systemTintKey] = originalArgumentTint }
-        else { domain.removeValue(forKey: systemTintKey) }
+        domain[systemTintKey] = tint
         defaults.setVolatileDomain(domain, forName: UserDefaults.argumentDomain)
-        observedSystemTint = defaults.double(forKey: systemTintKey)
         refreshNativeMaterial()
     }
 
@@ -82,8 +59,7 @@ enum TaskbarExperimentalGlass {
         let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
         let getter: @convention(block) (AnyObject) -> Bool = { object in
             if let panel = object as? TaskbarAppearancePanel,
-               panel.permitsExperimentalGlass,
-               UserDefaults.standard.bool(forKey: preferenceKey) { return true }
+               panel.permitsExperimentalGlass { return true }
             return original(object, selector)
         }
         let implementation = imp_implementationWithBlock(getter)

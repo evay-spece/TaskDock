@@ -1069,7 +1069,6 @@ private struct FusionDockTileSurface: View {
 
 /// Keep native glass outside SwiftUI's compositing hierarchy.
 private struct TaskbarGlassSurface: NSViewRepresentable {
-    @AppStorage(TaskbarExperimentalGlass.preferenceKey) private var experimental = false
     @AppStorage(TaskbarExperimentalGlass.clarityKey) private var clarity = 1.0
     let cornerRadius: CGFloat
     let opacity: Double
@@ -1079,7 +1078,7 @@ private struct TaskbarGlassSurface: NSViewRepresentable {
     }
 
     func updateNSView(_ view: TaskbarGlassAnchorView, context: Context) {
-        view.configure(cornerRadius: cornerRadius, opacity: opacity, experimental: experimental && TaskbarExperimentalGlass.isSupported, clarity: clarity)
+        view.configure(cornerRadius: cornerRadius, opacity: opacity, experimental: TaskbarExperimentalGlass.isSupported, clarity: clarity)
     }
 
     static func dismantleNSView(_ view: TaskbarGlassAnchorView, coordinator: ()) {

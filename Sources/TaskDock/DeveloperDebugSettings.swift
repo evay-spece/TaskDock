@@ -173,22 +173,13 @@ struct DeveloperDebugSettingsView: View {
 }
 
 struct ExperimentalTaskbarGlassSettingsView: View {
-    // Reuse the experiment preference so existing local previews keep their appearance.
-    @AppStorage(TaskbarExperimentalGlass.preferenceKey) private var customEnabled = false
     @AppStorage(TaskbarExperimentalGlass.clarityKey) private var clarity = 1.0
-    private var followsSystem: Binding<Bool> {
-        Binding(get: { !customEnabled }, set: { customEnabled = !$0 })
-    }
     private var sliderValue: Binding<Double> {
         Binding(get: { TaskbarExperimentalGlass.normalizedClarity(clarity) },
                 set: { clarity = TaskbarExperimentalGlass.normalizedClarity($0) })
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle("液态玻璃效果跟随系统", isOn: followsSystem)
-                .disabled(!TaskbarExperimentalGlass.isSupported)
-            Text("开启后跟随系统的液态玻璃设置；关闭后使用下方数值，系统玻璃滑杆不再影响 TaskDock。")
-                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("通透度")
                 Text("磨砂").font(.caption).foregroundStyle(.secondary)
@@ -198,10 +189,10 @@ struct ExperimentalTaskbarGlassSettingsView: View {
                 Text("\(Int((sliderValue.wrappedValue * 100).rounded()))%")
                     .monospacedDigit().frame(width: 44, alignment: .trailing)
             }
-            .disabled(!customEnabled || !TaskbarExperimentalGlass.isSupported)
+            .disabled(!TaskbarExperimentalGlass.isSupported)
             Text(TaskbarExperimentalGlass.isSupported
-                 ? "仅影响任务栏玻璃，文字和图标保持清晰。手动数值自动保存，跟随系统时暂不生效。手动模式使用实验接口，系统更新后可能需要恢复跟随系统。"
-                 : "此系统版本尚未验证手动模式，当前使用系统玻璃效果。")
+                 ? "拖动调整任务栏的磨砂与通透程度，即时生效并自动保存，不受系统液态玻璃设置影响。文字和图标保持清晰。"
+                 : "此系统版本暂不支持通透度调整，使用兼容玻璃效果。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
