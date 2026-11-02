@@ -2,6 +2,8 @@ import SwiftUI
 
 enum StandardLayoutAvoidanceSettings {
     static let enabledKey = "taskdock.standardLayoutAvoidanceV1"
+    static let allOverlapsKey = "taskdock.allOverlappingWindowsAvoidanceV1"
+    static var avoidsAllOverlaps: Bool { UserDefaults.standard.bool(forKey: allOverlapsKey) }
     static let animatedKey = "taskdock.standardLayoutAnimatedV1"
     static var isAnimated: Bool { UserDefaults.standard.bool(forKey: animatedKey) }
     static let delayKey = "taskdock.standardLayoutSettleDelayV1"
@@ -15,12 +17,17 @@ enum StandardLayoutAvoidanceSettings {
 struct StandardLayoutAvoidanceSettingsView: View {
     @AppStorage(StandardLayoutAvoidanceSettings.enabledKey) private var enabled = true
     @AppStorage(StandardLayoutAvoidanceSettings.delayKey) private var delay = 0.35
+    @AppStorage(StandardLayoutAvoidanceSettings.allOverlapsKey) private var allOverlaps = false
     @AppStorage(StandardLayoutAvoidanceSettings.animatedKey) private var animated = false
     @AppStorage(PointerWindowAvoidanceSettings.animationDurationKey) private var duration = PointerWindowAvoidanceSettings.defaultAnimationDuration
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("最大化／半屏窗口避让", isOn: $enabled)
-            Text("窗口布局稳定后只收一次底边，可选择直接收边或动画过渡。普通窗口、拖动中的窗口及明显出屏窗口保持原位；应用拒绝调整时不反复重试。")
+            Toggle("窗口避让", isOn: $enabled)
+            Text("默认仅调整当前焦点的最大化／半屏窗口。开启下方选项后，所有重叠窗口均避让，不要求焦点；拖动时暂停，应用拒绝调整时不反复重试。")
+                .font(.caption).foregroundStyle(.secondary)
+            Toggle("所有重叠窗口避让", isOn: $allOverlaps)
+                .disabled(!enabled)
+            Text("小窗口向上移动，大窗口收底边。出屏面积超过 20% 或底边出屏超过 48 pt 时跳过。沿用下方动画和等待时间。")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("收边动画过渡", isOn: $animated)
                 .disabled(!enabled)

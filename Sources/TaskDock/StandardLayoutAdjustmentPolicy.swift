@@ -64,6 +64,28 @@ struct StandardLayoutAdjustmentPolicy {
             && abs(a.width-b.width) <= 2 && abs(a.height-b.height) <= 2
     }
 
+    static func overlappingTarget(window: CGRect, screen: CGRect, visible: CGRect,
+                                  panel: CGRect, desktopTop: CGFloat) -> CGRect? {
+        guard window.width > 0, window.height > 0 else { return nil }
+        let screenAX = CGRect(x: screen.minX, y: desktopTop - screen.maxY,
+                              width: screen.width, height: screen.height)
+        let panelAX = CGRect(x: panel.minX, y: desktopTop - panel.maxY,
+                             width: panel.width, height: panel.height)
+        let intersection = window.intersection(screenAX)
+        let overlap = window.intersection(panelAX)
+        guard !intersection.isNull,
+              intersection.width * intersection.height >= window.width * window.height * 0.8,
+              window.maxY - screenAX.maxY <= 48,
+              !overlap.isNull, overlap.width > 1, overlap.height > 1 else { return nil }
+        let bottom = panelAX.minY - 2
+        let moved = window.offsetBy(dx: 0, dy: bottom - window.maxY)
+        if window.height < visible.height * 0.75,
+           moved.minY >= desktopTop - visible.maxY { return moved }
+        let height = bottom - window.minY
+        guard height >= 140, height < window.height - 1 else { return nil }
+        return CGRect(x: window.minX, y: window.minY, width: window.width, height: height)
+    }
+
     static func target(window: CGRect, screen: CGRect, visible: CGRect,
                        panel: CGRect, desktopTop: CGFloat) -> CGRect? {
         let visibleTop = desktopTop - visible.maxY

@@ -6,6 +6,17 @@ struct StandardLayoutAdjustmentSelfTest {
         let screen = CGRect(x: 0, y: 0, width: 2048, height: 1152)
         let visible = CGRect(x: 0, y: 4, width: 2048, height: 1118)
         let panel = CGRect(x: 86, y: 4, width: 1876, height: 54)
+        func overlapping(_ frame: CGRect) -> CGRect? {
+            StandardLayoutAdjustmentPolicy.overlappingTarget(window: frame, screen: screen,
+                visible: visible, panel: panel, desktopTop: 1152)
+        }
+        let ordinary = CGRect(x: 300, y: 850, width: 500, height: 280)
+        precondition(overlapping(ordinary)?.height == ordinary.height)
+        precondition(overlapping(ordinary)!.maxY == 1092)
+        precondition(overlapping(CGRect(x: 300, y: 30, width: 800, height: 1100))?.height == 1062)
+        precondition(overlapping(CGRect(x: -400, y: 850, width: 500, height: 280)) == nil)
+        precondition(overlapping(CGRect(x: 300, y: 950, width: 500, height: 400)) == nil)
+        precondition(overlapping(CGRect(x: 300, y: 100, width: 500, height: 400)) == nil)
         let full = CGRect(x: 0, y: 30, width: 2048, height: 1118)
         let half = CGRect(x: 1024, y: 30, width: 1024, height: 1118)
         func target(_ frame: CGRect) -> CGRect? {

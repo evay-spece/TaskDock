@@ -455,18 +455,21 @@ final class AXWindowService {
         for window in windows where !window.isMinimized {
             guard seen.insert(CFHash(window.axWindow)).inserted,
                   let current = windowFrame(window.axWindow) else { continue }
-            let eligible = window.isFocused
+            let allOverlaps = StandardLayoutAvoidanceSettings.avoidsAllOverlaps
+            let eligible = (allOverlaps || window.isFocused)
                 && (window.accessibilitySubrole == kAXStandardWindowSubrole || (window.accessibilitySubrole ?? "").isEmpty)
                 && NSRunningApplication(processIdentifier: window.pid)?.isHidden == false
                 && (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) != true
-            let proposed = eligible ? StandardLayoutAdjustmentPolicy.target(window: current,
-                screen: screenFrame, visible: visibleFrame, panel: panelFrame, desktopTop: desktopTop) : nil
+            let targetFunction = allOverlaps ? StandardLayoutAdjustmentPolicy.overlappingTarget : StandardLayoutAdjustmentPolicy.target
+            let proposed = eligible ? targetFunction(current,
+                screenFrame, visibleFrame, panelFrame, desktopTop) : nil
             guard let target = standardLayoutPolicy.adjustment(id: window.nativeWindowID,
                 frame: current, proposed: proposed, dragging: NSEvent.pressedMouseButtons != 0,
                 now: Date.timeIntervalSinceReferenceDate,
                 settleDelay: StandardLayoutAvoidanceSettings.settleDelay) else { continue }
             var settable: DarwinBoolean = false
-            guard AXUIElementIsAttributeSettable(window.axWindow, kAXSizeAttribute as CFString,
+            let attribute = current.size == target.size ? kAXPositionAttribute : kAXSizeAttribute
+            guard AXUIElementIsAttributeSettable(window.axWindow, attribute as CFString,
                 &settable) == .success, settable.boolValue else { continue }
             if StandardLayoutAvoidanceSettings.isAnimated {
                 let id = window.nativeWindowID
