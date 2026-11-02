@@ -57,6 +57,7 @@ final class AXWindowService {
         windowEvidence[key] = evidence
         return result
     }
+    private var activeStandardRetractions: [String: UUID] = [:]
     private var standardLayoutPolicy = StandardLayoutAdjustmentPolicy()
     private var standardAdjustedFrames: [String: ReservedWindowFrame] = [:]
     private var pointerAvoidedFrames: [String: ReservedWindowFrame] = [:]
@@ -70,7 +71,7 @@ final class AXWindowService {
         pointerSuppressedAt[id] = Date()
     }
     private var activePointerRetractions: [String: UUID] = [:]
-    var isAnimatingPointerAvoidance: Bool { !activePointerRetractions.isEmpty }
+    var isAnimatingPointerAvoidance: Bool { !activePointerRetractions.isEmpty || !activeStandardRetractions.isEmpty }
     private var reservedWindowFrames: [String: ReservedWindowFrame] = [:]
     private var activeWindowLifts: [String: UUID] = [:]
     private var liftSuppressedFrames: [String: CGRect] = [:]
@@ -467,11 +468,57 @@ final class AXWindowService {
             var settable: DarwinBoolean = false
             guard AXUIElementIsAttributeSettable(window.axWindow, kAXSizeAttribute as CFString,
                 &settable) == .success, settable.boolValue else { continue }
-            // One size write, no movement animation and no pointer-triggered retries.
+            if StandardLayoutAvoidanceSettings.isAnimated {
+                let id = window.nativeWindowID
+                let token = UUID()
+                standardAdjustedFrames[id] = ReservedWindowFrame(window: window.axWindow,
+                    original: current, applied: current)
+                activeStandardRetractions[id] = token
+                advanceStandardRetraction(id: id, token: token, start: current, target: target,
+                    startedAt: ProcessInfo.processInfo.systemUptime,
+                    duration: PointerWindowAvoidanceSettings.animationDuration)
+                continue
+            }
             if setWindowFrame(window.axWindow, frame: target) {
                 standardAdjustedFrames[window.nativeWindowID] = ReservedWindowFrame(
                     window: window.axWindow, original: current, applied: target)
             }
+        }
+    }
+
+    private func advanceStandardRetraction(id: String, token: UUID, start: CGRect,
+                                           target: CGRect, startedAt: TimeInterval,
+                                           duration: TimeInterval) {
+        guard activeStandardRetractions[id] == token else { return }
+        guard StandardLayoutAvoidanceSettings.isEnabled,
+              StandardLayoutAvoidanceSettings.isAnimated,
+              NSEvent.pressedMouseButtons == 0,
+              var reservation = standardAdjustedFrames[id],
+              let current = windowFrame(reservation.window),
+              StandardLayoutAdjustmentPolicy.same(current, reservation.applied) else {
+            activeStandardRetractions.removeValue(forKey: id)
+            return
+        }
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        let progress = PointerWindowAvoidanceGeometry.animationProgress(elapsed: elapsed, duration: duration)
+        let next = PointerWindowAvoidanceGeometry.animationFrame(from: start, to: target, progress: progress)
+        guard setWindowFrame(reservation.window, frame: next),
+              let applied = windowFrame(reservation.window),
+              StandardLayoutAdjustmentPolicy.same(applied, next) else {
+            activeStandardRetractions.removeValue(forKey: id)
+            return
+        }
+        reservation.applied = applied
+        standardAdjustedFrames[id] = reservation
+        guard progress < 1 else {
+            activeStandardRetractions.removeValue(forKey: id)
+            return
+        }
+        let delay = PointerWindowAvoidanceGeometry.nextAnimationDelay(
+            elapsed: ProcessInfo.processInfo.systemUptime - startedAt, duration: duration)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.advanceStandardRetraction(id: id, token: token, start: start,
+                target: target, startedAt: startedAt, duration: duration)
         }
     }
 
@@ -703,6 +750,7 @@ final class AXWindowService {
                 _ = setWindowFrame(prior.window, frame: prior.original)
             }
         }
+        activeStandardRetractions.removeAll()
         standardAdjustedFrames.removeAll()
         standardLayoutPolicy = StandardLayoutAdjustmentPolicy()
         activeWindowLifts.removeAll()
