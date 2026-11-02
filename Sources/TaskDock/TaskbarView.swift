@@ -1281,7 +1281,7 @@ private struct TaskbarReadableItemSurface: View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         ZStack {
             if overlapAppearance.usesTemporaryItemBackground {
-                shape.fill(Color.black.opacity(0.30))
+                shape.fill(Color.black.opacity(isFocused ? 0.55 : isHovered ? 0.40 : 0.30))
             } else if usesSubtleHoverPill {
                 if isFocused || isHovered {
                     if reduceTransparency {
