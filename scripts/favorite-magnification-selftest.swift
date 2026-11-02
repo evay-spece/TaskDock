@@ -3,6 +3,15 @@ import Foundation
 @main
 struct FavoriteMagnificationSelfTest {
     static func main() {
+        let disabledIdle = FavoriteMagnificationLayout(count: 12, pointerX: nil,
+            separatorIndices: [8], peakScale: 1)
+        for x in stride(from: CGFloat(-100), through: 800, by: 2) {
+            let hovering = FavoriteMagnificationLayout(count: 12, pointerX: x,
+                separatorIndices: [8], peakScale: 1)
+            precondition(hovering.scales == disabledIdle.scales)
+            precondition(hovering.offsets == disabledIdle.offsets,
+                "Disabled magnification must keep folders and separators fixed")
+        }
         let step = FavoriteMagnificationLayout.itemStep
         let gap = step - FavoriteMagnificationLayout.iconSize
         for exiting in [false, true] {

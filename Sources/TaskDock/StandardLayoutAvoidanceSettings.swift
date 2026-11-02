@@ -2,6 +2,11 @@ import SwiftUI
 
 enum StandardLayoutAvoidanceSettings {
     static let enabledKey = "taskdock.standardLayoutAvoidanceV1"
+    static let overflowLimitKey = "taskdock.windowAvoidanceBottomOverflowLimitV1"
+    static var bottomOverflowLimit: Double {
+        let value = UserDefaults.standard.object(forKey: overflowLimitKey) as? Double ?? 48
+        return value.isFinite ? min(500, max(0, value)) : 48
+    }
     static let allOverlapsKey = "taskdock.allOverlappingWindowsAvoidanceV1"
     static var avoidsAllOverlaps: Bool { UserDefaults.standard.bool(forKey: allOverlapsKey) }
     static let animatedKey = "taskdock.standardLayoutAnimatedV1"
@@ -17,6 +22,7 @@ enum StandardLayoutAvoidanceSettings {
 struct StandardLayoutAvoidanceSettingsView: View {
     @AppStorage(StandardLayoutAvoidanceSettings.enabledKey) private var enabled = true
     @AppStorage(StandardLayoutAvoidanceSettings.delayKey) private var delay = 0.35
+    @AppStorage(StandardLayoutAvoidanceSettings.overflowLimitKey) private var overflowLimit = 48.0
     @AppStorage(StandardLayoutAvoidanceSettings.allOverlapsKey) private var allOverlaps = false
     @AppStorage(StandardLayoutAvoidanceSettings.animatedKey) private var animated = false
     @AppStorage(PointerWindowAvoidanceSettings.animationDurationKey) private var duration = PointerWindowAvoidanceSettings.defaultAnimationDuration
@@ -27,8 +33,14 @@ struct StandardLayoutAvoidanceSettingsView: View {
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("所有重叠窗口避让", isOn: $allOverlaps)
                 .disabled(!enabled)
-            Text("小窗口向上移动，大窗口收底边。出屏面积超过 20% 或底边出屏超过 48 pt 时跳过。沿用下方动画和等待时间。")
+            Text("小窗口向上移动，大窗口收底边。底边出屏超过下方阈值时跳过。沿用下方动画和等待时间。")
                 .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("底边出屏阈值")
+                ReleaseTunedSlider(value: $overflowLimit, in: 0...500, defaultValue: 48)
+                    .accessibilityLabel("窗口底边出屏阈值")
+                Text("\(Int(overflowLimit.rounded())) pt").monospacedDigit().frame(width: 60, alignment: .trailing)
+            }.disabled(!enabled || !allOverlaps)
             Toggle("收边动画过渡", isOn: $animated)
                 .disabled(!enabled)
             if animated {

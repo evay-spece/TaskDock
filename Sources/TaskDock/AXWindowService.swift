@@ -460,9 +460,16 @@ final class AXWindowService {
                 && (window.accessibilitySubrole == kAXStandardWindowSubrole || (window.accessibilitySubrole ?? "").isEmpty)
                 && NSRunningApplication(processIdentifier: window.pid)?.isHidden == false
                 && (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) != true
-            let targetFunction = allOverlaps ? StandardLayoutAdjustmentPolicy.overlappingTarget : StandardLayoutAdjustmentPolicy.target
-            let proposed = eligible ? targetFunction(current,
-                screenFrame, visibleFrame, panelFrame, desktopTop) : nil
+            let proposed: CGRect?
+            if !eligible { proposed = nil }
+            else if allOverlaps {
+                proposed = StandardLayoutAdjustmentPolicy.overlappingTarget(window: current,
+                    screen: screenFrame, visible: visibleFrame, panel: panelFrame,
+                    desktopTop: desktopTop, bottomOverflowLimit: StandardLayoutAvoidanceSettings.bottomOverflowLimit)
+            } else {
+                proposed = StandardLayoutAdjustmentPolicy.target(window: current,
+                    screen: screenFrame, visible: visibleFrame, panel: panelFrame, desktopTop: desktopTop)
+            }
             guard let target = standardLayoutPolicy.adjustment(id: window.nativeWindowID,
                 frame: current, proposed: proposed, dragging: NSEvent.pressedMouseButtons != 0,
                 now: Date.timeIntervalSinceReferenceDate,

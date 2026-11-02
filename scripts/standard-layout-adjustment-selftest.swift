@@ -14,7 +14,12 @@ struct StandardLayoutAdjustmentSelfTest {
         precondition(overlapping(ordinary)?.height == ordinary.height)
         precondition(overlapping(ordinary)!.maxY == 1092)
         precondition(overlapping(CGRect(x: 300, y: 30, width: 800, height: 1100))?.height == 1062)
-        precondition(overlapping(CGRect(x: -400, y: 850, width: 500, height: 280)) == nil)
+        precondition(overlapping(CGRect(x: -400, y: 850, width: 500, height: 280)) != nil)
+        let overflowing = CGRect(x: 300, y: 850, width: 500, height: 400)
+        precondition(overlapping(overflowing) == nil)
+        precondition(StandardLayoutAdjustmentPolicy.overlappingTarget(window: overflowing,
+            screen: screen, visible: visible, panel: panel, desktopTop: 1152,
+            bottomOverflowLimit: 120) != nil)
         precondition(overlapping(CGRect(x: 300, y: 950, width: 500, height: 400)) == nil)
         precondition(overlapping(CGRect(x: 300, y: 100, width: 500, height: 400)) == nil)
         let full = CGRect(x: 0, y: 30, width: 2048, height: 1118)

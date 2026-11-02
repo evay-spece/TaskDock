@@ -163,7 +163,7 @@ struct FavoriteMagnificationLayout {
                     + requiredStep - (centers[index] - centers[index - 1])
             }
         }
-        guard let pointerX else {
+        guard let pointerX, peakScale > 1 else {
             offsets = compactOffsets
             return
         }
