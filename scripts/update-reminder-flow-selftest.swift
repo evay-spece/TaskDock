@@ -1,17 +1,19 @@
 import Foundation
 
 private final class StubReleaseProtocol: URLProtocol {
+    static var notes: String?
     static var releaseVersion = "1.8.0"
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let version = Self.releaseVersion
+        let bodyField = Self.notes.map { ",\"body\":\"\($0)\"" } ?? ""
         let json = """
         {"tag_name":"v\(version)","html_url":"https://example.test/releases/\(version)",
          "assets":[{"name":"TaskDock-\(version)-macOS-arm64.zip",
          "browser_download_url":"https://example.test/TaskDock-\(version)-macOS-arm64.zip",
-         "digest":"sha256:\(String(repeating: "0", count: 64))"}]}
+         "digest":"sha256:\(String(repeating: "0", count: 64))"}]\(bodyField)}
         """
         let response = HTTPURLResponse(url: request.url!, statusCode: 200,
                                        httpVersion: "HTTP/1.1", headerFields: nil)!
@@ -37,6 +39,7 @@ struct UpdateReminderFlowSelfTest {
             ("1.7.2", true, 0),
             ("1.8.0", false, 0)
         ] {
+            StubReleaseProtocol.notes = automatic ? "更新说明" : nil
             StubReleaseProtocol.releaseVersion = candidate
             let checker = UpdateChecker(currentVersion: "1.7.1",
                                         latestReleaseAPI: endpoint, session: session)
@@ -51,6 +54,7 @@ struct UpdateReminderFlowSelfTest {
                 preconditionFailure("Missing update for \(candidate)")
             }
             precondition(update.version == candidate && reminders == expectedCount)
+            precondition(update.releaseNotes == (StubReleaseProtocol.notes ?? ""))
         }
         print("UPDATE_REMINDER_FLOW_OK")
     }
