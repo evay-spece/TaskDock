@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// Runtime-only contrast override; never persisted to user appearance defaults.
+final class TaskbarOverlapAppearance: ObservableObject {
+    static let shared = TaskbarOverlapAppearance()
+    @Published private(set) var usesTemporaryBlackBackground = false
+    func update(_ value: Bool) {
+        guard value != usesTemporaryBlackBackground else { return }
+        usesTemporaryBlackBackground = value
+    }
+}
+
 enum StandardLayoutAvoidanceSettings {
     static let enabledKey = "taskdock.standardLayoutAvoidanceV1"
     static let overflowLimitKey = "taskdock.windowAvoidanceBottomOverflowLimitV1"

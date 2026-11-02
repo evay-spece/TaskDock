@@ -64,6 +64,15 @@ struct StandardLayoutAdjustmentPolicy {
             && abs(a.width-b.width) <= 2 && abs(a.height-b.height) <= 2
     }
 
+    static func exceedsBottomThreshold(window: CGRect, screen: CGRect, panel: CGRect,
+                                       desktopTop: CGFloat, limit: CGFloat) -> Bool {
+        let panelAX = CGRect(x: panel.minX, y: desktopTop - panel.maxY,
+                             width: panel.width, height: panel.height)
+        let overlap = window.intersection(panelAX)
+        return !overlap.isNull && overlap.width > 1 && overlap.height > 1
+            && window.maxY - (desktopTop - screen.minY) > max(0, limit)
+    }
+
     static func overlappingTarget(window: CGRect, screen: CGRect, visible: CGRect,
                                   panel: CGRect, desktopTop: CGFloat, bottomOverflowLimit: CGFloat = 48) -> CGRect? {
         guard window.width > 0, window.height > 0 else { return nil }

@@ -18,6 +18,7 @@ final class RecentAppPopoverState: ObservableObject {
 struct TaskbarView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var overlapAppearance = TaskbarOverlapAppearance.shared
     @AppStorage(TaskbarBlackBackgroundSettings.transparencyKey) private var blackBackgroundTransparency = 1.0
     @AppStorage("taskdock.magnificationPushesTasksV1") private var magnificationPushesTasks = false
     let windows: [WindowModel]
@@ -547,7 +548,7 @@ struct TaskbarView: View {
                                 cornerRadius: cornerRadius,
                                 opacity: 1 - settings.taskbarBackgroundTransparency)
                             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .fill(Color.black.opacity(1 - blackBackgroundTransparency))
+                                .fill(Color.black.opacity(1 - (overlapAppearance.usesTemporaryBlackBackground ? 0.7 : blackBackgroundTransparency)))
                                 .allowsHitTesting(false)
                         }
                     } else {

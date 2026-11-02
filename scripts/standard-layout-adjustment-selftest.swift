@@ -22,6 +22,13 @@ struct StandardLayoutAdjustmentSelfTest {
             bottomOverflowLimit: 120) != nil)
         precondition(overlapping(CGRect(x: 300, y: 950, width: 500, height: 400)) == nil)
         precondition(overlapping(CGRect(x: 300, y: 100, width: 500, height: 400)) == nil)
+        precondition(StandardLayoutAdjustmentPolicy.exceedsBottomThreshold(window: overflowing,
+            screen: screen, panel: panel, desktopTop: 1152, limit: 48))
+        precondition(!StandardLayoutAdjustmentPolicy.exceedsBottomThreshold(window: overflowing,
+            screen: screen, panel: panel, desktopTop: 1152, limit: 120))
+        precondition(!StandardLayoutAdjustmentPolicy.exceedsBottomThreshold(
+            window: overflowing.offsetBy(dx: 3000, dy: 0), screen: screen, panel: panel,
+            desktopTop: 1152, limit: 48))
         let full = CGRect(x: 0, y: 30, width: 2048, height: 1118)
         let half = CGRect(x: 1024, y: 30, width: 1024, height: 1118)
         func target(_ frame: CGRect) -> CGRect? {
