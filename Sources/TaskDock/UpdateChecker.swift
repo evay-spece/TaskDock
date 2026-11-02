@@ -9,6 +9,7 @@ final class UpdateChecker: ObservableObject {
         let releaseURL: URL
         let assetURL: URL
         let digest: String
+        let releaseNotes: String
     }
 
     enum Status {
@@ -121,7 +122,8 @@ final class UpdateChecker: ObservableObject {
                 version: version,
                 releaseURL: releaseURL,
                 assetURL: assetURL,
-                digest: digest
+                digest: digest,
+                releaseNotes: release.body ?? ""
             )
             status = .updateAvailable(update)
             if automaticCheckPending && !installWhenReady,
@@ -217,11 +219,12 @@ private struct GitHubRelease: Decodable {
     let tagName: String
     let htmlURL: String
     let assets: [GitHubAsset]
+    let body: String?
 
     enum CodingKeys: String, CodingKey {
         case tagName = "tag_name"
         case htmlURL = "html_url"
-        case assets
+        case assets, body
     }
 }
 

@@ -3,10 +3,10 @@ import SwiftUI
 
 @MainActor
 final class UpdateReminderWindowController: NSWindowController {
-    init(currentVersion: String, newVersion: String,
+    init(currentVersion: String, newVersion: String, releaseNotes: String = "",
          onUpdate: @escaping () -> Void, onLater: @escaping () -> Void) {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 190),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 430),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -15,6 +15,7 @@ final class UpdateReminderWindowController: NSWindowController {
         window.contentView = NSHostingView(rootView: UpdateReminderView(
             currentVersion: currentVersion,
             newVersion: newVersion,
+            releaseNotes: releaseNotes,
             onUpdate: onUpdate,
             onLater: onLater
         ))
@@ -29,6 +30,7 @@ final class UpdateReminderWindowController: NSWindowController {
 private struct UpdateReminderView: View {
     let currentVersion: String
     let newVersion: String
+    let releaseNotes: String
     let onUpdate: () -> Void
     let onLater: () -> Void
 
@@ -39,7 +41,34 @@ private struct UpdateReminderView: View {
             Text("当前版本为 \(currentVersion)。现在更新即可使用新版 TaskDock。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+            Divider()
+            Text("本次更新").font(.subheadline.weight(.semibold))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("此版本暂无更新说明。")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(Array(releaseNotes.components(separatedBy: .newlines).enumerated()), id: \.offset) { _, line in
+                            let trimmed = line.trimmingCharacters(in: .whitespaces)
+                            if trimmed.hasPrefix("#") {
+                                Text(trimmed.drop(while: { $0 == "#" || $0 == " " }))
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.top, 4)
+                            } else if !trimmed.isEmpty {
+                                Text(.init(trimmed.hasPrefix("- ") ? "• " + String(trimmed.dropFirst(2)) : trimmed))
+                                    .font(.callout)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, 8)
+                .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
             HStack {
                 Spacer()
                 Button("暂不更新", action: onLater)
@@ -48,6 +77,6 @@ private struct UpdateReminderView: View {
             }
         }
         .padding(24)
-        .frame(width: 420, height: 190)
+        .frame(width: 500, height: 430)
     }
 }

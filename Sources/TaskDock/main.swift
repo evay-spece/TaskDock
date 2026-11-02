@@ -283,6 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let controller = UpdateReminderWindowController(
             currentVersion: updateChecker.currentVersion,
             newVersion: update.version,
+            releaseNotes: update.releaseNotes,
             onUpdate: { [weak self] in
                 self?.updateReminderWindowController?.close()
                 self?.checkForUpdates()
