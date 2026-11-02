@@ -18,7 +18,6 @@ final class RecentAppPopoverState: ObservableObject {
 struct TaskbarView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.colorScheme) private var colorScheme
-    @ObservedObject private var overlapAppearance = TaskbarOverlapAppearance.shared
     @AppStorage(TaskbarBlackBackgroundSettings.transparencyKey) private var blackBackgroundTransparency = 1.0
     @AppStorage("taskdock.magnificationPushesTasksV1") private var magnificationPushesTasks = false
     let windows: [WindowModel]
@@ -548,7 +547,7 @@ struct TaskbarView: View {
                                 cornerRadius: cornerRadius,
                                 opacity: 1 - settings.taskbarBackgroundTransparency)
                             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .fill(Color.black.opacity(1 - (overlapAppearance.usesTemporaryBlackBackground ? 0.7 : blackBackgroundTransparency)))
+                                .fill(Color.black.opacity(1 - blackBackgroundTransparency))
                                 .allowsHitTesting(false)
                         }
                     } else {
@@ -1268,6 +1267,7 @@ struct TaskbarPointerHoverTracker: NSViewRepresentable {
 
 /// A stable reading surface above the clear outer glass; labels retain semantic colors.
 private struct TaskbarReadableItemSurface: View {
+    @ObservedObject private var overlapAppearance = TaskbarOverlapAppearance.shared
     let cornerRadius: CGFloat
     var isHovered = false
     var isFocused = false
@@ -1280,7 +1280,9 @@ private struct TaskbarReadableItemSurface: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         ZStack {
-            if usesSubtleHoverPill {
+            if overlapAppearance.usesTemporaryItemBackground {
+                shape.fill(Color.black.opacity(0.30))
+            } else if usesSubtleHoverPill {
                 if isFocused || isHovered {
                     if reduceTransparency {
                         shape.fill(Color(white: isFocused ? 0.25 : 0.36))
@@ -1306,7 +1308,7 @@ private struct TaskbarReadableItemSurface: View {
                     isFocused ? 0.20 : isHovered ? 0.10 : 0.035), lineWidth: 0.7)
             }
         }
-        .opacity(reduceTransparency || isFocused ? 1 : 1 - transparency * 0.4)
+        .opacity(overlapAppearance.usesTemporaryItemBackground || reduceTransparency || isFocused ? 1 : 1 - transparency * 0.4)
         .allowsHitTesting(false)
     }
 }
@@ -1375,12 +1377,9 @@ private struct TaskbarCollapsedAppView: View {
             .frame(maxWidth: .infinity, minHeight: itemHeight, maxHeight: itemHeight)
             .background {
                 ZStack {
-                    if isFocused || isHovered {
-                        TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
-                            isHovered: isHovered,
-                            isFocused: isFocused,
-                            usesSubtleHoverPill: true)
-                    }
+                    TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
+                        isHovered: isHovered, isFocused: isFocused,
+                        usesSubtleHoverPill: true)
                     if let progress {
                         TaskItemProgressFill(value: progress, cornerRadius: 7 * contentScale)
                     }
@@ -1857,11 +1856,9 @@ struct WindowTaskItemView: View {
                         isHighlighted: isHovered || isFocused
                     )
                 } else if isTaskbarMode {
-                    if isFocused || isHovered {
-                        TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
-                            isHovered: isHovered, isFocused: isFocused,
-                            usesSubtleHoverPill: true)
-                    }
+                    TaskbarReadableItemSurface(cornerRadius: 7 * contentScale,
+                        isHovered: isHovered, isFocused: isFocused,
+                        usesSubtleHoverPill: true)
                     if isFocused {
                         RoundedRectangle(cornerRadius: 7 * contentScale)
                             .fill(itemBaseBackground)

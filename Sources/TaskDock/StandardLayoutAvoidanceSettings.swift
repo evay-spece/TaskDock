@@ -3,10 +3,10 @@ import SwiftUI
 /// Runtime-only contrast override; never persisted to user appearance defaults.
 final class TaskbarOverlapAppearance: ObservableObject {
     static let shared = TaskbarOverlapAppearance()
-    @Published private(set) var usesTemporaryBlackBackground = false
+    @Published private(set) var usesTemporaryItemBackground = false
     func update(_ value: Bool) {
-        guard value != usesTemporaryBlackBackground else { return }
-        usesTemporaryBlackBackground = value
+        guard value != usesTemporaryItemBackground else { return }
+        usesTemporaryItemBackground = value
     }
 }
 
