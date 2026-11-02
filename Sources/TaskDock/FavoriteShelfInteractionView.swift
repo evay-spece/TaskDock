@@ -591,34 +591,6 @@ private struct DockStyleContextBubble: View {
     }
 }
 
-private struct DockStyleBubbleShape: Shape {
-    let arrowX: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let radius: CGFloat = 13
-        let bottom = rect.maxY - 14
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + radius),
-                          control: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: bottom - radius))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: bottom),
-                          control: CGPoint(x: rect.maxX, y: bottom))
-        path.addLine(to: CGPoint(x: arrowX + 11, y: bottom))
-        path.addLine(to: CGPoint(x: arrowX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: arrowX - 11, y: bottom))
-        path.addLine(to: CGPoint(x: rect.minX + radius, y: bottom))
-        path.addQuadCurve(to: CGPoint(x: rect.minX, y: bottom - radius),
-                          control: CGPoint(x: rect.minX, y: bottom))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.minY),
-                          control: CGPoint(x: rect.minX, y: rect.minY))
-        path.closeSubpath()
-        return path
-    }
-}
-
 private struct DockStyleContextMenu: View {
     let actions: [FavoriteShelfMenuAction]
     let menuWidth: CGFloat

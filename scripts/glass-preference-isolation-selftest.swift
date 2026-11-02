@@ -13,7 +13,7 @@ defer {
 }
 suite.set(0.0, forKey: "NSGlassTintAmount")
 var args = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-args[TaskbarExperimentalGlass.preferenceKey] = true
+args["taskdock.experimentalActiveGlassV1"] = true
 args[TaskbarExperimentalGlass.clarityKey] = 0.6
 defaults.setVolatileDomain(args, forName: UserDefaults.argumentDomain)
 TaskbarExperimentalGlass.installPreferenceIsolation()
@@ -43,10 +43,10 @@ func filterValues(_ layer: CALayer) -> [Double] {
 }
 func sample(manual: Bool) -> [Double] {
     var args = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-    args[TaskbarExperimentalGlass.preferenceKey] = manual
+    args["taskdock.experimentalActiveGlassV1"] = manual
     defaults.setVolatileDomain(args, forName: UserDefaults.argumentDomain)
     TaskbarExperimentalGlass.synchronizePreferenceIsolation()
-    anchor.configure(cornerRadius: 18, opacity: 1, experimental: manual, clarity: 0.6)
+    anchor.configure(cornerRadius: 18, opacity: 1)
     RunLoop.current.run(until: Date().addingTimeInterval(0.25))
     return filterValues(root.layer!)
 }

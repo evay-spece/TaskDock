@@ -53,11 +53,7 @@ final class TaskbarPanelController {
     private let progressPollQueue = DispatchQueue(label: "taskdock.window-progress", qos: .utility)
     private var panel: NSPanel?
     private var timer: Timer?
-    private var pointerAvoidanceTimer: Timer?
-    private var lastPointerAvoidanceCheckAt = Date.distantPast
-    private var pointerWasInAvoidanceRegion = false
-    private var pointerEnteredAvoidanceRegionAt: Date?
-    private var pointerAvoidanceTriggeredThisEntry = false
+    private var windowAvoidanceTimer: Timer?
     private var progressTimer: Timer?
     private var progressPollInFlight = false
     private var progressPollGeneration = 0
@@ -156,10 +152,10 @@ final class TaskbarPanelController {
             Task { @MainActor in self?.pollWindowProgress() }
         }
         let avoidanceTimer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkPointerWindowAvoidance() }
+            Task { @MainActor in self?.checkWindowAvoidance() }
         }
         RunLoop.main.add(avoidanceTimer, forMode: .common)
-        pointerAvoidanceTimer = avoidanceTimer
+        windowAvoidanceTimer = avoidanceTimer
         pollWindowProgress()
         let workspaceNotifications = NSWorkspace.shared.notificationCenter
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
@@ -189,8 +185,8 @@ final class TaskbarPanelController {
         systemDockVisibility.restore()
         pendingLayoutRefreshToken = nil
         timer?.invalidate()
-        pointerAvoidanceTimer?.invalidate()
-        pointerAvoidanceTimer = nil
+        windowAvoidanceTimer?.invalidate()
+        windowAvoidanceTimer = nil
         progressTimer?.invalidate()
         progressTimer = nil
         progressPollGeneration += 1
@@ -336,9 +332,6 @@ final class TaskbarPanelController {
 
         if appliedLayoutMode != settings.layoutMode {
             windowService.clearWindowSpaceReservations(restore: true, windows: [])
-            pointerWasInAvoidanceRegion = false
-            pointerEnteredAvoidanceRegionAt = nil
-            pointerAvoidanceTriggeredThisEntry = false
             appliedLayoutMode = settings.layoutMode
             (panel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
             (dockFinderPanel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
@@ -657,7 +650,7 @@ final class TaskbarPanelController {
     private func refresh() {
         synchronizeMinimizeShortcut()
         // Avoid a full AX scan competing with the brief window animation.
-        if windowService.isAnimatingPointerAvoidance { return }
+        if windowService.isAnimatingWindowAvoidance { return }
         if recentAppPopoverState.isPresented { return }
         if isHiddenInDock { setOptionShortcutsVisible(false) }
         // Focus notifications can arrive during a drag even while the timer is paused.
@@ -1391,7 +1384,7 @@ final class TaskbarPanelController {
         }
     }
 
-    private func checkPointerWindowAvoidance() {
+    private func checkWindowAvoidance() {
         let appearance = TaskbarOverlapAppearance.shared
         guard !usesNativeDockReservation,
               settings.layoutMode == .taskbar, hasLicenseAccess, permissionService.isTrusted,
@@ -1402,7 +1395,7 @@ final class TaskbarPanelController {
             appearance.update(false)
             return
         }
-        guard !windowService.isAnimatingPointerAvoidance else { return }
+        guard !windowService.isAnimatingWindowAvoidance else { return }
         let inset = settings.taskbarSideInset
         let bar = CGRect(x: panel.frame.minX + inset, y: panel.frame.minY + 4,
             width: max(0, panel.frame.width - 2 * inset), height: settings.taskbarHeight)
@@ -1454,9 +1447,8 @@ final class TaskbarPanelController {
             windowService.clearWindowSpaceReservations(restore: true, windows: [])
             return
         }
-        // Taskbar avoidance uses a single bounded bottom-retraction manager:
-        // tiled windows by default, ordinary windows when the pointer is near the bottom. Do not let the legacy maximized-window
-        // manager resize windows before the pointer or bypass its off-screen guard.
+        // The taskbar uses the settled-layout manager. This reservation path
+        // remains active only for the native Dock companion layout.
         guard settings.layoutMode != .taskbar else { return }
         let reservationWindows = windowService.enumerateWindows(
             excludingPID: ProcessInfo.processInfo.processIdentifier,

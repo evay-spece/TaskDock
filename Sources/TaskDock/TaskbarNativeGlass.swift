@@ -8,7 +8,6 @@ class TaskbarAppearancePanel: NSPanel {
 }
 
 enum TaskbarExperimentalGlass {
-    static let preferenceKey = "taskdock.experimentalActiveGlassV1"
     static let clarityKey = "taskdock.customGlassClarityV1"
 
     static func normalizedClarity(_ value: Double) -> Double {
@@ -106,7 +105,6 @@ final class TaskbarNativeContentView: NSView {
 /// SwiftUI only places this invisible anchor. AppKit owns the actual glass rendering.
 final class TaskbarGlassAnchorView: NSView {
     private var glass: NSView
-    private var experimentalAppearance: Bool?
 
     private static func makeGlass() -> NSView {
         if #available(macOS 26, *) {
@@ -133,13 +131,8 @@ final class TaskbarGlassAnchorView: NSView {
     required init?(coder: NSCoder) { nil }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func configure(cornerRadius: CGFloat, opacity: Double, experimental: Bool, clarity: Double = 1) {
+    func configure(cornerRadius: CGFloat, opacity: Double) {
         TaskbarExperimentalGlass.synchronizePreferenceIsolation()
-        if experimentalAppearance != experimental {
-            detachGlass()
-            glass = Self.makeGlass()
-            experimentalAppearance = experimental
-        }
         if #available(macOS 26, *), let effect = glass as? NSGlassEffectView {
             effect.cornerRadius = cornerRadius
             effect.tintColor = nil

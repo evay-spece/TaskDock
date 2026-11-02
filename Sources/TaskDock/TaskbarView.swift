@@ -1069,7 +1069,6 @@ private struct FusionDockTileSurface: View {
 
 /// Keep native glass outside SwiftUI's compositing hierarchy.
 private struct TaskbarGlassSurface: NSViewRepresentable {
-    @AppStorage(TaskbarExperimentalGlass.clarityKey) private var clarity = 1.0
     let cornerRadius: CGFloat
     let opacity: Double
 
@@ -1078,7 +1077,7 @@ private struct TaskbarGlassSurface: NSViewRepresentable {
     }
 
     func updateNSView(_ view: TaskbarGlassAnchorView, context: Context) {
-        view.configure(cornerRadius: cornerRadius, opacity: opacity, experimental: TaskbarExperimentalGlass.isSupported, clarity: clarity)
+        view.configure(cornerRadius: cornerRadius, opacity: opacity)
     }
 
     static func dismantleNSView(_ view: TaskbarGlassAnchorView, coordinator: ()) {
@@ -3948,28 +3947,5 @@ private struct FavoriteApplicationIcon: View {
         }
         Self.iconCache.setObject(icon, forKey: cacheKey)
         return icon
-    }
-}
-
-private struct WindowActionMenu: View {
-    let favoriteActionTitle: String
-    let onToggleFavorite: () -> Void
-    let onShowAppWindows: () -> Void
-    let onBlockWindowType: () -> Void
-    let onClose: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(action: onToggleFavorite) {
-                Label(favoriteActionTitle, systemImage: "star")
-            }
-            Divider()
-            Button("显示该 App 的所有窗口", action: onShowAppWindows)
-            Divider()
-            Button("屏蔽此类窗口", action: onBlockWindowType)
-            Divider()
-            Button("关闭此窗口", role: .destructive, action: onClose)
-        }
-        .padding(10)
     }
 }

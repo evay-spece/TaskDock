@@ -13,7 +13,6 @@ final class AXWindowService {
         let window: AXUIElement
         let original: CGRect
         var applied: CGRect
-        var lastAdjustmentAt = Date()
     }
 
     private struct ScreenWindow {
@@ -60,18 +59,7 @@ final class AXWindowService {
     private var activeStandardRetractions: [String: UUID] = [:]
     private var standardLayoutPolicy = StandardLayoutAdjustmentPolicy()
     private var standardAdjustedFrames: [String: ReservedWindowFrame] = [:]
-    private var pointerAvoidedFrames: [String: ReservedWindowFrame] = [:]
-    private var pointerSuppressedFrames: [String: CGRect] = [:]
-    private var pointerSuppressedAt: [String: Date] = [:]
-    private var pointerDefaultRetries: [String: Int] = [:]
-    private var pointerDefaultLayoutFrames: [String: CGRect] = [:]
-    private var pointerCandidateFrames: [String: (frame: CGRect, since: Date)] = [:]
-    private func suppressPointerAvoidance(_ id: String, frame: CGRect) {
-        pointerSuppressedFrames[id] = frame
-        pointerSuppressedAt[id] = Date()
-    }
-    private var activePointerRetractions: [String: UUID] = [:]
-    var isAnimatingPointerAvoidance: Bool { !activePointerRetractions.isEmpty || !activeStandardRetractions.isEmpty }
+    var isAnimatingWindowAvoidance: Bool { !activeStandardRetractions.isEmpty }
     private var reservedWindowFrames: [String: ReservedWindowFrame] = [:]
     private var activeWindowLifts: [String: UUID] = [:]
     private var liftSuppressedFrames: [String: CGRect] = [:]
@@ -384,10 +372,6 @@ final class AXWindowService {
         liftSuppressedFrames = liftSuppressedFrames.filter { activeWindowIDs.contains($0.key) }
 
         for window in windows where !window.isMinimized {
-            if let pointerFrame = pointerAvoidedFrames[window.nativeWindowID],
-               WindowSpaceReservationGeometry.approximatelyEqual(windowFrame(window.axWindow) ?? .zero, pointerFrame.applied) {
-                continue
-            }
             if (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) == true {
                 continue
             }
@@ -500,7 +484,7 @@ final class AXWindowService {
                 activeStandardRetractions[id] = token
                 advanceStandardRetraction(id: id, token: token, start: current, target: target,
                     startedAt: ProcessInfo.processInfo.systemUptime,
-                    duration: PointerWindowAvoidanceSettings.animationDuration)
+                    duration: WindowAvoidanceAnimationSettings.animationDuration)
                 continue
             }
             if setWindowFrame(window.axWindow, frame: target) {
@@ -524,8 +508,8 @@ final class AXWindowService {
             return
         }
         let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-        let progress = PointerWindowAvoidanceGeometry.animationProgress(elapsed: elapsed, duration: duration)
-        let next = PointerWindowAvoidanceGeometry.animationFrame(from: start, to: target, progress: progress)
+        let progress = WindowAvoidanceAnimationGeometry.animationProgress(elapsed: elapsed, duration: duration)
+        let next = WindowAvoidanceAnimationGeometry.animationFrame(from: start, to: target, progress: progress)
         guard setWindowFrame(reservation.window, frame: next),
               let applied = windowFrame(reservation.window),
               StandardLayoutAdjustmentPolicy.same(applied, next) else {
@@ -538,186 +522,10 @@ final class AXWindowService {
             activeStandardRetractions.removeValue(forKey: id)
             return
         }
-        let delay = PointerWindowAvoidanceGeometry.nextAnimationDelay(
+        let delay = WindowAvoidanceAnimationGeometry.nextAnimationDelay(
             elapsed: ProcessInfo.processInfo.systemUptime - startedAt, duration: duration)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.advanceStandardRetraction(id: id, token: token, start: start,
-                target: target, startedAt: startedAt, duration: duration)
-        }
-    }
-
-    func moveWindowsAboveTaskbar(_ windows: [WindowModel], panelFrame: CGRect,
-                                screenFrame: CGRect, visibleFrame: CGRect, desktopTop: CGFloat,
-                                includeOrdinaryWindows: Bool) {
-        guard let entries = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-        ) as? [[String: Any]] else { return }
-        let activeIDs = Set(windows.map(\.nativeWindowID))
-        pointerAvoidedFrames = pointerAvoidedFrames.filter { activeIDs.contains($0.key) }
-        pointerSuppressedFrames = pointerSuppressedFrames.filter { activeIDs.contains($0.key) }
-        pointerSuppressedAt = pointerSuppressedAt.filter { activeIDs.contains($0.key) }
-        pointerDefaultRetries = pointerDefaultRetries.filter { activeIDs.contains($0.key) }
-        pointerCandidateFrames = pointerCandidateFrames.filter { activeIDs.contains($0.key) }
-        pointerDefaultLayoutFrames = pointerDefaultLayoutFrames.filter { activeIDs.contains($0.key) }
-        activePointerRetractions = activePointerRetractions.filter { activeIDs.contains($0.key) }
-        var seen = Set<CFHashCode>()
-        for window in windows where !window.isMinimized {
-            guard seen.insert(CFHash(window.axWindow)).inserted,
-                  (window.accessibilitySubrole == kAXStandardWindowSubrole || (window.accessibilitySubrole ?? "").isEmpty),
-                  NSRunningApplication(processIdentifier: window.pid)?.isHidden == false,
-                  (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) != true,
-                  !reservedWindowFrames.values.contains(where: { CFEqual($0.window, window.axWindow) }),
-                  let current = windowFrame(window.axWindow) else { continue }
-            if activePointerRetractions[window.nativeWindowID] != nil { continue }
-            let detectedDefault = PointerWindowAvoidanceGeometry.isDefaultAvoidanceWindow(
-                current, screen: screenFrame, visibleScreen: visibleFrame, desktopTop: desktopTop)
-            let rememberedDefault = pointerDefaultLayoutFrames[window.nativeWindowID].map { original in
-                guard let target = PointerWindowAvoidanceGeometry.adjustedFrame(window: original,
-                    screen: screenFrame, visibleScreen: visibleFrame, panel: panelFrame,
-                    desktopTop: desktopTop) else { return false }
-                return PointerWindowAvoidanceGeometry.isOnAnimationPath(current, from: original, to: target)
-            } ?? false
-            let defaultLayout = detectedDefault || rememberedDefault
-            if detectedDefault && !rememberedDefault { pointerDefaultLayoutFrames[window.nativeWindowID] = current }
-            if !defaultLayout { pointerDefaultLayoutFrames.removeValue(forKey: window.nativeWindowID) }
-            if let prior = pointerAvoidedFrames[window.nativeWindowID],
-               !WindowSpaceReservationGeometry.approximatelyEqual(current, prior.applied) {
-                pointerAvoidedFrames.removeValue(forKey: window.nativeWindowID)
-                if WindowSpaceReservationGeometry.approximatelyEqual(current, prior.original) {
-                    // An immediate rebound is an app rejecting our adjustment. A later
-                    // maximize/tile action must be eligible for its default animation again.
-                    if !defaultLayout || Date().timeIntervalSince(prior.lastAdjustmentAt) < 1.5 {
-                        suppressPointerAvoidance(window.nativeWindowID, frame: current)
-                    }
-                }
-            }
-            if let suppressed = pointerSuppressedFrames[window.nativeWindowID] {
-                let id = window.nativeWindowID
-                if WindowSpaceReservationGeometry.approximatelyEqual(current, suppressed) {
-                    guard PointerWindowAvoidanceGeometry.canRetryDefaultLayout(isDefault: defaultLayout,
-                        elapsed: Date().timeIntervalSince(pointerSuppressedAt[id] ?? Date()),
-                        retries: pointerDefaultRetries[id] ?? 0) else { continue }
-                    pointerDefaultRetries[id, default: 0] += 1
-                } else {
-                    pointerDefaultRetries.removeValue(forKey: id)
-                }
-                pointerSuppressedFrames.removeValue(forKey: id)
-                pointerSuppressedAt.removeValue(forKey: id)
-            }
-            guard includeOrdinaryWindows || defaultLayout else { continue }
-            // A maximize/tile transition can span several AX observations. Wait for
-            // a stable frame before starting our own animation.
-            if let candidate = pointerCandidateFrames[window.nativeWindowID],
-               WindowSpaceReservationGeometry.approximatelyEqual(current, candidate.frame, tolerance: 2) {
-                let delay = defaultLayout ? PointerWindowAvoidanceSettings.tiledDelay : 0
-                guard Date().timeIntervalSince(candidate.since) >= 0.2 + delay else { continue }
-            } else {
-                pointerCandidateFrames[window.nativeWindowID] = (current, Date())
-                continue
-            }
-            guard let target = PointerWindowAvoidanceGeometry.adjustedFrame(window: current,
-                screen: screenFrame, visibleScreen: visibleFrame, panel: panelFrame, desktopTop: desktopTop) else { continue }
-            // AX is already bound to this window. An on-screen PID/frame
-            // match is sufficient; the title matcher uses a stricter 2pt tolerance
-            // and can reject valid windows whose CG/AX bounds differ slightly.
-            let isOnScreen = entries.contains { entry in
-                guard (entry[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
-                      (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == window.pid,
-                      (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
-                      let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
-                      let frame = CGRect(dictionaryRepresentation: bounds) else { return false }
-                return WindowSpaceReservationGeometry.approximatelyEqual(frame, current, tolerance: 6)
-            }
-            guard isOnScreen else { continue }
-            let attribute = target.size == current.size ? kAXPositionAttribute : kAXSizeAttribute
-            var settable: DarwinBoolean = false
-            guard AXUIElementIsAttributeSettable(window.axWindow, attribute as CFString,
-                &settable) == .success, settable.boolValue else { continue }
-            let id = window.nativeWindowID
-            let token = UUID()
-            let original = pointerAvoidedFrames[id]?.original ?? current
-            let animationDuration = PointerWindowAvoidanceSettings.animationDuration
-            pointerAvoidedFrames[id] = ReservedWindowFrame(window: window.axWindow,
-                original: original, applied: current)
-            activePointerRetractions[id] = token
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) { [weak self] in
-                // Begin when the initial window scan has yielded the main thread.
-                // Counting that scan as animation time would jump over the opening frames.
-                let startedAt = ProcessInfo.processInfo.systemUptime - 1.0 / 60.0
-                self?.advancePointerRetraction(id: id, token: token, start: current,
-                    target: target, startedAt: startedAt, duration: animationDuration)
-            }
-        }
-    }
-
-    private func advancePointerRetraction(id: String, token: UUID,
-                                           start: CGRect, target: CGRect, startedAt: TimeInterval,
-                                           duration: TimeInterval) {
-        guard activePointerRetractions[id] == token else { return }
-        guard var reservation = pointerAvoidedFrames[id],
-              let current = windowFrame(reservation.window) else {
-            activePointerRetractions.removeValue(forKey: id)
-            return
-        }
-        guard NSEvent.pressedMouseButtons == 0,
-              PointerWindowAvoidanceGeometry.isOnAnimationPath(current, from: start, to: target) else {
-            activePointerRetractions.removeValue(forKey: id)
-            suppressPointerAvoidance(id, frame: current)
-            return
-        }
-        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-        let progress = PointerWindowAvoidanceGeometry.animationProgress(elapsed: elapsed, duration: duration)
-        let next = PointerWindowAvoidanceGeometry.animationFrame(
-            from: start, to: target, progress: progress)
-        let updated: Bool
-        if start.size == target.size {
-            var position = next.origin
-            if let value = AXValueCreate(.cgPoint, &position) {
-                updated = setAttribute(reservation.window, kAXPositionAttribute, value: value)
-            } else { updated = false }
-        } else {
-            var size = next.size
-            if let value = AXValueCreate(.cgSize, &size) {
-                updated = setAttribute(reservation.window, kAXSizeAttribute, value: value)
-            } else { updated = false }
-        }
-        guard updated, let applied = windowFrame(reservation.window) else {
-            activePointerRetractions.removeValue(forKey: id)
-            suppressPointerAvoidance(id, frame: windowFrame(reservation.window) ?? current)
-            return
-        }
-        reservation.applied = applied
-        reservation.lastAdjustmentAt = Date()
-        pointerAvoidedFrames[id] = reservation
-        guard PointerWindowAvoidanceGeometry.isOnAnimationPath(applied, from: start, to: target) else {
-            activePointerRetractions.removeValue(forKey: id)
-            suppressPointerAvoidance(id, frame: applied)
-            return
-        }
-        if progress >= 1 {
-            if WindowSpaceReservationGeometry.approximatelyEqual(applied, target, tolerance: 2) {
-                activePointerRetractions.removeValue(forKey: id)
-                return
-            }
-            // Give the app a bounded settling period rather than treating one
-            // delayed AX read as a permanent refusal to resize.
-            if elapsed >= duration + 0.35 {
-                activePointerRetractions.removeValue(forKey: id)
-                suppressPointerAvoidance(id, frame: applied)
-                return
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-                self?.advancePointerRetraction(id: id, token: token, start: start,
-                    target: target, startedAt: startedAt, duration: duration)
-            }
-            return
-        }
-        // AX round trips consume time. Schedule against the original clock instead
-        // of adding a full delay after each reply; skip stale frames when an app is slow.
-        let nowElapsed = ProcessInfo.processInfo.systemUptime - startedAt
-        let delay = PointerWindowAvoidanceGeometry.nextAnimationDelay(elapsed: nowElapsed, duration: duration)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.advancePointerRetraction(id: id, token: token, start: start,
                 target: target, startedAt: startedAt, duration: duration)
         }
     }
@@ -787,24 +595,6 @@ final class AXWindowService {
             }
         }
         reservedWindowFrames.removeAll()
-        clearPointerWindowAvoidance(restore: restore)
-    }
-
-    func clearPointerWindowAvoidance(restore: Bool) {
-        activePointerRetractions.removeAll()
-        if restore {
-            for prior in pointerAvoidedFrames.values {
-                guard let current = windowFrame(prior.window),
-                      WindowSpaceReservationGeometry.approximatelyEqual(current, prior.applied) else { continue }
-                _ = setWindowFrame(prior.window, frame: prior.original)
-            }
-        }
-        pointerAvoidedFrames.removeAll()
-        pointerSuppressedFrames.removeAll()
-        pointerSuppressedAt.removeAll()
-        pointerDefaultRetries.removeAll()
-        pointerCandidateFrames.removeAll()
-        pointerDefaultLayoutFrames.removeAll()
     }
 
     func showAllWindows(for pid: pid_t, from windows: [WindowModel]) {

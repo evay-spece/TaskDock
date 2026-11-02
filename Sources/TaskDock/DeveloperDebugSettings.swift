@@ -15,44 +15,6 @@ enum TaskbarBlackBackgroundSettings {
     static let transparencyKey = "taskbarBlackBackgroundTransparencyV1"
 }
 
-struct PointerWindowAvoidanceSettingsView: View {
-    @AppStorage(PointerWindowAvoidanceSettings.animationDurationKey)
-    private var animationDuration = PointerWindowAvoidanceSettings.defaultAnimationDuration
-    @AppStorage(PointerWindowAvoidanceSettings.triggerDelayKey)
-    private var triggerDelay = PointerWindowAvoidanceSettings.defaultTriggerDelay
-    @AppStorage(PointerWindowAvoidanceSettings.tiledDelayKey) private var tiledDelay = 0.0
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("抬脚动画时长")
-                ReleaseTunedSlider(value: $animationDuration, in: 0.08...0.6, defaultValue: ReleaseTunedSlider.preset(PointerWindowAvoidanceSettings.animationDurationKey, fallback: 0.24))
-                    .accessibilityLabel("窗口抬脚动画时长")
-                Text(String(format: "%.2f 秒", animationDuration))
-                    .monospacedDigit().frame(width: 72, alignment: .trailing)
-            }
-            Text("数值越小，窗口抬起越快；滑杆标记处为发布默认值。")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Text("触发延时")
-                ReleaseTunedSlider(value: $triggerDelay, in: 0...1.5, defaultValue: ReleaseTunedSlider.preset(PointerWindowAvoidanceSettings.triggerDelayKey, fallback: 0))
-                    .accessibilityLabel("窗口抬脚触发延时")
-                Text(String(format: "%.2f 秒", triggerDelay))
-                    .monospacedDigit().frame(width: 72, alignment: .trailing)
-            }
-            Text("鼠标进入屏幕底部区域后等待的时间；0 秒立即检查。最大化窗口的自动避让不受此项影响。")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Text("最大化／半屏延时")
-                ReleaseTunedSlider(value: $tiledDelay, in: 0...2,
-                    defaultValue: ReleaseTunedSlider.preset(PointerWindowAvoidanceSettings.tiledDelayKey, fallback: 0))
-                    .accessibilityLabel("最大化和半屏窗口避让延时")
-                Text(String(format: "%.2f 秒", tiledDelay)).monospacedDigit().frame(width: 72, alignment: .trailing)
-            }
-        }
-    }
-}
-
 struct TaskbarBlackBackgroundSettingsView: View {
     @AppStorage(TaskbarBlackBackgroundSettings.transparencyKey) private var transparency = 1.0
 
@@ -83,7 +45,7 @@ struct TaskbarItemHazeSettingsView: View {
                 Text("\(Int((strength * 100).rounded()))%")
                     .monospacedDigit().frame(width: 44, alignment: .trailing)
             }
-            Text("调整任务栏中激活项和鼠标悬停项的平面底色。0% 为无底色，100% 为完整效果；自动保存并即时生效。")
+            Text("调整普通状态下激活项和悬停项的底色。0% 为无底色，100% 为完整效果。窗口超过出屏阈值时，会暂时使用独立的增强底色，此滑杆不影响该状态。设置自动保存。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

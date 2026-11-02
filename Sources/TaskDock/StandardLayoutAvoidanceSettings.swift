@@ -35,7 +35,7 @@ struct StandardLayoutAvoidanceSettingsView: View {
     @AppStorage(StandardLayoutAvoidanceSettings.overflowLimitKey) private var overflowLimit = 48.0
     @AppStorage(StandardLayoutAvoidanceSettings.allOverlapsKey) private var allOverlaps = false
     @AppStorage(StandardLayoutAvoidanceSettings.animatedKey) private var animated = false
-    @AppStorage(PointerWindowAvoidanceSettings.animationDurationKey) private var duration = PointerWindowAvoidanceSettings.defaultAnimationDuration
+    @AppStorage(WindowAvoidanceAnimationSettings.animationDurationKey) private var duration = WindowAvoidanceAnimationSettings.defaultAnimationDuration
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("窗口避让", isOn: $enabled)
@@ -43,7 +43,7 @@ struct StandardLayoutAvoidanceSettingsView: View {
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("所有重叠窗口避让", isOn: $allOverlaps)
                 .disabled(!enabled)
-            Text("小窗口向上移动，大窗口收底边。底边出屏超过下方阈值时跳过。沿用下方动画和等待时间。")
+            Text("小窗口向上移动，大窗口收底边。底边出屏超过阈值时不移动窗口，临时加深任务项底色以保持文字清晰，遮挡解除后恢复。沿用下方动画和等待时间。")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("底边出屏阈值")
@@ -56,7 +56,7 @@ struct StandardLayoutAvoidanceSettingsView: View {
             if animated {
                 HStack {
                     Text("动画时长")
-                    ReleaseTunedSlider(value: $duration, in: 0.08...0.6, defaultValue: PointerWindowAvoidanceSettings.defaultAnimationDuration)
+                    ReleaseTunedSlider(value: $duration, in: 0.08...0.6, defaultValue: WindowAvoidanceAnimationSettings.defaultAnimationDuration)
                         .accessibilityLabel("窗口收边动画时长")
                     Text(String(format: "%.2f 秒", duration)).monospacedDigit()
                 }.disabled(!enabled)

@@ -545,7 +545,7 @@ struct SettingsView: View {
 
             modeVisualSettings(for: .taskbar)
 
-            settingsSection(title: "任务栏背景", description: "macOS 26 及以上使用原生液态玻璃，随系统明暗模式调整；旧系统使用毛玻璃。") {
+            settingsSection(title: "任务栏背景", description: "macOS 26 及以上使用原生液态玻璃，旧系统使用毛玻璃。任务栏与任务项保持固定外观；设置页和气泡跟随系统明暗模式。") {
                 HStack {
                     Label("任务栏背景透明度", systemImage: "circle.lefthalf.filled")
                     Spacer()
