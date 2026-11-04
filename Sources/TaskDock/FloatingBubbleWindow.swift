@@ -223,11 +223,13 @@ struct FloatingBubbleSurface<Content: View>: View {
     @ViewBuilder let content: () -> Content
     @AppStorage(DeveloperDebugSettings.bubbleTransparencyKey) private var transparency = 0.0
     private var backgroundOpacity: Double {
-        transparency.isFinite ? 1 - min(0.9, max(0, transparency)) : 1
+        let adjustment = transparency.isFinite ? min(0.9, max(0, transparency)) : 0
+        return (isSmall ? 1 : 0.82) * (1 - adjustment)
     }
     var body: some View {
         content().padding(.bottom, isSmall ? SmallBubbleMetrics.tailHeight : 10)
-            .background(FrostedBubbleBackground(arrowX: arrowX, isSmall: isSmall).opacity(backgroundOpacity))
+            .background(FrostedBubbleBackground(arrowX: arrowX, isSmall: isSmall,
+                opacity: backgroundOpacity))
             .overlay(FloatingBubbleShape(arrowX: arrowX, isSmall: isSmall).stroke(Color.primary.opacity(0.26), lineWidth: 0.5))
     }
 }
@@ -288,12 +290,14 @@ final class FloatingBubbleHintView: NSHostingView<AnyView> {
 private struct FrostedBubbleBackground: NSViewRepresentable {
     let arrowX: CGFloat
     var isSmall = false
+    var opacity = 1.0
     func makeNSView(context: Context) -> FrostedView {
         let view = FrostedView()
-        view.material = isSmall ? .toolTip : .popover
+        view.material = isSmall ? .toolTip : .menu
         view.blendingMode = .behindWindow
         view.state = .active
         view.isEmphasized = false
+        view.alphaValue = opacity
         view.arrowX = arrowX
         view.isSmall = isSmall
         return view
@@ -301,7 +305,8 @@ private struct FrostedBubbleBackground: NSViewRepresentable {
     func updateNSView(_ view: FrostedView, context: Context) {
         view.arrowX = arrowX
         view.isSmall = isSmall
-        view.material = isSmall ? .toolTip : .popover
+        view.material = isSmall ? .toolTip : .menu
+        view.alphaValue = opacity
         view.needsLayout = true
     }
     final class FrostedView: NSVisualEffectView {

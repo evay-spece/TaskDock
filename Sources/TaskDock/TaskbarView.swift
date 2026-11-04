@@ -290,23 +290,17 @@ struct TaskbarView: View {
                                 let allDownloadsComplete = downloadTasks.allSatisfy { $0.download.isComplete }
                                 Button { downloadsExpanded.toggle() } label: {
                                     HStack(spacing: 5 * taskbarContentScale) {
-                                        Image(systemName: "arrow.down.to.line")
-                                            .font(.system(size: 16 * taskbarContentScale, weight: .semibold))
-                                            .foregroundStyle(Color.primary)
-                                            .frame(width: 21 * taskbarContentScale,
-                                                height: 21 * taskbarContentScale)
-                                            .overlay(alignment: .topTrailing) {
-                                                if allDownloadsComplete {
-                                                    Image(systemName: "checkmark.circle.fill")
-                                                        .font(.system(size: 10 * taskbarContentScale,
-                                                            weight: .bold))
-                                                        .foregroundStyle(Color.green)
-                                                        .background(Circle().fill(Color.white))
-                                                        .offset(x: 3 * taskbarContentScale,
-                                                            y: -3 * taskbarContentScale)
-                                                }
-                                            }
-                                        Text("下载 · \(downloadTasks.count)")
+                                        if allDownloadsComplete {
+                                            CompletedDownloadIcon(size: 18 * taskbarContentScale)
+                                                .frame(width: 21 * taskbarContentScale,
+                                                    height: 21 * taskbarContentScale)
+                                        } else {
+                                            Image(systemName: "arrow.down.to.line")
+                                                .font(.system(size: 16 * taskbarContentScale, weight: .semibold))
+                                                .frame(width: 21 * taskbarContentScale,
+                                                    height: 21 * taskbarContentScale)
+                                        }
+                                        Text("下载  \(downloadTasks.count)项")
                                             .font(.system(size: max(9.5, settings.taskbarItemFontSize) * taskbarContentScale,
                                                 weight: .medium))
                                             .lineLimit(1)
@@ -318,11 +312,17 @@ struct TaskbarView: View {
                                     .padding(.horizontal, 9 * taskbarContentScale)
                                     .frame(height: taskbarItemHeight)
                                     .background {
-                                        RoundedRectangle(cornerRadius: 8 * taskbarContentScale)
-                                            .fill(Color.primary.opacity(downloadsExpanded ? 0.13
-                                                : downloadButtonHovered ? 0.08 : 0))
+                                        TaskbarReadableItemSurface(cornerRadius: 7 * taskbarContentScale,
+                                            isHovered: downloadButtonHovered, isFocused: downloadsExpanded,
+                                            transparency: settings.nonSelectedItemTransparency)
+                                        RoundedRectangle(cornerRadius: 7 * taskbarContentScale)
+                                            .fill(Color.accentColor.opacity(downloadsExpanded ? 0.18
+                                                : downloadButtonHovered ? 0.10 : 0))
+                                        RoundedRectangle(cornerRadius: 7 * taskbarContentScale)
+                                            .stroke(Color.accentColor.opacity(downloadsExpanded ? 0.46
+                                                : downloadButtonHovered ? 0.28 : 0), lineWidth: 0.7)
                                     }
-                                    .contentShape(RoundedRectangle(cornerRadius: 8 * taskbarContentScale))
+                                    .contentShape(RoundedRectangle(cornerRadius: 7 * taskbarContentScale))
                                 }
                                 .buttonStyle(.plain)
                                 .fixedSize(horizontal: true, vertical: false)
@@ -642,7 +642,7 @@ struct TaskbarView: View {
         let scale = taskbarPanelScale
         let precedingWidths: [CGFloat]
         if downloadTasks.count > 3 {
-            let title = "下载 · \(downloadTasks.count)" as NSString
+            let title = "下载  \(downloadTasks.count)项" as NSString
             let font = NSFont.systemFont(ofSize: max(9.5, settings.taskbarItemFontSize) * taskbarContentScale,
                 weight: .medium)
             let titleWidth = title.size(withAttributes: [.font: font]).width
@@ -1671,6 +1671,7 @@ private struct CompletedDownloadIcon: View {
 }
 
 private struct DownloadTaskItemView: View {
+    private enum HoverRegion { case file, folder, close }
     let task: BrowserDownloadTask
     let width: CGFloat
     let height: CGFloat
@@ -1683,6 +1684,7 @@ private struct DownloadTaskItemView: View {
     let onRevealFile: (@escaping (Bool) -> Void) -> Void
     let onClose: () -> Void
     @State private var hovered = false
+    @State private var hoveredRegion: HoverRegion?
     @State private var isOpening = false
     private var highlight: Color { .accentColor }
 
@@ -1723,26 +1725,35 @@ private struct DownloadTaskItemView: View {
                 }
                 .padding(.leading, 8 * scale).padding(.trailing, 4 * scale)
                 .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
+                .background(Color.white.opacity(hoveredRegion == .file ? 0.10 : 0),
+                    in: RoundedRectangle(cornerRadius: 5 * scale))
                 .contentShape(Rectangle())
             }
             .accessibilityLabel(task.download.isComplete ? "打开文件：\(task.download.filename)" : "下载：\(task.download.filename)")
             .help(task.download.isComplete ? "打开文件：\(task.download.filename)"
                 : task.browser == .safari ? "切换到 Safari 查看下载" : "打开浏览器下载列表")
+            .onHover { inside in updateHoverRegion(.file, inside: inside) }
             if task.download.isComplete {
                 Button { open(reveal: true) } label: {
                     Image(systemName: "folder")
                         .font(.system(size: 13 * scale, weight: .medium))
                         .frame(width: 28 * scale, height: height)
+                        .background(Color.white.opacity(hoveredRegion == .folder ? 0.16 : 0),
+                            in: RoundedRectangle(cornerRadius: 5 * scale))
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("打开文件夹").help("打开文件夹并选中文件")
+                .onHover { inside in updateHoverRegion(.folder, inside: inside) }
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11 * scale, weight: .semibold))
                         .frame(width: 24 * scale, height: height)
+                        .background(Color.white.opacity(hoveredRegion == .close ? 0.16 : 0),
+                            in: RoundedRectangle(cornerRadius: 5 * scale))
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("关闭下载任务").help("关闭下载任务，不删除文件")
+                .onHover { inside in updateHoverRegion(.close, inside: inside) }
             }
         }
         .buttonStyle(DownloadTaskButtonStyle(scale: scale))
@@ -1763,6 +1774,11 @@ private struct DownloadTaskItemView: View {
         .clipShape(RoundedRectangle(cornerRadius: 7 * scale))
         .onHover { hovered = $0 }
         .animation(.easeOut(duration: 0.12), value: hovered)
+    }
+
+    private func updateHoverRegion(_ region: HoverRegion, inside: Bool) {
+        if inside { hoveredRegion = region }
+        else if hoveredRegion == region { hoveredRegion = nil }
     }
 }
 

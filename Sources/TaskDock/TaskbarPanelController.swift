@@ -216,6 +216,13 @@ final class TaskbarPanelController {
         if hasLicenseAccess, settings.layoutMode == .dockCompanion, !finderWindows.isEmpty {
             dockFinderPanel?.orderFrontRegardless()
         }
+        // The native Dock needs a moment to retreat. Re-enumerate every window
+        // after TaskDock is visible, then apply the normal overlap rules once.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, !self.isHiddenInDock else { return }
+            self.refresh()
+            self.checkWindowAvoidance()
+        }
     }
 
     var currentLayoutMode: TaskDockLayoutMode { settings.layoutMode }
