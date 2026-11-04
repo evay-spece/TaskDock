@@ -51,12 +51,17 @@ final class TaskbarPanelController {
     private let collapseAnimator = TaskbarCollapseAnimator()
     private let badgePollQueue = DispatchQueue(label: "taskdock.dock-badges", qos: .utility)
     private let progressPollQueue = DispatchQueue(label: "taskdock.window-progress", qos: .utility)
+    private let safariPollQueue = DispatchQueue(label: "taskdock.safari-downloads", qos: .utility)
     private var panel: NSPanel?
     private var timer: Timer?
     private var windowAvoidanceTimer: Timer?
     private var progressTimer: Timer?
+    private var safariTimer: Timer?
     private var progressPollInFlight = false
+    private var safariPollInFlight = false
     private var progressPollGeneration = 0
+    private var browserDownloads: [BrowserDownloadTask] = []
+    private var safariDownloads: [BrowserDownloadTask] = []
     private var windows: [WindowModel] = []
     private let bulkVisibility = ApplicationVisibilityToggle()
     private var taskbarHiddenPIDs: Set<pid_t> = []
@@ -151,12 +156,18 @@ final class TaskbarPanelController {
         progressTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pollWindowProgress() }
         }
+        let safariTimer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pollSafariDownloads() }
+        }
+        RunLoop.main.add(safariTimer, forMode: .common)
+        self.safariTimer = safariTimer
         let avoidanceTimer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.checkWindowAvoidance() }
         }
         RunLoop.main.add(avoidanceTimer, forMode: .common)
         windowAvoidanceTimer = avoidanceTimer
         pollWindowProgress()
+        pollSafariDownloads()
         let workspaceNotifications = NSWorkspace.shared.notificationCenter
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
@@ -189,9 +200,15 @@ final class TaskbarPanelController {
         windowAvoidanceTimer = nil
         progressTimer?.invalidate()
         progressTimer = nil
+        safariTimer?.invalidate()
+        safariTimer = nil
         progressPollGeneration += 1
         progressPollInFlight = false
+        safariPollInFlight = false
+        browserDownloads = []
+        safariDownloads = []
         windowProgress.update([:])
+        windowProgress.updateDownloads([])
         let scanner = progressScanner
         progressPollQueue.async { scanner.clear() }
         shortcutMonitor?.stop()
@@ -1367,7 +1384,7 @@ final class TaskbarPanelController {
         let generation = progressPollGeneration
         let scanner = progressScanner
         progressPollQueue.async { [weak self] in
-            let downloads = BrowserProgressStore().tasks() + SafariDownloadStore().tasks()
+            let downloads = BrowserProgressStore().tasks()
             let progress = scanner.scan(candidates)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -1376,9 +1393,32 @@ final class TaskbarPanelController {
                 guard self.settings.layoutMode == .taskbar, !self.isHiddenInDock else { return }
                 let currentIDs = Set(self.windows.map(\.nativeWindowID))
                 self.windowProgress.update(progress.filter { currentIDs.contains($0.key) })
-                self.windowProgress.updateDownloads(downloads)
+                self.browserDownloads = downloads
+                self.updateDownloads()
             }
         }
+    }
+
+    private func pollSafariDownloads() {
+        guard settings.layoutMode == .taskbar, !isHiddenInDock,
+              permissionService.isTrusted, !safariPollInFlight else { return }
+        safariPollInFlight = true
+        let generation = progressPollGeneration
+        safariPollQueue.async { [weak self] in
+            let downloads = SafariDownloadStore().tasks()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.progressPollGeneration == generation else { return }
+                self.safariPollInFlight = false
+                guard self.settings.layoutMode == .taskbar, !self.isHiddenInDock else { return }
+                self.safariDownloads = downloads
+                self.updateDownloads()
+            }
+        }
+    }
+
+    private func updateDownloads() {
+        windowProgress.updateDownloads(browserDownloads + safariDownloads)
     }
 
     private func quitRecentApp(_ recent: FavoriteApp) {
