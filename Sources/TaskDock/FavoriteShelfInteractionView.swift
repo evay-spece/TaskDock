@@ -352,7 +352,11 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
                     return nil
                 }
                 if event.type != .keyDown, event.window != self.contextPanel {
-                    self.closeContextMenu()
+                    // A second right-click switches menus without leaving the shelf.
+                    // Keep its magnification reservation until the new menu takes over.
+                    let switchesFavorite = event.type == .rightMouseDown && event.window === self.window
+                        && self.itemAt?(self.convert(event.locationInWindow, from: nil)) != nil
+                    self.closeContextMenu(preservingFavoriteHover: switchesFavorite)
                     return event
                 }
                 return event
@@ -368,7 +372,7 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
             }
         }
 
-        private func closeContextMenu() {
+        private func closeContextMenu(preservingFavoriteHover: Bool = false) {
             let wasOpen = contextPanel != nil
             if let contextDismissMonitor { NSEvent.removeMonitor(contextDismissMonitor) }
             if let contextGlobalDismissMonitor { NSEvent.removeMonitor(contextGlobalDismissMonitor) }
@@ -377,9 +381,11 @@ struct FavoriteShelfInteractionView: NSViewRepresentable {
             contextPanel?.close()
             contextPanel = nil
             if wasOpen {
-                pendingLocation = nil
-                onContextMenuVisibilityChange?(nil)
-                onLocationChange?(nil)
+                if !preservingFavoriteHover {
+                    pendingLocation = nil
+                    onContextMenuVisibilityChange?(nil)
+                    onLocationChange?(nil)
+                }
             }
         }
 
