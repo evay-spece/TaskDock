@@ -40,6 +40,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @StateObject private var launchAtLogin = LaunchAtLoginSettings()
     @AppStorage(RecentAppHoverBehavior.settingsKey) private var recentAppHoverBehavior = RecentAppHoverBehavior.nameBubble.rawValue
+    @AppStorage("taskdock.downloadsAlwaysVisible") private var downloadsAlwaysVisible = false
     @ObservedObject var settings: SettingsStore
     @ObservedObject var license: LicenseService
     @ObservedObject private var updateChecker = UpdateChecker.shared
@@ -347,6 +348,9 @@ struct SettingsView: View {
             }
             settingsSection(title: "浏览器下载进度", description: "Safari 自动读取本机下载记录；Chrome / Edge 安装配套扩展后，为每个下载建立独立任务项。") {
                 VStack(alignment: .leading, spacing: 12) {
+                    Toggle("下载入口常驻任务栏", isOn: $downloadsAlwaysVisible)
+                    Text("开启后，在“最近运行过程序”图标旁固定显示下载入口；点击可查看下载任务。")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text("Safari 无需扩展。Chrome / Edge 仅在本机传输文件名和进度，不传输完整路径、网址或文件内容。")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(ProgressBrowser.bridgeBrowsers, id: \.rawValue) { browser in

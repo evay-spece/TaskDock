@@ -64,6 +64,9 @@ struct TaskbarView: View {
     @State private var hoveredWindowID: String?
     @State private var downloadsExpanded = false
     @State private var downloadButtonHovered = false
+    @AppStorage("taskdock.downloadsAlwaysVisible") private var downloadsAlwaysVisible = false
+    @State private var residentDownloadsExpanded = false
+    @State private var residentDownloadHovered = false
     @State private var pendingFocusWindowID: String?
     @State private var favoriteLeadingExtension: CGFloat = 0
     @State private var favoriteHoverTrailingSpace: CGFloat = 0
@@ -108,6 +111,10 @@ struct TaskbarView: View {
 
     private var downloadTasks: [BrowserDownloadTask] {
         settings.layoutMode == .taskbar && showsControls ? windowProgress.downloads : []
+    }
+
+    private var showsResidentDownloadButton: Bool {
+        settings.layoutMode == .taskbar && showsControls && downloadsAlwaysVisible
     }
 
     private func downloadItemWidth(_ task: BrowserDownloadTask) -> CGFloat {
@@ -240,7 +247,7 @@ struct TaskbarView: View {
                             ? 5 * taskbarPanelScale : 0)
                         .zIndex(settings.layoutMode == .taskbar ? 2 : 0)
 
-                        if !recentApplications.isEmpty || !windows.isEmpty {
+                        if !recentApplications.isEmpty || !windows.isEmpty || showsResidentDownloadButton {
                             Divider()
                                 .frame(height: 22 * taskbarPanelScale)
                                 .offset(y: -taskbarVisualLift)
@@ -270,11 +277,42 @@ struct TaskbarView: View {
                             onPopoverVisibilityChanged: onRecentPopoverVisibilityChanged
                         )
 
-                        if !windows.isEmpty {
-                            Divider()
-                                .frame(height: 22 * taskbarPanelScale)
-                                .offset(y: -taskbarVisualLift)
+                    }
+
+                    if showsResidentDownloadButton {
+                        Button { residentDownloadsExpanded.toggle() } label: {
+                            Image(systemName: "arrow.down.to.line")
+                                .font(.system(size: 16 * taskbarPanelScale, weight: .semibold))
+                                .foregroundStyle(Color.primary)
+                                .frame(width: 27 * taskbarPanelScale, height: 27 * taskbarPanelScale)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 8 * taskbarPanelScale, style: .continuous)
+                                        .fill(Color.primary.opacity(residentDownloadHovered || residentDownloadsExpanded ? 0.10 : 0.045))
+                                }
+                                .frame(width: 40 * taskbarPanelScale,
+                                    height: SettingsStore.layoutReferenceTaskbarHeight * taskbarPanelScale)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .onHover { residentDownloadHovered = $0 }
+                        .accessibilityLabel("下载任务；点击展开列表")
+                        .help("下载任务")
+                        .floatingBubbleWindow(isPresented: $residentDownloadsExpanded) {
+                            downloadListPopover
+                        }
+                        .onChange(of: residentDownloadsExpanded) { onRecentPopoverVisibilityChanged($0) }
+                        .onDisappear {
+                            residentDownloadsExpanded = false
+                            residentDownloadHovered = false
+                            onRecentPopoverVisibilityChanged(false)
+                        }
+                        .offset(y: -taskbarVisualLift)
+                    }
+
+                    if (!recentApplications.isEmpty || showsResidentDownloadButton) && !windows.isEmpty {
+                        Divider()
+                            .frame(height: 22 * taskbarPanelScale)
+                            .offset(y: -taskbarVisualLift)
                     }
 
                     if windows.isEmpty && downloadTasks.isEmpty && showsEmptyState {
@@ -286,7 +324,7 @@ struct TaskbarView: View {
                             - (settings.layoutMode == .taskbar ? 2 * settings.taskbarSideInset : 0),
                             autoCollapsed: autoCollapsed)
                         HStack(spacing: taskbarItemSpacing) {
-                            if downloadTasks.count > 3 {
+                            if downloadTasks.count > 3 && !showsResidentDownloadButton {
                                 let allDownloadsComplete = downloadTasks.allSatisfy { $0.download.isComplete }
                                 Button { downloadsExpanded.toggle() } label: {
                                     HStack(spacing: 5 * taskbarContentScale) {
@@ -329,18 +367,7 @@ struct TaskbarView: View {
                                 .onHover { downloadButtonHovered = $0 }
                                 .accessibilityLabel("\(downloadsExpanded ? "收起" : "展开") \(downloadTasks.count) 个下载任务")
                                 .floatingBubbleWindow(isPresented: $downloadsExpanded) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("下载任务（\(downloadTasks.count)）")
-                                            .font(.headline)
-                                            .padding(.bottom, 4)
-                                        ScrollView {
-                                            VStack(spacing: 4) {
-                                                ForEach(downloadTasks) { task in downloadPopoverRow(task) }
-                                            }
-                                        }.frame(height: min(420,
-                                            CGFloat(downloadTasks.count) * 32
-                                            + CGFloat(max(0, downloadTasks.count - 1)) * 4))
-                                    }.padding(12).frame(width: 355)
+                                    downloadListPopover
                                 }
                                 .onChange(of: downloadsExpanded) { onRecentPopoverVisibilityChanged($0) }
                                 .onChange(of: downloadTasks.count) { if $0 <= 3 { downloadsExpanded = false } }
@@ -596,14 +623,39 @@ struct TaskbarView: View {
         }
     }
 
+    private var downloadListPopover: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("下载任务（\(downloadTasks.count)）")
+                .font(.headline)
+                .padding(.bottom, 4)
+            if downloadTasks.isEmpty {
+                Text("暂无下载任务")
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else {
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(downloadTasks) { task in downloadPopoverRow(task) }
+                    }
+                }
+                .frame(height: min(420, CGFloat(downloadTasks.count) * 32
+                    + CGFloat(max(0, downloadTasks.count - 1)) * 4))
+            }
+        }
+        .padding(12)
+        .frame(width: 355)
+    }
+
     private func downloadPopoverRow(_ task: BrowserDownloadTask) -> some View {
         DownloadBubbleRow(task: task,
             onOpenDownloads: {
                 downloadsExpanded = false
+                residentDownloadsExpanded = false
                 onPerformWindowAction { BrowserDownloadNavigation.open(task.browser) }
             },
             onOpenFile: { finished in
                 downloadsExpanded = false
+                residentDownloadsExpanded = false
                 onPerformWindowAction {
                     BrowserDownloadNavigation.openFile(task, reveal: false) { success in
                         if success { windowProgress.dismissDownload(task) }; finished(success)
@@ -612,6 +664,7 @@ struct TaskbarView: View {
             },
             onRevealFile: { finished in
                 downloadsExpanded = false
+                residentDownloadsExpanded = false
                 onPerformWindowAction {
                     BrowserDownloadNavigation.openFile(task, reveal: true) { success in
                         if success { windowProgress.dismissDownload(task) }; finished(success)
@@ -641,7 +694,7 @@ struct TaskbarView: View {
         guard settings.layoutMode == .taskbar, !appGroups.isEmpty else { return [] }
         let scale = taskbarPanelScale
         let precedingWidths: [CGFloat]
-        if downloadTasks.count > 3 {
+        if downloadTasks.count > 3 && !showsResidentDownloadButton {
             let title = "下载  \(downloadTasks.count)项" as NSString
             let font = NSFont.systemFont(ofSize: max(9.5, settings.taskbarItemFontSize) * taskbarContentScale,
                 weight: .medium)
@@ -726,7 +779,8 @@ struct TaskbarView: View {
                 + CGFloat(max(favoriteItemCount - 1, 0)) * 2 + 14) * taskbarPanelScale
                 + FavoriteMagnificationLayout.idleSideClearance(for: taskbarPanelScale)
         }
-        let recentApplicationWidth: CGFloat = recentApplications.isEmpty ? 0 : 40 * taskbarPanelScale
+        let recentApplicationWidth: CGFloat = (recentApplications.isEmpty ? 0 : 40 * taskbarPanelScale)
+            + (showsResidentDownloadButton ? 40 * taskbarPanelScale : 0)
         let displayCount = appGroups.reduce(0) { $0 + (isCollapsed($1) ? 1 : $1.windows.count) }
         let totalSpacing = CGFloat(max(displayCount - 1, 0)) * taskbarItemSpacing
         let available = max(
