@@ -222,14 +222,19 @@ struct FloatingBubbleSurface<Content: View>: View {
     var isSmall = false
     @ViewBuilder let content: () -> Content
     @AppStorage(DeveloperDebugSettings.bubbleTransparencyKey) private var transparency = 0.0
-    private var backgroundOpacity: Double {
+    private var tintOpacity: Double {
         let adjustment = transparency.isFinite ? min(0.9, max(0, transparency)) : 0
-        return (isSmall ? 1 : 0.82) * (1 - adjustment)
+        return (isSmall ? 0.12 : 0.14) * (1 - adjustment / 0.9)
     }
     var body: some View {
         content().padding(.bottom, isSmall ? SmallBubbleMetrics.tailHeight : 10)
-            .background(FrostedBubbleBackground(arrowX: arrowX, isSmall: isSmall,
-                opacity: backgroundOpacity))
+            .background {
+                FrostedBubbleBackground(arrowX: arrowX, isSmall: isSmall)
+                    .overlay {
+                        FloatingBubbleShape(arrowX: arrowX, isSmall: isSmall)
+                            .fill(Color(nsColor: .windowBackgroundColor).opacity(tintOpacity))
+                    }
+            }
             .overlay(FloatingBubbleShape(arrowX: arrowX, isSmall: isSmall).stroke(Color.primary.opacity(0.26), lineWidth: 0.5))
     }
 }
@@ -290,14 +295,12 @@ final class FloatingBubbleHintView: NSHostingView<AnyView> {
 private struct FrostedBubbleBackground: NSViewRepresentable {
     let arrowX: CGFloat
     var isSmall = false
-    var opacity = 1.0
     func makeNSView(context: Context) -> FrostedView {
         let view = FrostedView()
         view.material = isSmall ? .toolTip : .menu
         view.blendingMode = .behindWindow
         view.state = .active
         view.isEmphasized = false
-        view.alphaValue = opacity
         view.arrowX = arrowX
         view.isSmall = isSmall
         return view
@@ -306,7 +309,6 @@ private struct FrostedBubbleBackground: NSViewRepresentable {
         view.arrowX = arrowX
         view.isSmall = isSmall
         view.material = isSmall ? .toolTip : .menu
-        view.alphaValue = opacity
         view.needsLayout = true
     }
     final class FrostedView: NSVisualEffectView {

@@ -67,7 +67,7 @@ struct DeveloperDebugSettingsView: View {
                 Text("\(Int((transparency * 100).rounded()))%")
                     .monospacedDigit().frame(width: 44, alignment: .trailing)
             }
-            Text("背景使用毛玻璃效果。0% 为最实，90% 为最透明；文字和按钮不参与模糊，设置自动保存。")
+            Text("背景始终保留毛玻璃模糊；滑杆只调整上层底色浓淡。0% 底色最实，90% 底色最淡；设置自动保存。")
                 .font(.caption).foregroundStyle(.secondary)
             Text("实时预览").font(.subheadline.bold())
             ZStack {
