@@ -3,6 +3,7 @@ import SwiftUI
 enum DeveloperDebugSettings {
     static let entryVisibleKey = "developerDebugSettingsVisibleV1"
     static let bubbleTransparencyKey = "floatingBubbleBackgroundTransparencyV1"
+    static let largeBubbleGlassStrengthKey = "largeBubbleGlassStrengthV1"
     static let smallBubbleFontSizeKey = "smallBubbleFontSizeV1"
     static let smallBubbleIconGapKey = "smallBubbleIconGapV1"
 }
@@ -53,6 +54,7 @@ struct TaskbarItemHazeSettingsView: View {
 
 struct DeveloperDebugSettingsView: View {
     @AppStorage(DeveloperDebugSettings.bubbleTransparencyKey) private var transparency = 0.0
+    @AppStorage(DeveloperDebugSettings.largeBubbleGlassStrengthKey) private var largeBubbleGlassStrength = 1.0
     @AppStorage(DeveloperDebugSettings.smallBubbleFontSizeKey) private var smallBubbleFontSize = 12.0
     @AppStorage(DeveloperDebugSettings.smallBubbleIconGapKey) private var smallBubbleIconGap = 3.0
 
@@ -69,6 +71,15 @@ struct DeveloperDebugSettingsView: View {
             }
             Text("背景始终保留毛玻璃模糊；滑杆只调整上层底色浓淡。0% 底色最实，90% 底色最淡；设置自动保存。")
                 .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("大气泡毛玻璃强度")
+                ReleaseTunedSlider(value: $largeBubbleGlassStrength, in: 0...1, defaultValue: 1)
+                    .accessibilityLabel("大气泡毛玻璃强度")
+                Text("\(Int((largeBubbleGlassStrength * 100).rounded()))%")
+                    .monospacedDigit().frame(width: 44, alignment: .trailing)
+            }
+            Text("调整系统毛玻璃材质的呈现强弱；最低档仍保留模糊，100% 为完整效果。只影响大气泡，自动保存并即时生效。")
+                .font(.caption).foregroundStyle(.secondary)
             Text("实时预览").font(.subheadline.bold())
             ZStack {
                 LinearGradient(colors: [.blue.opacity(0.4), .orange.opacity(0.3)], startPoint: .leading, endPoint: .trailing)
@@ -79,8 +90,9 @@ struct DeveloperDebugSettingsView: View {
                     }.padding(16).frame(width: 300, alignment: .leading)
                 }.padding(24)
             }.frame(height: 160).clipShape(RoundedRectangle(cornerRadius: 12))
-            Button("恢复默认透明度") {
+            Button("恢复大气泡默认效果") {
                 transparency = ReleaseTunedSlider.preset(DeveloperDebugSettings.bubbleTransparencyKey, fallback: 0)
+                largeBubbleGlassStrength = 1
             }
             Divider()
             Text("小气泡").font(.headline)

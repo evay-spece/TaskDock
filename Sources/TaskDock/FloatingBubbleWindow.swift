@@ -222,14 +222,20 @@ struct FloatingBubbleSurface<Content: View>: View {
     var isSmall = false
     @ViewBuilder let content: () -> Content
     @AppStorage(DeveloperDebugSettings.bubbleTransparencyKey) private var transparency = 0.0
+    @AppStorage(DeveloperDebugSettings.largeBubbleGlassStrengthKey) private var largeBubbleGlassStrength = 1.0
     private var tintOpacity: Double {
         let adjustment = transparency.isFinite ? min(0.9, max(0, transparency)) : 0
         return (isSmall ? 0.12 : 0.14) * (1 - adjustment / 0.9)
     }
+    private var glassOpacity: Double {
+        guard !isSmall else { return 1 }
+        let strength = largeBubbleGlassStrength.isFinite ? min(1, max(0, largeBubbleGlassStrength)) : 1
+        return 0.8 + 0.2 * strength
+    }
     var body: some View {
         content().padding(.bottom, isSmall ? SmallBubbleMetrics.tailHeight : 10)
             .background {
-                FrostedBubbleBackground(arrowX: arrowX, isSmall: isSmall)
+                FrostedBubbleBackground(arrowX: arrowX, isSmall: isSmall, glassOpacity: glassOpacity)
                     .overlay {
                         FloatingBubbleShape(arrowX: arrowX, isSmall: isSmall)
                             .fill(Color(nsColor: .windowBackgroundColor).opacity(tintOpacity))
@@ -295,12 +301,14 @@ final class FloatingBubbleHintView: NSHostingView<AnyView> {
 private struct FrostedBubbleBackground: NSViewRepresentable {
     let arrowX: CGFloat
     var isSmall = false
+    var glassOpacity = 1.0
     func makeNSView(context: Context) -> FrostedView {
         let view = FrostedView()
         view.material = isSmall ? .toolTip : .menu
         view.blendingMode = .behindWindow
         view.state = .active
         view.isEmphasized = false
+        view.alphaValue = glassOpacity
         view.arrowX = arrowX
         view.isSmall = isSmall
         return view
@@ -309,6 +317,7 @@ private struct FrostedBubbleBackground: NSViewRepresentable {
         view.arrowX = arrowX
         view.isSmall = isSmall
         view.material = isSmall ? .toolTip : .menu
+        view.alphaValue = glassOpacity
         view.needsLayout = true
     }
     final class FrostedView: NSVisualEffectView {
