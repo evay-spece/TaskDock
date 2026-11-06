@@ -87,6 +87,7 @@ final class TaskbarPanelController {
     private var shortcutMonitor: ModifierDoubleTapMonitor?
     private var minimizeHotKeyMonitor: GlobalMinimizeHotKeyMonitor?
     private var minimizeShortcutEnabled: Bool?
+    private var registeredMinimizeShortcut: String?
     private var optionHotKeyMonitor: OptionWindowHotKeyMonitor?
     private var registeredOptionShortcuts = OptionWindowHotKeyMonitor.Registered()
     private var registeredWindowCount = -1
@@ -251,6 +252,7 @@ final class TaskbarPanelController {
 
     var currentLayoutMode: TaskDockLayoutMode { settings.layoutMode }
     var isTaskDockHidden: Bool { isHiddenInDock }
+    var toggleModifierLabel: String { String(settings.toggleModifier.label.prefix(1)) }
     var canRestoreHiddenApplications: Bool {
         bulkVisibility.canRestore
     }
@@ -673,8 +675,11 @@ final class TaskbarPanelController {
 
     private func synchronizeMinimizeShortcut() {
         let enabled = UserDefaults.standard.object(forKey: "taskdock.optionDEnabledV1") as? Bool ?? true
-        guard enabled != minimizeShortcutEnabled else { return }
+        let shortcut = MinimizeShortcutSettings.current()
+        let identifier = "\(shortcut.keyCode):\(shortcut.modifiers)"
+        guard enabled != minimizeShortcutEnabled || identifier != registeredMinimizeShortcut else { return }
         minimizeShortcutEnabled = enabled
+        registeredMinimizeShortcut = identifier
         if enabled { _ = minimizeHotKeyMonitor?.start() } else { minimizeHotKeyMonitor?.stop() }
     }
 

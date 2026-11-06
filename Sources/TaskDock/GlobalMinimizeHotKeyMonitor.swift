@@ -1,7 +1,7 @@
 import Carbon
 import AppKit
 
-/// Keeps Option+D available even when TaskDock is hidden or another layout is selected.
+/// Keeps the configured minimize shortcut available while another app is focused.
 @MainActor
 final class GlobalMinimizeHotKeyMonitor {
     private let signature: OSType = 0x54444D4E // TDMN
@@ -54,8 +54,9 @@ final class GlobalMinimizeHotKeyMonitor {
 
         var registeredHotKey: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: signature, id: 1)
+        let shortcut = MinimizeShortcutSettings.current()
         guard RegisterEventHotKey(
-            UInt32(kVK_ANSI_D), UInt32(optionKey), hotKeyID,
+            shortcut.keyCode, shortcut.modifiers, hotKeyID,
             GetApplicationEventTarget(), 0, &registeredHotKey
         ) == noErr, let registeredHotKey else {
             stop()

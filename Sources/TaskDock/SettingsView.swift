@@ -6,33 +6,36 @@ import TaskDockBrowserProtocol
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general
-    case taskbar
+    case appearance
+    case blacklist
+    case about
     case dockCompanion
     case files
     case developer
-    case about
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .general: return "通用"
+        case .appearance: return "外观"
+        case .blacklist: return "黑名单"
+        case .about: return "关于"
         case .files: return "右键功能"
-        case .taskbar: return "任务栏"
         case .dockCompanion: return "融合模式"
         case .developer: return "开发者调试"
-        case .about: return "关于"
         }
     }
 
     var systemImage: String {
         switch self {
         case .general: return "gearshape"
+        case .appearance: return "circle.lefthalf.filled"
+        case .blacklist: return "rectangle.stack.badge.minus"
+        case .about: return "info.circle"
         case .files: return "doc.badge.plus"
-        case .taskbar: return "rectangle.bottomthird.inset.filled"
         case .dockCompanion: return "dock.rectangle"
         case .developer: return "hammer"
-        case .about: return "info.circle"
         }
     }
 }
@@ -55,6 +58,9 @@ struct SettingsView: View {
     @AppStorage(DeveloperDebugSettings.entryVisibleKey) private var developerEntryVisible = false
     @AppStorage("fusionSettingsVisibleV1") private var fusionEntryVisible = false
     @AppStorage("taskdock.optionDEnabledV1") private var optionDEnabled = true
+    @AppStorage(MinimizeShortcutSettings.keyCodeKey) private var minimizeKeyCode = Int(MinimizeShortcutSettings.defaultKeyCode)
+    @AppStorage(MinimizeShortcutSettings.modifiersKey) private var minimizeModifiers = Int(MinimizeShortcutSettings.defaultModifiers)
+    @AppStorage(MinimizeShortcutSettings.characterKey) private var minimizeCharacter = "d"
     @AppStorage("taskdock.magnificationPushesTasksV1") private var magnificationPushesTasks = false
     @State private var browserBridgeMessage = ""
     let windows: [WindowModel]
@@ -76,6 +82,10 @@ struct SettingsView: View {
             return applicationFallback(for: key)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var blacklistedApps: [(key: String, name: String, icon: NSImage?)] {
+        apps.filter { settings.blacklistedAppKeys.contains($0.key) }
     }
 
     private static let defaultDockCompanionApps: [(key: String, name: String)] = [
@@ -104,64 +114,61 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
                 ForEach(SettingsTab.allCases.filter {
                     ($0 != .files || rightClickEntryVisible) && ($0 != .developer || developerEntryVisible)
                         && ($0 != .dockCompanion || fusionEntryVisible)
                 }) { tab in
-                    if tab == .about, firstVisibleEasterEggTab != nil {
-                        Divider().padding(.vertical, 7).padding(.horizontal, 15)
-                    }
                     if tab == firstVisibleEasterEggTab {
-                        Divider().padding(.vertical, 7).padding(.horizontal, 15)
+                        Divider().frame(height: 36).padding(.horizontal, 7)
                     }
                     Button {
                         selectedTab = tab
                     } label: {
-                        HStack(spacing: 12) {
+                        VStack(spacing: 3) {
                             Image(systemName: tab.systemImage)
-                                .font(.system(size: 17, weight: .medium))
-                                .frame(width: 23)
+                                .font(.system(size: 20, weight: .medium))
+                                .frame(height: 23)
                             Text(tab.label)
-                                .font(.system(size: 14, weight: selectedTab == tab ? .semibold : .medium))
-                            Spacer(minLength: 0)
+                                .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .medium))
                         }
                         .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.primary)
-                        .padding(.horizontal, 15)
-                        .frame(height: 45)
+                        .frame(minWidth: 65, maxWidth: 95)
+                        .frame(height: 53)
                         .background(
-                            selectedTab == tab ? Color.accentColor.opacity(0.15) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 11)
+                            selectedTab == tab ? Color.accentColor.opacity(0.12) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 12)
                         )
-                        .contentShape(RoundedRectangle(cornerRadius: 11))
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 26)
-            .padding(.bottom, 16)
-            .frame(width: 208)
+            .padding(.leading, 30)
+            .padding(.trailing, 18)
+            .padding(.top, 29)
+            .padding(.bottom, 9)
             .background(Color(nsColor: .textBackgroundColor))
 
             Rectangle()
                 .fill(Color.primary.opacity(0.08))
-                .frame(width: 1)
+                .frame(height: 1)
 
             Group {
                 switch selectedTab {
                 case .general: generalTab
+                case .appearance: appearanceTab
+                case .blacklist: blacklistTab
+                case .about: aboutTab
                 case .files:
                     if rightClickEntryVisible { filesTab } else { generalTab }
-                case .taskbar: taskbarTab
                 case .dockCompanion:
                     if fusionEntryVisible { dockCompanionTab } else { generalTab }
                 case .developer:
                     if developerEntryVisible { developerTab } else { generalTab }
-                case .about: aboutTab
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -213,7 +220,23 @@ struct SettingsView: View {
                 Divider()
                 TaskbarBlackBackgroundSettingsView()
             }
-            settingsSection(title: "任务项外观") { TaskbarItemHazeSettingsView() }
+            settingsSection(title: "任务项外观") {
+                TaskbarItemHazeSettingsView()
+                Divider()
+                HStack {
+                    Text("任务项高亮颜色")
+                    Spacer()
+                    Picker("任务项高亮颜色", selection: $settings.taskItemHighlightStyle) {
+                        ForEach(TaskItemHighlightStyle.allCases) { style in
+                            Text(style.label).tag(style)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: settings.taskItemHighlightStyle) { _ in onVisualChanged() }
+                }
+            }
             settingsSection(title: "收藏栏放大") {
                 Toggle("放大时将最近 App 和任务项整体右移", isOn: $magnificationPushesTasks)
                 Text("开启后保留最近 App，并为放大的收藏图标留出空间。")
@@ -342,8 +365,7 @@ struct SettingsView: View {
                 }
             }
             settingsSection(title: "快捷键") {
-                Toggle("⌥ Option + D 全部最小化／恢复", isOn: $optionDEnabled)
-                    .onChange(of: optionDEnabled) { _ in onChanged() }
+                shortcutSettings
             }
             settingsSection(title: "浏览器下载进度", description: "Safari 自动读取本机下载记录；Chrome / Edge 安装配套扩展后，为每个下载建立独立任务项。") {
                 VStack(alignment: .leading, spacing: 12) {
@@ -380,59 +402,268 @@ struct SettingsView: View {
                     }
                 }
             }
-            settingsSection(title: "任务项外观", description: "设置窗口卡片的高亮颜色。") {
+            settingsSection(title: "收藏栏来源", description: "选择 TaskDock 独立收藏，或与系统 Dock 的固定项目保持同步。") {
+                settingsToggle(
+                    title: "收藏栏同步系统 Dock",
+                    description: "同步系统 Dock 的固定 App、文件夹及当前显示的临时 App；固定项目在任一边调整都会同步。Finder 始终保留。",
+                    isOn: Binding(
+                        get: { settings.dockFavoritesSyncEnabled },
+                        set: { settings.setDockFavoritesSyncEnabled($0); onChanged() }
+                    )
+                )
+                if let error = settings.dockFavoritesSyncError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            settingsSection(title: "收藏 App", description: "收藏固定在任务栏左侧；也可从任务项右键菜单添加。") {
                 HStack {
-                    Text("任务项高亮颜色")
+                    Button {
+                        chooseFavoriteApplications()
+                    } label: {
+                        Label("添加 App…", systemImage: "plus")
+                    }
                     Spacer()
-                    Picker("任务项高亮颜色", selection: $settings.taskItemHighlightStyle) {
-                        ForEach(TaskItemHighlightStyle.allCases) { style in
-                            Text(style.label).tag(style)
+                }
+                Text("运行中的 App 图标下方显示指示点，随系统明暗模式调整颜色，无论是否有窗口。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Divider()
+                if settings.favoriteApps.isEmpty {
+                    emptyState("尚未收藏 App")
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(settings.favoriteApps.enumerated()), id: \.element.id) { index, favorite in
+                            HStack(spacing: 10) {
+                                Image(nsImage: favoriteIcon(for: favorite))
+                                    .resizable()
+                                    .frame(width: 26, height: 26)
+                                Text(favorite.applicationName).lineLimit(1)
+                                Spacer()
+                                Button("移除") {
+                                    settings.removeFavorite(favorite)
+                                    onChanged()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(settings.dockFavoritesSyncEnabled
+                                    && favorite.bundleIdentifier == "com.apple.finder")
+                            }
+                            .padding(.vertical, 7)
+                            if index < settings.favoriteApps.count - 1 { Divider() }
+                        }
+                    }
+                }
+            }
+
+            settingsSection(title: "收藏文件夹", description: "显示在收藏栏分隔线后、废纸篓左侧；点击图标会在 Finder 中打开。") {
+                HStack {
+                    Button {
+                        chooseFavoriteFolders()
+                    } label: {
+                        Label("添加文件夹…", systemImage: "plus")
+                    }
+                    Spacer()
+                }
+                if settings.favoriteFolders.isEmpty {
+                    emptyState("尚未收藏文件夹")
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(settings.favoriteFolders.enumerated()), id: \.element.id) { index, folder in
+                            HStack(spacing: 10) {
+                                Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
+                                    .resizable()
+                                    .frame(width: 26, height: 26)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(folder.name).lineLimit(1)
+                                    Text(folder.path)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Button("移除") {
+                                    settings.removeFavoriteFolder(folder)
+                                    onChanged()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                            .padding(.vertical, 7)
+                            if index < settings.favoriteFolders.count - 1 { Divider() }
+                        }
+                    }
+                }
+            }
+            modeVisualSettings(for: .taskbar)
+        }
+    }
+
+    private var shortcutSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("最小化全部窗口")
+                Spacer()
+                MinimizeShortcutRecorder(
+                    keyCode: $minimizeKeyCode,
+                    modifiers: $minimizeModifiers,
+                    character: $minimizeCharacter
+                )
+                .frame(width: 118, height: 25)
+            }
+            .onChange(of: minimizeKeyCode) { _ in onChanged() }
+            .onChange(of: minimizeModifiers) { _ in onChanged() }
+            Text("按下快捷键，可以最小化所有窗口；再按一次，恢复刚才的窗口。")
+                .font(.caption).foregroundStyle(.secondary)
+            Toggle("启用最小化快捷键", isOn: $optionDEnabled)
+                .onChange(of: optionDEnabled) { _ in onChanged() }
+            Divider()
+            HStack {
+                Text("切换成系统程序坞")
+                Spacer()
+                Picker("切换成系统程序坞快捷键", selection: $settings.toggleModifier) {
+                    ForEach(TaskbarToggleModifier.allCases) { modifier in
+                        Text("双击 \(modifier.label)").tag(modifier)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize(horizontal: true, vertical: false)
+                .onChange(of: settings.toggleModifier) { _ in onChanged() }
+            }
+            Text("双击所选修饰键切换到系统程序坞；再次双击切换回 TaskDock。")
+                .font(.caption).foregroundStyle(.secondary)
+            Divider()
+            Text("任务栏显示期间：⌥ + J/K/L/;/'/N/M/,/. 可打开前 9 个窗口任务项；⌥ + 1–9 可打开前 9 个收藏 App。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var appearanceTab: some View {
+        tabScrollView {
+            settingsSection(title: "任务栏背景", description: "macOS 26 及以上使用原生液态玻璃，旧系统使用毛玻璃。任务栏与任务项保持固定外观；设置页和气泡跟随系统明暗模式。") {
+                HStack {
+                    Label("任务栏背景透明度", systemImage: "circle.lefthalf.filled")
+                    Spacer()
+                    Text("\(Int((settings.taskbarBackgroundTransparency * 100).rounded()))%")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                ReleaseTunedSlider(value: $settings.taskbarBackgroundTransparency, in: 0...1, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarBackgroundTransparency", fallback: 0))
+                    .accessibilityLabel("任务栏背景透明度")
+                    .onChange(of: settings.taskbarBackgroundTransparency) { _ in onVisualChanged() }
+                HStack {
+                    Text("更实")
+                    Spacer()
+                    Text("更透明")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Text("拖动实时预览并自动保存；0% 保留完整系统材质（推荐），100% 隐藏底座。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            settingsSection(title: "位置与尺寸", description: "调整任务栏留白、高度和收藏图标放大倍率。") {
+                HStack {
+                    Label("任务栏两侧留白", systemImage: "arrow.left.and.right")
+                    Spacer()
+                    Text("\(Int(settings.taskbarSideInset.rounded())) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                ReleaseTunedSlider(value: $settings.taskbarSideInset, in: SettingsStore.taskbarSideInsetRange, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarLeadingInset", fallback: 88))
+                    .accessibilityLabel("任务栏两侧留白")
+                    .onChange(of: settings.taskbarSideInset) { _ in onLayoutChanged() }
+                Text("向右拖动，两侧同步向内收缩；实时生效并自动保存。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 28) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("大小")
+                        ReleaseTunedSlider(value: $settings.taskbarHeight, in: SettingsStore.taskbarHeightRange, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarHeight", fallback: 50))
+                            .accessibilityLabel("任务栏高度")
+                            .onChange(of: settings.taskbarHeight) { _ in onLayoutChanged() }
+                        HStack { Text("小"); Spacer(); Text("大") }.font(.caption)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("放大")
+                        ReleaseTunedSlider(value: $settings.favoriteMagnificationScale, in: 1...2.4, defaultValue: ReleaseTunedSlider.preset("taskdock.favoriteMagnificationScale", fallback: 1.5))
+                            .accessibilityLabel("图标放大倍率")
+                            .onChange(of: settings.favoriteMagnificationScale) { _ in onLayoutChanged() }
+                        HStack { Text("关闭  小"); Spacer(); Text("大") }.font(.caption)
+                    }
+                }
+                HStack {
+                    Label("任务项文字大小", systemImage: "textformat.size")
+                    Spacer()
+                    Text("\(Int(settings.taskbarItemFontSize.rounded())) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("字号")
+                    Spacer()
+                    Picker("任务项文字大小", selection: $settings.taskbarItemFontSize) {
+                        ForEach(SettingsStore.taskbarItemFontSizes, id: \.self) { size in
+                            Text("\(Int(size))").tag(size)
                         }
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .fixedSize(horizontal: true, vertical: false)
-                    .onChange(of: settings.taskItemHighlightStyle) { _ in onVisualChanged() }
+                    .onChange(of: settings.taskbarItemFontSize) { _ in onVisualChanged() }
                 }
+                Text("仅调整任务栏任务项文字，共 5 档；默认 8 pt。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            settingsSection(title: "切换回原生 Dock", description: "双击选定的修饰键，切换回原生 Dock；再次双击可返回 TaskDock。") {
-                HStack {
-                    Text("快捷键")
-                    Spacer()
-                    Picker("切换回原生 Dock 快捷键", selection: $settings.toggleModifier) {
-                        ForEach(TaskbarToggleModifier.allCases) { modifier in
-                            Text("双击 \(modifier.label)").tag(modifier)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .onChange(of: settings.toggleModifier) { _ in onChanged() }
+            settingsSection(title: "最近程序", description: "选择光标移到时钟图标上时的显示方式。") {
+                Picker("悬停显示", selection: $recentAppHoverBehavior) {
+                    Text("名称小气泡").tag(RecentAppHoverBehavior.nameBubble.rawValue)
+                    Text("程序列表大气泡").tag(RecentAppHoverBehavior.programList.rawValue)
                 }
+                Text(recentAppHoverBehavior == RecentAppHoverBehavior.programList.rawValue
+                    ? "光标移上去即可展开最近运行过的程序列表。"
+                    : "显示“最近运行过程序”；点击图标展开程序列表。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
+        }
+    }
+
+    private var blacklistTab: some View {
+        tabScrollView {
             settingsSection(
                 title: "App 黑名单",
-                description: "开启后，该 App 的全部窗口都不会显示在 TaskDock 中。"
+                description: "添加后，该 App 的全部窗口都不会显示在 TaskDock 中。"
             ) {
-                if apps.isEmpty {
-                    emptyState("当前没有可配置的 App")
+                Button {
+                    chooseBlacklistedApplications()
+                } label: {
+                    Label("添加 App…", systemImage: "plus")
+                }
+                if blacklistedApps.isEmpty {
+                    emptyState("尚未添加 App")
                 } else {
-                    VStack(spacing: 8) {
-                        ForEach(apps, id: \.key) { app in
-                            settingsToggle(
-                                title: app.name,
-                                description: "不在 TaskDock 中显示此 App 的窗口。",
-                                icon: app.icon ?? fallbackIcon,
-                                isOn: Binding(
-                                get: { settings.blacklistedAppKeys.contains(app.key) },
-                                set: { _ in
+                    VStack(spacing: 0) {
+                        ForEach(blacklistedApps, id: \.key) { app in
+                            HStack(spacing: 10) {
+                                Image(nsImage: app.icon ?? fallbackIcon)
+                                    .resizable().frame(width: 26, height: 26)
+                                Text(app.name).lineLimit(1)
+                                Spacer()
+                                Button("移除") {
                                     settings.toggleBlacklist(for: app.key)
                                     onChanged()
                                 }
-                                )
-                            )
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                            .padding(.vertical, 7)
                         }
                     }
                 }
@@ -530,213 +761,6 @@ struct SettingsView: View {
                     (license.isUnlocked ? "试用剩余 \(license.remainingDays) 天" : "试用已结束") : "已购买授权")
                 Spacer()
                 Button("购买与激活…", action: onOpenLicense)
-            }
-        }
-    }
-
-    private var taskbarTab: some View {
-        tabScrollView {
-            modeHeader(
-                title: "任务栏模式",
-                description: "显示所有可用窗口，并支持收藏 App 和拖动排序。",
-                systemImage: SettingsTab.taskbar.systemImage,
-                mode: .taskbar
-            )
-
-            modeVisualSettings(for: .taskbar)
-
-            settingsSection(title: "任务栏背景", description: "macOS 26 及以上使用原生液态玻璃，旧系统使用毛玻璃。任务栏与任务项保持固定外观；设置页和气泡跟随系统明暗模式。") {
-                HStack {
-                    Label("任务栏背景透明度", systemImage: "circle.lefthalf.filled")
-                    Spacer()
-                    Text("\(Int((settings.taskbarBackgroundTransparency * 100).rounded()))%")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                ReleaseTunedSlider(value: $settings.taskbarBackgroundTransparency, in: 0...1, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarBackgroundTransparency", fallback: 0))
-                    .accessibilityLabel("任务栏背景透明度")
-                    .onChange(of: settings.taskbarBackgroundTransparency) { _ in onVisualChanged() }
-                HStack {
-                    Text("更实")
-                    Spacer()
-                    Text("更透明")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                Text("拖动实时预览并自动保存；0% 保留完整系统材质（推荐），100% 隐藏底座。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            settingsSection(title: "位置与尺寸", description: "调整任务栏留白、高度和收藏图标放大倍率。") {
-                HStack {
-                    Label("任务栏两侧留白", systemImage: "arrow.left.and.right")
-                    Spacer()
-                    Text("\(Int(settings.taskbarSideInset.rounded())) pt")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                ReleaseTunedSlider(value: $settings.taskbarSideInset, in: SettingsStore.taskbarSideInsetRange, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarLeadingInset", fallback: 88))
-                    .accessibilityLabel("任务栏两侧留白")
-                    .onChange(of: settings.taskbarSideInset) { _ in onLayoutChanged() }
-                Text("向右拖动，两侧同步向内收缩；实时生效并自动保存。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .top, spacing: 28) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("大小")
-                        ReleaseTunedSlider(value: $settings.taskbarHeight, in: SettingsStore.taskbarHeightRange, defaultValue: ReleaseTunedSlider.preset("taskdock.taskbarHeight", fallback: 50))
-                            .accessibilityLabel("任务栏高度")
-                            .onChange(of: settings.taskbarHeight) { _ in onLayoutChanged() }
-                        HStack { Text("小"); Spacer(); Text("大") }.font(.caption)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("放大")
-                        ReleaseTunedSlider(value: $settings.favoriteMagnificationScale, in: 1...2.4, defaultValue: ReleaseTunedSlider.preset("taskdock.favoriteMagnificationScale", fallback: 1.5))
-                            .accessibilityLabel("图标放大倍率")
-                            .onChange(of: settings.favoriteMagnificationScale) { _ in onLayoutChanged() }
-                        HStack { Text("关闭  小"); Spacer(); Text("大") }.font(.caption)
-                    }
-                }
-                HStack {
-                    Label("任务项文字大小", systemImage: "textformat.size")
-                    Spacer()
-                    Text("\(Int(settings.taskbarItemFontSize.rounded())) pt")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                HStack {
-                    Text("字号")
-                    Spacer()
-                    Picker("任务项文字大小", selection: $settings.taskbarItemFontSize) {
-                        ForEach(SettingsStore.taskbarItemFontSizes, id: \.self) { size in
-                            Text("\(Int(size))").tag(size)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .onChange(of: settings.taskbarItemFontSize) { _ in onVisualChanged() }
-                }
-                Text("仅调整任务栏任务项文字，共 5 档；默认 8 pt。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            settingsSection(title: "最近程序", description: "选择光标移到时钟图标上时的显示方式。") {
-                Picker("悬停显示", selection: $recentAppHoverBehavior) {
-                    Text("名称小气泡").tag(RecentAppHoverBehavior.nameBubble.rawValue)
-                    Text("程序列表大气泡").tag(RecentAppHoverBehavior.programList.rawValue)
-                }
-                Text(recentAppHoverBehavior == RecentAppHoverBehavior.programList.rawValue
-                    ? "光标移上去即可展开最近运行过的程序列表。"
-                    : "显示“最近运行过程序”；点击图标展开程序列表。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            settingsSection(title: "快捷键", description: "任务栏显示期间可直接使用；按下 Option 显示对应提示。") {
-                Text("⌥ + D：全局最小化窗口；再按一次恢复这次最小化的窗口。")
-                    .font(.caption)
-                Text("⌥ + J/K/L/;/'/N/M/,/.：从左到右的前 9 个窗口任务项。")
-                    .font(.caption)
-                Text("⌥ + 1–9：从左到右的前 9 个收藏 App。再次按相同快捷键可最小化当前窗口。")
-                    .font(.caption)
-            }
-
-            settingsSection(title: "收藏栏来源", description: "选择 TaskDock 独立收藏，或与系统 Dock 的固定项目保持同步。") {
-                settingsToggle(
-                    title: "收藏栏同步系统 Dock",
-                    description: "同步系统 Dock 的固定 App、文件夹及当前显示的临时 App；固定项目在任一边调整都会同步。Finder 始终保留。",
-                    isOn: Binding(
-                        get: { settings.dockFavoritesSyncEnabled },
-                        set: { settings.setDockFavoritesSyncEnabled($0); onChanged() }
-                    )
-                )
-                if let error = settings.dockFavoritesSyncError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
-
-            settingsSection(title: "收藏 App", description: "收藏固定在任务栏左侧；也可从任务项右键菜单添加。") {
-                HStack {
-                    Button {
-                        chooseFavoriteApplications()
-                    } label: {
-                        Label("添加 App…", systemImage: "plus")
-                    }
-                    Spacer()
-                }
-                Text("运行中的 App 图标下方显示指示点，随系统明暗模式调整颜色，无论是否有窗口。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Divider()
-                if settings.favoriteApps.isEmpty {
-                    emptyState("尚未收藏 App")
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(settings.favoriteApps.enumerated()), id: \.element.id) { index, favorite in
-                            HStack(spacing: 10) {
-                                Image(nsImage: favoriteIcon(for: favorite))
-                                    .resizable()
-                                    .frame(width: 26, height: 26)
-                                Text(favorite.applicationName).lineLimit(1)
-                                Spacer()
-                                Button("移除") {
-                                    settings.removeFavorite(favorite)
-                                    onChanged()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(settings.dockFavoritesSyncEnabled
-                                    && favorite.bundleIdentifier == "com.apple.finder")
-                            }
-                            .padding(.vertical, 7)
-                            if index < settings.favoriteApps.count - 1 { Divider() }
-                        }
-                    }
-                }
-            }
-
-            settingsSection(title: "收藏文件夹", description: "显示在收藏栏分隔线后、废纸篓左侧；点击图标会在 Finder 中打开。") {
-                HStack {
-                    Button {
-                        chooseFavoriteFolders()
-                    } label: {
-                        Label("添加文件夹…", systemImage: "plus")
-                    }
-                    Spacer()
-                }
-                if settings.favoriteFolders.isEmpty {
-                    emptyState("尚未收藏文件夹")
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(settings.favoriteFolders.enumerated()), id: \.element.id) { index, folder in
-                            HStack(spacing: 10) {
-                                Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
-                                    .resizable()
-                                    .frame(width: 26, height: 26)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(folder.name).lineLimit(1)
-                                    Text(folder.path)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                Button("移除") {
-                                    settings.removeFavoriteFolder(folder)
-                                    onChanged()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                            .padding(.vertical, 7)
-                            if index < settings.favoriteFolders.count - 1 { Divider() }
-                        }
-                    }
-                }
             }
         }
     }
@@ -1151,6 +1175,26 @@ struct SettingsView: View {
 
     private func blockedRuleIcon(for rule: BlockedWindowRule) -> NSImage {
         applicationFallback(for: rule.appKey).icon ?? fallbackIcon
+    }
+
+    private func chooseBlacklistedApplications() {
+        let panel = NSOpenPanel()
+        panel.title = "添加黑名单 App"
+        panel.prompt = "添加"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.begin { response in
+            guard response == .OK else { return }
+            for url in panel.urls {
+                guard let key = Bundle(url: url)?.bundleIdentifier,
+                      !settings.blacklistedAppKeys.contains(key) else { continue }
+                settings.toggleBlacklist(for: key)
+            }
+            onChanged()
+        }
     }
 
     private func favoriteIcon(for favorite: FavoriteApp) -> NSImage {

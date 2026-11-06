@@ -140,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             button.toolTip = "TaskDock"
         }
         statusMenu.delegate = self
+        statusMenu.minimumWidth = 285
         item.menu = statusMenu
         statusItem = item
         rebuildStatusMenu()
@@ -180,10 +181,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusMenu.removeAllItems()
 
         let canRestore = panelController?.canRestoreHiddenApplications == true
+        let minimizeShortcut = MinimizeShortcutSettings.current()
+        let minimizeShortcutEnabled = UserDefaults.standard.object(forKey: "taskdock.optionDEnabledV1") as? Bool ?? true
         let minimizeItem = NSMenuItem(
-            title: canRestore ? "恢复刚才隐藏的 App" : "隐藏全部 App",
-            action: #selector(toggleAllApplications), keyEquivalent: ""
+            title: canRestore ? "恢复刚才的窗口" : "最小化所有窗口",
+            action: #selector(toggleAllApplications),
+            keyEquivalent: minimizeShortcutEnabled ? minimizeShortcut.character : ""
         )
+        minimizeItem.keyEquivalentModifierMask = MinimizeShortcutSettings.menuModifiers(minimizeShortcut.modifiers)
         minimizeItem.image = NSImage(
             systemSymbolName: canRestore ? "rectangle.stack" : "minus.rectangle",
             accessibilityDescription: nil
@@ -234,11 +239,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusMenu.addItem(.separator())
 
         let isHidden = panelController?.isTaskDockHidden == true
+        let visibilityTitle = isHidden ? "切换成TaskDock" : "切换成系统程序坞"
         let visibilityItem = NSMenuItem(
-            title: isHidden ? "显示 TaskDock" : "隐藏 TaskDock",
+            title: visibilityTitle,
             action: isHidden ? #selector(showTaskDock) : #selector(hideTaskDock),
             keyEquivalent: ""
         )
+        let modifier = panelController?.toggleModifierLabel ?? "⌥"
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: 264, options: [:])]
+        visibilityItem.attributedTitle = NSAttributedString(
+            string: "\(visibilityTitle)\t双击 \(modifier)",
+            attributes: [.paragraphStyle: paragraph]
+        )
+        visibilityItem.setAccessibilityLabel("\(visibilityTitle)，双击 \(modifier)")
         visibilityItem.image = NSImage(
             systemSymbolName: isHidden ? "eye" : "eye.slash",
             accessibilityDescription: nil
@@ -323,6 +337,7 @@ extension Notification.Name {
 }
 
 TaskbarExperimentalGlass.installPreferenceIsolation()
+guard SingleInstanceGuard.acquireOrActivateExisting() else { exit(0) }
 let application = NSApplication.shared
 TaskDockAppearance.install()
 let delegate = MainActor.assumeIsolated { AppDelegate() }

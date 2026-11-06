@@ -115,6 +115,7 @@ final class SettingsStore: ObservableObject {
     private let defaults = UserDefaults.standard
     private let blacklistKey = "taskdock.blacklistedAppKeys"
     private let blockedWindowRulesKey = "taskdock.blockedWindowRules"
+    private let blacklistResetKey = "taskdock.blacklistResetForTopSettingsV1"
     private let taskItemHighlightStyleKey = "taskdock.taskItemHighlightStyle"
     private let layoutModeKey = "taskdock.layoutMode"
     // Keep the existing preference key so prior slider adjustments are preserved.
@@ -145,6 +146,11 @@ final class SettingsStore: ObservableObject {
     private let independentFavoriteFoldersKey = "taskdock.independentFavoriteFolders"
 
     init() {
+        if !defaults.bool(forKey: blacklistResetKey) {
+            defaults.removeObject(forKey: blacklistKey)
+            defaults.removeObject(forKey: blockedWindowRulesKey)
+            defaults.set(true, forKey: blacklistResetKey)
+        }
         blacklistedAppKeys = Set(defaults.stringArray(forKey: blacklistKey) ?? [])
         if let data = defaults.data(forKey: blockedWindowRulesKey),
            let decoded = try? JSONDecoder().decode([BlockedWindowRule].self, from: data) {
