@@ -81,6 +81,8 @@ final class TaskbarPanelController {
     private var lastReservationContext: ReservationContext?
     private var lastReservationUpdateAt = Date.distantPast
     private var isHiddenInDock = false
+    private var isSuppressedForFullscreen = false
+    private var lastFullscreenVisibilityCheckAt = Date.distantPast
     private var dockRestoreAvailableAt = Date.distantPast
     private var shortcutMonitor: ModifierDoubleTapMonitor?
     private var minimizeHotKeyMonitor: GlobalMinimizeHotKeyMonitor?
@@ -148,7 +150,8 @@ final class TaskbarPanelController {
         )
         shortcutMonitor?.start()
         reposition()
-        panel.orderFrontRegardless()
+        synchronizeFullscreenVisibility()
+        if !isSuppressedForFullscreen { panel.orderFrontRegardless() }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.automaticRefresh() }
@@ -174,6 +177,7 @@ final class TaskbarPanelController {
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didHideApplicationNotification, object: nil)
         workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.didUnhideApplicationNotification, object: nil)
+        workspaceNotifications.addObserver(self, selector: #selector(workspaceChanged), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
         syncAppFocusObservers(force: true)
         licenseObservation = license.$isUnlocked.removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -222,6 +226,8 @@ final class TaskbarPanelController {
         windowService.clearWindowSpaceReservations(restore: true, windows: windows)
         panel?.orderOut(nil)
         dockFinderPanel?.orderOut(nil)
+        isSuppressedForFullscreen = false
+        lastFullscreenVisibilityCheckAt = .distantPast
     }
 
     func restoreFromDock() {
@@ -229,8 +235,9 @@ final class TaskbarPanelController {
         isHiddenInDock = false
         NSApp.setActivationPolicy(.accessory)
         refresh()
-        if hasLicenseAccess { panel?.orderFrontRegardless() }
-        if hasLicenseAccess, settings.layoutMode == .dockCompanion, !finderWindows.isEmpty {
+        synchronizeFullscreenVisibility()
+        if hasLicenseAccess, !isSuppressedForFullscreen { panel?.orderFrontRegardless() }
+        if hasLicenseAccess, !isSuppressedForFullscreen, settings.layoutMode == .dockCompanion, !finderWindows.isEmpty {
             dockFinderPanel?.orderFrontRegardless()
         }
         // The native Dock needs a moment to retreat. Re-enumerate every window
@@ -277,7 +284,7 @@ final class TaskbarPanelController {
         let panel = TaskbarExperimentalGlass.makePanel()
         (panel as? TaskbarAppearancePanel)?.permitsExperimentalGlass = settings.layoutMode == .taskbar
         panel.level = taskbarPanelLevel
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.canJoinAllSpaces]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.appearance = TaskDockAppearance.fixed
@@ -672,6 +679,7 @@ final class TaskbarPanelController {
     }
 
     private func refresh() {
+        synchronizeFullscreenVisibility()
         synchronizeMinimizeShortcut()
         // Avoid a full AX scan competing with the brief window animation.
         if windowService.isAnimatingWindowAvoidance { return }
@@ -739,7 +747,7 @@ final class TaskbarPanelController {
             lastRenderedWindowSignature = signature
             redrawPanels()
         }
-        if isHiddenInDock || !hasLicenseAccess {
+        if isHiddenInDock || isSuppressedForFullscreen || !hasLicenseAccess {
             panel?.orderOut(nil)
             dockFinderPanel?.orderOut(nil)
         } else if settings.layoutMode != .dockCompanion || settings.dockCompanionShowsBottomBar || !otherWindows.isEmpty {
@@ -1045,6 +1053,7 @@ final class TaskbarPanelController {
     }
 
     private func automaticRefresh() {
+        synchronizeFullscreenVisibility()
         pollDockFavorites()
         if recentAppPopoverState.isPresented { return }
         let now = Date()
@@ -1059,6 +1068,24 @@ final class TaskbarPanelController {
         favoriteHoverActiveUntil = nil
         favoriteHoverRefreshPauseUntil = nil
         refresh()
+    }
+
+    private func synchronizeFullscreenVisibility(force: Bool = false) {
+        let now = Date()
+        guard force || now.timeIntervalSince(lastFullscreenVisibilityCheckAt) >= 0.25 else { return }
+        lastFullscreenVisibilityCheckAt = now
+        let screen = panel?.screen ?? NSScreen.screens.first
+        let shouldSuppress = FullscreenPresentationDetector.isCoveringTaskbarScreen(
+            excludingPID: ProcessInfo.processInfo.processIdentifier, screen: screen
+        )
+        guard shouldSuppress != isSuppressedForFullscreen else { return }
+        isSuppressedForFullscreen = shouldSuppress
+        if shouldSuppress {
+            recentAppPopoverState.isPresented = false
+            setOptionShortcutsVisible(false)
+            panel?.orderOut(nil)
+            dockFinderPanel?.orderOut(nil)
+        }
     }
 
     private func pollDockFavorites(force: Bool = false) {
@@ -1435,7 +1462,7 @@ final class TaskbarPanelController {
         let appearance = TaskbarOverlapAppearance.shared
         guard !usesNativeDockReservation,
               settings.layoutMode == .taskbar, hasLicenseAccess, permissionService.isTrusted,
-              !isHiddenInDock, let panel, panel.isVisible,
+              !isHiddenInDock, !isSuppressedForFullscreen, let panel, panel.isVisible,
               let screen = panel.screen ?? NSScreen.screens.first,
               let desktopTop = NSScreen.screens.first?.frame.maxY,
               StandardLayoutAvoidanceSettings.isEnabled else {
@@ -1482,7 +1509,7 @@ final class TaskbarPanelController {
             panelFrame: reservationPanelFrame,
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
-            enabled: !isHiddenInDock && hasLicenseAccess && panel.isVisible,
+            enabled: !isHiddenInDock && !isSuppressedForFullscreen && hasLicenseAccess && panel.isVisible,
             layoutMode: settings.layoutMode
         )
         let now = Date()
@@ -1593,6 +1620,11 @@ final class TaskbarPanelController {
     }
 
     @objc private func workspaceChanged(_ notification: Notification) {
+        if notification.name == NSWorkspace.activeSpaceDidChangeNotification {
+            synchronizeFullscreenVisibility(force: true)
+            refresh()
+            return
+        }
         if notification.name == NSWorkspace.didLaunchApplicationNotification
             || notification.name == NSWorkspace.didTerminateApplicationNotification {
             syncAppFocusObservers(force: true)
