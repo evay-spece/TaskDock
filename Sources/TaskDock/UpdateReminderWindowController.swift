@@ -34,6 +34,22 @@ private struct UpdateReminderView: View {
     let onUpdate: () -> Void
     let onLater: () -> Void
 
+    private var visibleReleaseNotes: [String] {
+        releaseNotes.components(separatedBy: .newlines).filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "`*_ "))
+            let lowercased = trimmed.lowercased()
+            if lowercased.hasPrefix("build ") || lowercased.hasPrefix("安装包 sha-256")
+                || lowercased.hasPrefix("sha-256：")
+                || (lowercased.hasPrefix("macos ") && lowercased.contains("apple silicon")) {
+                return false
+            }
+            return trimmed.count != 64 || !trimmed.unicodeScalars.allSatisfy {
+                CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains($0)
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("TaskDock \(newVersion) 已发布", systemImage: "arrow.up.circle.fill")
@@ -45,11 +61,11 @@ private struct UpdateReminderView: View {
             Text("本次更新").font(.subheadline.weight(.semibold))
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    if releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if visibleReleaseNotes.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
                         Text("此版本暂无更新说明。")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(Array(releaseNotes.components(separatedBy: .newlines).enumerated()), id: \.offset) { _, line in
+                        ForEach(Array(visibleReleaseNotes.enumerated()), id: \.offset) { _, line in
                             let trimmed = line.trimmingCharacters(in: .whitespaces)
                             if trimmed.hasPrefix("#") {
                                 Text(trimmed.drop(while: { $0 == "#" || $0 == " " }))
