@@ -560,18 +560,6 @@ struct TaskbarView: View {
             radius: 9,
             y: 4
         )
-        .overlay(alignment: .bottomTrailing) {
-            if showsControls && settings.layoutMode == .taskbar {
-                TaskbarEdgeControlButton(
-                    systemImage: canRestoreHiddenApplications ? "rectangle.stack" : "arrow.down.to.line",
-                    help: canRestoreHiddenApplications ? "恢复刚才隐藏的 App" : "隐藏全部 App",
-                    scale: taskbarContentScale,
-                    barHeight: taskbarBaseHeight,
-                    visualLift: taskbarVisualLift,
-                    action: onToggleAllApplications
-                )
-            }
-        }
         .padding(.horizontal, settings.layoutMode == .taskbar ? 0 : 2)
         .padding(.top, 2)
         .padding(.bottom, settings.layoutMode == .taskbar ? 0 : 2)
@@ -2030,73 +2018,6 @@ private struct TaskbarControlButton: View {
             value: isHovered
         )
         .help(help)
-    }
-}
-
-private struct TaskbarEdgeControlButton: View {
-    let systemImage: String
-    let help: String
-    let scale: CGFloat
-    let barHeight: CGFloat
-    let visualLift: CGFloat
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        ZStack {
-            Image(systemName: systemImage)
-                .font(.system(size: 12 * scale, weight: .medium))
-                .frame(width: 32 * scale, height: max(28 * scale, barHeight - 8))
-                .background {
-                    TaskbarGlassSurface(cornerRadius: 8 * scale, opacity: 1)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
-                                .fill(Color.white.opacity(isHovered ? 0.10 : 0))
-                        }
-                }
-                .offset(y: -visualLift)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            TaskbarEdgeHitButton(label: help, action: action)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(width: max(44, 44 * scale), height: barHeight)
-        .onHover { isHovered = $0 }
-    }
-}
-
-/// AppKit owns the entire rectangular hit target, including the transparent
-/// margins touching the screen's right and bottom edges.
-private struct TaskbarEdgeHitButton: NSViewRepresentable {
-    let label: String
-    let action: () -> Void
-
-    final class Coordinator: NSObject {
-        var action: () -> Void
-        init(action: @escaping () -> Void) { self.action = action }
-        @objc func clicked(_ sender: NSButton) { action() }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
-
-    func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(title: "", target: context.coordinator,
-                              action: #selector(Coordinator.clicked(_:)))
-        button.isBordered = false
-        button.isTransparent = true
-        button.focusRingType = .none
-        button.wantsLayer = true
-        // Nonzero backing alpha keeps the edge target in WindowServer hit testing.
-        button.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.01).cgColor
-        button.setAccessibilityLabel(label)
-        button.toolTip = label
-        return button
-    }
-
-    func updateNSView(_ button: NSButton, context: Context) {
-        context.coordinator.action = action
-        button.setAccessibilityLabel(label)
-        button.toolTip = label
     }
 }
 
