@@ -4,6 +4,19 @@ import SwiftUI
 import UniformTypeIdentifiers
 import TaskDockBrowserProtocol
 
+private enum SettingsPalette {
+    private static func color(_ name: String, light: CGFloat, dark: CGFloat) -> Color {
+        Color(nsColor: NSColor(name: NSColor.Name(name)) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return NSColor(white: isDark ? dark : light, alpha: 1)
+        })
+    }
+
+    static let navigation = color("TaskDockSettingsNavigation", light: 0.985, dark: 0.17)
+    static let page = color("TaskDockSettingsPage", light: 0.965, dark: 0.13)
+    static let group = color("TaskDockSettingsGroup", light: 0.945, dark: 0.19)
+}
+
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case appearance
@@ -115,46 +128,46 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 7) {
+            HStack(spacing: 4) {
                 ForEach(SettingsTab.allCases.filter {
                     ($0 != .files || rightClickEntryVisible) && ($0 != .developer || developerEntryVisible)
                         && ($0 != .dockCompanion || fusionEntryVisible)
                 }) { tab in
                     if tab == firstVisibleEasterEggTab {
-                        Divider().frame(height: 36).padding(.horizontal, 7)
+                        Divider().frame(height: 30).padding(.horizontal, 5)
                     }
                     Button {
                         selectedTab = tab
                     } label: {
-                        VStack(spacing: 3) {
+                        VStack(spacing: 2) {
                             Image(systemName: tab.systemImage)
-                                .font(.system(size: 20, weight: .medium))
-                                .frame(height: 23)
+                                .font(.system(size: 18, weight: .medium))
+                                .frame(height: 21)
                             Text(tab.label)
-                                .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .medium))
+                                .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .medium))
                         }
-                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.primary)
-                        .frame(minWidth: 65, maxWidth: 95)
-                        .frame(height: 53)
+                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
+                        .frame(minWidth: 62, maxWidth: 80)
+                        .frame(height: 44)
                         .background(
-                            selectedTab == tab ? Color.accentColor.opacity(0.12) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 12)
+                            selectedTab == tab ? Color.primary.opacity(0.06) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 9)
                         )
-                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                        .contentShape(RoundedRectangle(cornerRadius: 9))
                     }
                     .buttonStyle(.plain)
+                    .focusable(false)
                     .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 30)
-            .padding(.trailing, 18)
-            .padding(.top, 29)
-            .padding(.bottom, 9)
-            .background(Color(nsColor: .textBackgroundColor))
+            .padding(.leading, 24)
+            .padding(.trailing, 14)
+            .padding(.bottom, 4)
+            .background(SettingsPalette.navigation)
 
             Rectangle()
-                .fill(Color.primary.opacity(0.08))
+                .fill(Color.primary.opacity(0.12))
                 .frame(height: 1)
 
             Group {
@@ -172,9 +185,9 @@ struct SettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(SettingsPalette.page)
         }
-        .frame(minWidth: 850, minHeight: 620)
+        .frame(minWidth: 760, minHeight: 560)
         .onAppear {
             launchAtLogin.refresh()
             if UserDefaults.standard.object(forKey: "fusionSettingsVisibleV1") == nil,
@@ -981,22 +994,14 @@ struct SettingsView: View {
     }
 
     private func tabScrollView<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(selectedTab.label)
-                .font(.system(size: 24, weight: .bold))
-                .padding(.horizontal, 30)
-                .padding(.top, 18)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    content()
-                }
-                .padding(.horizontal, 30)
-                .padding(.bottom, 30)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                content()
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 22)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -1049,15 +1054,15 @@ struct SettingsView: View {
         icon: NSImage? = nil,
         isOn: Binding<Bool>
     ) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             if let icon {
                 Image(nsImage: icon)
                     .resizable()
                     .frame(width: 24, height: 24)
             }
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                 Text(description)
                     .font(.caption)
@@ -1073,7 +1078,7 @@ struct SettingsView: View {
                 .accessibilityHint(description)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
     }
 
     private func settingsSection<Content: View>(
@@ -1081,29 +1086,29 @@ struct SettingsView: View {
         description: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .padding(.leading, 4)
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.leading, 8)
             if let description {
                 Text(description)
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 4)
+                    .padding(.leading, 8)
             }
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 18)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 17))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(SettingsPalette.group, in: RoundedRectangle(cornerRadius: 10))
             .overlay {
-                RoundedRectangle(cornerRadius: 17)
-                    .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.primary.opacity(0.055), lineWidth: 1)
             }
         }
-        .padding(.bottom, 15)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

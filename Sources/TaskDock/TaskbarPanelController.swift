@@ -83,6 +83,7 @@ final class TaskbarPanelController {
     private var isHiddenInDock = false
     private var isSuppressedForFullscreen = false
     private var lastFullscreenVisibilityCheckAt = Date.distantPast
+    private var lastWindowAvoidanceCheckCompletedAt = Date.distantPast
     private var dockRestoreAvailableAt = Date.distantPast
     private var shortcutMonitor: ModifierDoubleTapMonitor?
     private var minimizeHotKeyMonitor: GlobalMinimizeHotKeyMonitor?
@@ -166,7 +167,12 @@ final class TaskbarPanelController {
         RunLoop.main.add(safariTimer, forMode: .common)
         self.safariTimer = safariTimer
         let avoidanceTimer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkWindowAvoidance() }
+            MainActor.assumeIsolated {
+                guard let self,
+                      Date().timeIntervalSince(self.lastWindowAvoidanceCheckCompletedAt) >= 0.25 else { return }
+                self.checkWindowAvoidance()
+                self.lastWindowAvoidanceCheckCompletedAt = Date()
+            }
         }
         RunLoop.main.add(avoidanceTimer, forMode: .common)
         windowAvoidanceTimer = avoidanceTimer
