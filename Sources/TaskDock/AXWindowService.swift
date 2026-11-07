@@ -430,17 +430,15 @@ final class AXWindowService {
         }
     }
 
-    func hasOverlapBeyondThreshold(_ windows: [WindowModel], panelFrame: CGRect,
-                                  screenFrame: CGRect, desktopTop: CGFloat) -> Bool {
+    func hasVisibleOverlap(_ windows: [WindowModel], panelFrame: CGRect,
+                           desktopTop: CGFloat) -> Bool {
         windows.contains { window in
             guard !window.isMinimized,
-                  window.accessibilitySubrole == kAXStandardWindowSubrole || (window.accessibilitySubrole ?? "").isEmpty,
                   NSRunningApplication(processIdentifier: window.pid)?.isHidden == false,
                   (copyAttribute(window.axWindow, "AXFullScreen") as? Bool) != true,
                   let frame = windowFrame(window.axWindow) else { return false }
-            return StandardLayoutAdjustmentPolicy.exceedsBottomThreshold(window: frame,
-                screen: screenFrame, panel: panelFrame, desktopTop: desktopTop,
-                limit: StandardLayoutAvoidanceSettings.bottomOverflowLimit)
+            return StandardLayoutAdjustmentPolicy.overlapsPanel(window: frame,
+                panel: panelFrame, desktopTop: desktopTop)
         }
     }
 

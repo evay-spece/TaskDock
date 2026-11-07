@@ -39,11 +39,11 @@ struct StandardLayoutAvoidanceSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("窗口避让", isOn: $enabled)
-            Text("默认仅调整当前焦点的最大化／半屏窗口。开启下方选项后，所有重叠窗口均避让，不要求焦点；拖动时暂停，应用拒绝调整时不反复重试。")
+            Text("只要可见窗口与任务栏重叠，任务项底色就会临时加深；重叠消失后恢复。窗口避让默认仅调整当前焦点的最大化／半屏窗口。开启下方选项后，所有重叠窗口均避让，不要求焦点。")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("所有重叠窗口避让", isOn: $allOverlaps)
                 .disabled(!enabled)
-            Text("小窗口向上移动，大窗口收底边。底边出屏超过阈值时不移动窗口，临时加深任务项底色以保持文字清晰，遮挡解除后恢复。沿用下方动画和等待时间。")
+            Text("小窗口向上移动，大窗口收底边。底边出屏超过阈值时不移动窗口。沿用下方动画和等待时间。")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("底边出屏阈值")

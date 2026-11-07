@@ -1471,22 +1471,20 @@ final class TaskbarPanelController {
 
     private func checkWindowAvoidance() {
         let appearance = TaskbarOverlapAppearance.shared
-        guard !usesNativeDockReservation,
-              settings.layoutMode == .taskbar, hasLicenseAccess, permissionService.isTrusted,
+        guard settings.layoutMode == .taskbar, hasLicenseAccess, permissionService.isTrusted,
               !isHiddenInDock, !isSuppressedForFullscreen, let panel, panel.isVisible,
               let screen = panel.screen ?? NSScreen.screens.first,
-              let desktopTop = NSScreen.screens.first?.frame.maxY,
-              StandardLayoutAvoidanceSettings.isEnabled else {
+              let desktopTop = NSScreen.screens.first?.frame.maxY else {
             appearance.update(false)
             return
         }
-        guard !windowService.isAnimatingWindowAvoidance else { return }
         let inset = settings.taskbarSideInset
         let bar = CGRect(x: panel.frame.minX + inset, y: panel.frame.minY + 4,
             width: max(0, panel.frame.width - 2 * inset), height: settings.taskbarHeight)
-        appearance.update(StandardLayoutAvoidanceSettings.avoidsAllOverlaps
-            && windowService.hasOverlapBeyondThreshold(windows, panelFrame: bar,
-                screenFrame: screen.frame, desktopTop: desktopTop))
+        appearance.update(windowService.hasVisibleOverlap(windows, panelFrame: bar,
+            desktopTop: desktopTop))
+        guard !usesNativeDockReservation, StandardLayoutAvoidanceSettings.isEnabled,
+              !windowService.isAnimatingWindowAvoidance else { return }
         guard reorderRefreshPauseUntil.map({ $0 <= Date() }) ?? true,
               settingsRefreshPauseUntil.map({ $0 <= Date() }) ?? true else { return }
         windowService.adjustStandardLayoutsOnce(windows, panelFrame: bar,
