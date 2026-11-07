@@ -490,6 +490,14 @@ final class AXWindowService {
             if setWindowFrame(window.axWindow, frame: target) {
                 standardAdjustedFrames[window.nativeWindowID] = ReservedWindowFrame(
                     window: window.axWindow, original: current, applied: target)
+                if let applied = windowFrame(window.axWindow),
+                   StandardLayoutAdjustmentPolicy.same(applied, target) {
+                    standardLayoutPolicy.accepted(id: window.nativeWindowID,
+                        now: Date.timeIntervalSinceReferenceDate)
+                }
+            } else {
+                standardLayoutPolicy.failed(id: window.nativeWindowID,
+                    now: Date.timeIntervalSinceReferenceDate)
             }
         }
     }
@@ -505,6 +513,7 @@ final class AXWindowService {
               let current = windowFrame(reservation.window),
               StandardLayoutAdjustmentPolicy.same(current, reservation.applied) else {
             activeStandardRetractions.removeValue(forKey: id)
+            standardLayoutPolicy.failed(id: id, now: Date.timeIntervalSinceReferenceDate)
             return
         }
         let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
@@ -514,12 +523,14 @@ final class AXWindowService {
               let applied = windowFrame(reservation.window),
               StandardLayoutAdjustmentPolicy.same(applied, next) else {
             activeStandardRetractions.removeValue(forKey: id)
+            standardLayoutPolicy.failed(id: id, now: Date.timeIntervalSinceReferenceDate)
             return
         }
         reservation.applied = applied
         standardAdjustedFrames[id] = reservation
         guard progress < 1 else {
             activeStandardRetractions.removeValue(forKey: id)
+            standardLayoutPolicy.accepted(id: id, now: Date.timeIntervalSinceReferenceDate)
             return
         }
         let delay = WindowAvoidanceAnimationGeometry.nextAnimationDelay(

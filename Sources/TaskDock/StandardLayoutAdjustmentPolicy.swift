@@ -9,6 +9,8 @@ struct StandardLayoutAdjustmentPolicy {
         let at: TimeInterval
         var observedTargetAt: TimeInterval?
         var rejected = false
+        var failedAt: TimeInterval?
+        var retryCount = 0
     }
     private var attempts: [String: Attempt] = [:]
     private var candidates: [String: (frame: CGRect, since: TimeInterval)] = [:]
@@ -21,24 +23,42 @@ struct StandardLayoutAdjustmentPolicy {
     mutating func adjustment(id: String, frame: CGRect, proposed: CGRect?,
                              dragging: Bool, now: TimeInterval, settleDelay: TimeInterval) -> CGRect? {
         if dragging { candidates.removeValue(forKey: id); return nil }
+        var retryCount = 0
         if var attempt = attempts[id] {
             if Self.same(frame, attempt.target) {
                 if attempt.observedTargetAt == nil { attempt.observedTargetAt = now }
                 attempt.rejected = false
+                attempt.failedAt = nil
                 attempts[id] = attempt
                 candidates.removeValue(forKey: id)
                 return nil
             }
             if Self.same(frame, attempt.original) {
-                // A later maximize may recreate identical geometry. An immediate
-                // rebound, or a request that never reached its target, gets no retry.
-                guard !attempt.rejected, let acceptedAt = attempt.observedTargetAt,
-                      now - attempt.at >= 1.5, now - acceptedAt >= 1 else {
-                    attempt.rejected = true
+                if proposed.map({ !Self.same($0, attempt.target) }) == true {
+                    attempts.removeValue(forKey: id)
+                    candidates.removeValue(forKey: id)
+                } else if attempt.rejected {
+                    return nil
+                } else if let failedAt = attempt.failedAt {
+                    guard attempt.retryCount < 2, now - failedAt >= 1 else { return nil }
+                    retryCount = attempt.retryCount + 1
+                    attempts.removeValue(forKey: id)
+                } else if let acceptedAt = attempt.observedTargetAt {
+                    // An immediate app rebound should not cause a visible loop.
+                    guard now - attempt.at >= 1.5, now - acceptedAt >= 1 else {
+                        attempt.rejected = true
+                        attempts[id] = attempt
+                        return nil
+                    }
+                    attempts.removeValue(forKey: id)
+                } else if now - attempt.at >= 1.5 {
+                    // The first AX write never reached its target. Retry only twice.
+                    attempt.failedAt = now
                     attempts[id] = attempt
                     return nil
+                } else {
+                    return nil
                 }
-                attempts.removeValue(forKey: id)
             } else if now - attempt.at < 1.5 {
                 candidates.removeValue(forKey: id)
                 return nil
@@ -53,10 +73,23 @@ struct StandardLayoutAdjustmentPolicy {
             candidates[id] = (frame, now)
             return nil
         }
-        // Mark attempted before calling AX, including a refused write.
-        attempts[id] = Attempt(original: frame, target: proposed, at: now)
+        attempts[id] = Attempt(original: frame, target: proposed, at: now,
+                               retryCount: retryCount)
         candidates.removeValue(forKey: id)
         return proposed
+    }
+
+    mutating func accepted(id: String, now: TimeInterval) {
+        guard var attempt = attempts[id] else { return }
+        attempt.observedTargetAt = now
+        attempt.failedAt = nil
+        attempts[id] = attempt
+    }
+
+    mutating func failed(id: String, now: TimeInterval) {
+        guard var attempt = attempts[id] else { return }
+        attempt.failedAt = now
+        attempts[id] = attempt
     }
 
     static func same(_ a: CGRect, _ b: CGRect) -> Bool {

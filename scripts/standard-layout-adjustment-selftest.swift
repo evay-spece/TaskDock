@@ -65,6 +65,34 @@ struct StandardLayoutAdjustmentSelfTest {
         precondition(observe(full, 22.4) == adjusted)
         policy.retain([])
         precondition(observe(full, 30) == nil)
-        print("STANDARD_LAYOUT_ONCE_OK full half ordinary offscreen settle drag rebound new-layout")
+        policy = StandardLayoutAdjustmentPolicy()
+        precondition(observe(full, 40) == nil)
+        precondition(observe(full, 40.4) == adjusted)
+        policy.failed(id: "window", now: 40.4)
+        precondition(observe(full, 40.6) == nil)
+        precondition(observe(full, 41.5) == nil)
+        precondition(observe(full, 41.9) == adjusted)
+        policy.accepted(id: "window", now: 42)
+        precondition(observe(full, 42.1) == nil) // Do not bounce after a completed animation.
+        precondition(observe(full, 50) == nil)
+        policy = StandardLayoutAdjustmentPolicy()
+        precondition(observe(full, 60) == nil)
+        precondition(observe(full, 60.4) == adjusted)
+        for failure in [60.4, 62.0, 63.6] {
+            policy.failed(id: "window", now: failure)
+            if failure < 63.6 {
+                precondition(observe(full, failure + 1.1) == nil)
+                precondition(observe(full, failure + 1.5) == adjusted)
+            }
+        }
+        precondition(observe(full, 80) == nil) // Persistent refusal stays suppressed.
+        policy = StandardLayoutAdjustmentPolicy()
+        precondition(observe(full, 90) == nil)
+        precondition(observe(full, 90.4) == adjusted)
+        precondition(observe(full, 90.6) == nil)
+        precondition(observe(full, 92.0) == nil) // AX reported success but frame did not change.
+        precondition(observe(full, 93.1) == nil)
+        precondition(observe(full, 93.5) == adjusted)
+        print("STANDARD_LAYOUT_ONCE_OK full half ordinary offscreen settle drag rebound retry")
     }
 }
