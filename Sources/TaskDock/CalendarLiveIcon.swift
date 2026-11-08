@@ -3,6 +3,10 @@ import AppKit
 /// The Calendar app supplies a static bundle icon; its Dock tile is drawn by macOS separately.
 /// Draw the date on TaskDock's own tile so it remains correct without launching Calendar.
 enum CalendarLiveIcon {
+    private static let nativeIcon = NSWorkspace.shared
+        .urlForApplication(withBundleIdentifier: "com.apple.iCal")
+        .map { NSWorkspace.shared.icon(forFile: $0.path) }
+
     static func isCalendar(_ favorite: FavoriteApp) -> Bool {
         favorite.bundleIdentifier == "com.apple.iCal"
     }
@@ -23,17 +27,19 @@ enum CalendarLiveIcon {
         let size = NSSize(width: 256, height: 256)
 
         return NSImage(size: size, flipped: false) { rect in
-            let tile = NSRect(x: 17, y: 13, width: 222, height: 226)
-            let shape = NSBezierPath(roundedRect: tile, xRadius: 42, yRadius: 42)
-            NSGraphicsContext.saveGraphicsState()
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.20)
-            shadow.shadowBlurRadius = 11
-            shadow.shadowOffset = NSSize(width: 0, height: -5)
-            shadow.set()
-            NSColor.white.setFill()
-            shape.fill()
-            NSGraphicsContext.restoreGraphicsState()
+            if let nativeIcon {
+                // Reuse macOS Calendar's alpha silhouette, including its continuous corners.
+                nativeIcon.draw(in: rect)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current?.compositingOperation = .sourceIn
+                NSColor.white.setFill()
+                NSBezierPath(rect: rect).fill()
+                NSGraphicsContext.restoreGraphicsState()
+            } else {
+                NSColor.white.setFill()
+                NSBezierPath(roundedRect: NSRect(x: 25, y: 25, width: 206, height: 206),
+                             xRadius: 55, yRadius: 55).fill()
+            }
 
             let title = weekdayName as NSString
             let titleFont = NSFont.systemFont(ofSize: 50, weight: .bold)
